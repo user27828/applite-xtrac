@@ -104,7 +104,9 @@ async def _convert_file(
 
             # Add input format as extra arg if needed
             if input_format != "md":  # pandoc defaults to markdown
-                data["extra_args"] = f"--from={input_format}"
+                # Map tex/latex to latex for Pandoc
+                pandoc_input_format = "latex" if input_format in ["tex", "latex"] else input_format
+                data["extra_args"] = f"--from={pandoc_input_format}"
 
             response = await client.post(
                 f"{service_url}/convert",
@@ -287,6 +289,20 @@ async def convert_pdf_to_md(request: Request, file: UploadFile = File(...)):
     """Convert PDF to Markdown (Content extraction)"""
     service, description = get_primary_conversion("pdf", "md") or (ConversionService.UNSTRUCTURED_IO, "Fallback")
     return await _convert_file(request, file, "pdf", "md", service)
+
+
+@router.post("/tex-md")
+async def convert_tex_to_md(request: Request, file: UploadFile = File(...)):
+    """Convert LaTeX to Markdown (Academic content priority)"""
+    service, description = get_primary_conversion("tex", "md") or (ConversionService.PANDOC, "Fallback")
+    return await _convert_file(request, file, "tex", "md", service)
+
+
+@router.post("/latex-md")
+async def convert_latex_to_md(request: Request, file: UploadFile = File(...)):
+    """Convert LaTeX to Markdown (Academic content priority - alias for tex-md)"""
+    service, description = get_primary_conversion("tex", "md") or (ConversionService.PANDOC, "Fallback")
+    return await _convert_file(request, file, "tex", "md", service)
 
 
 # DOCX Conversions

@@ -4,11 +4,13 @@ import httpx
 from contextlib import asynccontextmanager
 import json
 from io import BytesIO
+import logging
+import asyncio
 
 # Import unstructured libraries for JSON to markdown/text conversion
 try:
-    from unstructured.documents.elements.json import json_to_elements
-    from unstructured.staging.markdown.markdown import elements_to_markdown
+    from unstructured.partition.auto import partition
+    from unstructured.staging.base import elements_to_md
     UNSTRUCTURED_AVAILABLE = True
 except ImportError:
     UNSTRUCTURED_AVAILABLE = False
@@ -16,6 +18,9 @@ except ImportError:
 # Import the conversion router
 from convert.router import router as convert_router
 
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 # Hop-by-hop headers that shouldn't be forwarded
 HOP_BY_HOP = {
@@ -28,6 +33,25 @@ HOP_BY_HOP = {
     "transfer-encoding",
     "upgrade",
 }
+
+
+def create_error_response(status_code: int, error_type: str, service: str = None, details: str = None, **kwargs) -> JSONResponse:
+    """Create a consistent JSON error response across all endpoints."""
+    error_data = {
+        "error": error_type,
+        "timestamp": "2025-01-09T12:00:00Z",  # Could be made dynamic
+        "service": service,
+        "status_code": status_code
+    }
+    
+    if details:
+        error_data["details"] = details[:1000]  # Limit details length
+    
+    # Add any additional fields
+    error_data.update(kwargs)
+    
+    logger.error(f"Error response: {error_data}")
+    return JSONResponse(status_code=status_code, content=error_data)
 
 
 @asynccontextmanager
@@ -205,7 +229,7 @@ async def service_ping(service: str, request: Request):
 
 @app.post("/unstructured-io-md")
 async def unstructured_to_markdown(request: Request, file: UploadFile = File(...)):
-    """Convert document to markdown using Unstructured-IO and JSON parsing."""
+    """Convert document to markdown using Unstructured-IO service and local JSON parsing."""
     if not UNSTRUCTURED_AVAILABLE:
         return JSONResponse(status_code=503, content={"error": "Unstructured library not available"})
 
@@ -218,7 +242,8 @@ async def unstructured_to_markdown(request: Request, file: UploadFile = File(...
         service_url = SERVICES["unstructured-io"]
 
         files = {"files": (file.filename, BytesIO(file_content), file.content_type or "application/octet-stream")}
-        data = {"output_format": "json"}
+        # Remove output_format as the service returns JSON by default
+        data = {}
 
         response = await client.post(
             f"{service_url}/general/v0/general",
@@ -229,12 +254,16 @@ async def unstructured_to_markdown(request: Request, file: UploadFile = File(...
         if response.status_code != 200:
             return JSONResponse(status_code=response.status_code, content={"error": f"Unstructured-IO error: {response.text}"})
 
-        # Parse JSON response into elements
+        # Parse JSON response into elements using local unstructured library
         json_data = response.json()
-        elements = json_to_elements(json.dumps(json_data))
+        elements = []
+        for item in json_data:
+            # Convert each JSON item to element using unstructured's dict parsing
+            from unstructured.staging.base import dict_to_elements
+            elements.extend(dict_to_elements([item]))
 
         # Convert elements to markdown
-        markdown_content = elements_to_markdown(elements)
+        markdown_content = elements_to_md(elements)
 
         # Generate output filename
         base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
@@ -247,11 +276,12 @@ async def unstructured_to_markdown(request: Request, file: UploadFile = File(...
         )
 
     except Exception as e:
+        logger.exception("Error in unstructured_to_markdown")
         return JSONResponse(status_code=500, content={"error": f"Conversion failed: {str(e)}"})
 
 @app.post("/unstructured-io-txt")
 async def unstructured_to_text(request: Request, file: UploadFile = File(...)):
-    """Convert document to plain text using Unstructured-IO and JSON parsing."""
+    """Convert document to plain text using Unstructured-IO service and local JSON parsing."""
     if not UNSTRUCTURED_AVAILABLE:
         return JSONResponse(status_code=503, content={"error": "Unstructured library not available"})
 
@@ -264,7 +294,8 @@ async def unstructured_to_text(request: Request, file: UploadFile = File(...)):
         service_url = SERVICES["unstructured-io"]
 
         files = {"files": (file.filename, BytesIO(file_content), file.content_type or "application/octet-stream")}
-        data = {"output_format": "json"}
+        # Remove output_format as the service returns JSON by default
+        data = {}
 
         response = await client.post(
             f"{service_url}/general/v0/general",
@@ -275,9 +306,13 @@ async def unstructured_to_text(request: Request, file: UploadFile = File(...)):
         if response.status_code != 200:
             return JSONResponse(status_code=response.status_code, content={"error": f"Unstructured-IO error: {response.text}"})
 
-        # Parse JSON response into elements
+        # Parse JSON response into elements using local unstructured library
         json_data = response.json()
-        elements = json_to_elements(json.dumps(json_data))
+        elements = []
+        for item in json_data:
+            # Convert each JSON item to element using unstructured's dict parsing
+            from unstructured.staging.base import dict_to_elements
+            elements.extend(dict_to_elements([item]))
 
         # Convert elements to plain text
         text_content = "\n\n".join(e.text for e in elements if hasattr(e, 'text') and e.text)
@@ -293,10 +328,12 @@ async def unstructured_to_text(request: Request, file: UploadFile = File(...)):
         )
 
     except Exception as e:
+        logger.exception("Error in unstructured_to_text")
         return JSONResponse(status_code=500, content={"error": f"Conversion failed: {str(e)}"})
 
 @app.api_route("/{service}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
 async def proxy_request(service: str, path: str, request: Request):
+    logger.info(f"Proxy request: service={service}, path={path}")
     if service not in SERVICES:
         return JSONResponse(status_code=404, content={"error": "Service not found"})
     
@@ -321,10 +358,119 @@ async def proxy_request(service: str, path: str, request: Request):
     # Use Gotenberg client for Gotenberg requests
     elif service == "gotenberg":
         client = app.state.gotenberg_client
+    
     try:
-        # Use streaming to avoid buffering large responses in memory
-        req = client.build_request(method=request.method, url=target_url, headers=headers, content=body, params=query_params)
-        resp = await client.send(req, stream=True)
+        # Retry logic for transient failures
+        max_retries = 2
+        retry_delay = 1.0
+        
+        for attempt in range(max_retries + 1):
+            try:
+                # Use streaming to avoid buffering large responses in memory
+                req = client.build_request(method=request.method, url=target_url, headers=headers, content=body, params=query_params)
+                resp = await client.send(req, stream=True)
+                
+                # If we get here, the request succeeded (even if the service returned an error)
+                break
+                
+            except httpx.RequestError as e:
+                if attempt < max_retries:
+                    logger.warning(f"Request attempt {attempt + 1} failed for {service}/{path}: {e}. Retrying in {retry_delay}s...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                else:
+                    # All retries exhausted
+                    logger.error(f"All retry attempts failed for {service}/{path}: {e}")
+                    return create_error_response(
+                        status_code=502,
+                        error_type="Service unavailable after retries",
+                        service=service,
+                        details=f"Failed after {max_retries + 1} attempts: {str(e)}",
+                        retry_attempts=max_retries + 1
+                    )
+        
+        # CRITICAL: Check if the response indicates an error before streaming
+        if resp.status_code >= 400:
+            # Read the error response body
+            error_content = await resp.aread()
+            error_text = error_content.decode(resp.encoding or "utf-8", errors="replace")
+            await resp.aclose()
+            
+            # Log the error for debugging
+            logger.error(f"Service {service} returned error {resp.status_code}: {error_text[:500]}...")
+            
+            # For file download endpoints, return empty body to prevent error content from being saved as files
+            # Detect file download requests by checking for conversion-related paths
+            is_file_download = (
+                path in ["convert", "request"] or 
+                "convert" in path or
+                any(keyword in path for keyword in ["pdf", "docx", "html", "txt", "md", "tex"])
+            )
+            
+            logger.info(f"Error handling: service={service}, path={path}, is_file_download={is_file_download}")
+            
+            if is_file_download:
+                # Return empty body with error status - prevents clients from saving error content as files
+                logger.info(f"Returning empty body for file download error on {service}/{path}")
+                # Sanitize error text for headers (remove non-ASCII characters)
+                safe_error_text = error_text[:200].encode('ascii', 'ignore').decode('ascii')
+                return Response(
+                    content="",
+                    status_code=resp.status_code,
+                    headers={"X-Error-Message": f"Service {service} error", "X-Error-Details": safe_error_text}
+                )
+            else:
+                # For API endpoints, return detailed JSON error
+                return create_error_response(
+                    status_code=resp.status_code,
+                    error_type=f"Service {service} error",
+                    service=service,
+                    details=error_text
+                )
+
+        # Additional validation: Check content-type for document conversion endpoints
+        content_type = resp.headers.get("content-type", "")
+        expected_content_types = {
+            "pandoc": ["application/pdf", "application/vnd.openxmlformats", "text/html", "text/plain", "text/markdown", "application/x-tex"],
+            "libreoffice": ["application/pdf", "application/vnd.openxmlformats", "text/plain"],
+            "gotenberg": ["application/pdf"],
+            "unstructured-io": ["application/json", "text/plain", "text/markdown"]
+        }
+        
+        # For conversion-related paths, validate content type
+        if path in ["convert", "request"] or "convert" in path:
+            service_expected_types = expected_content_types.get(service, [])
+            if service_expected_types and not any(expected in content_type for expected in service_expected_types):
+                # This might be an error response disguised as a document
+                error_content = await resp.aread()
+                error_text = error_content.decode(resp.encoding or "utf-8", errors="replace")
+                await resp.aclose()
+                
+                logger.warning(f"Unexpected content-type '{content_type}' for {service}/{path}, possible error: {error_text[:200]}...")
+                
+                # For file download endpoints, return empty body to prevent error content from being saved as files
+                is_file_download = (
+                    path in ["convert", "request"] or 
+                    "convert" in path or
+                    any(keyword in path for keyword in ["pdf", "docx", "html", "txt", "md", "tex"])
+                )
+                
+                if is_file_download:
+                    return Response(
+                        content="",
+                        status_code=502,
+                        headers={"X-Error-Message": "Invalid response format", "X-Error-Details": f"Expected {service_expected_types}, got {content_type}"}
+                    )
+                else:
+                    return create_error_response(
+                        status_code=502,
+                        error_type="Invalid response format",
+                        service=service,
+                        details=f"Expected content types: {service_expected_types}, got: {content_type}. Response: {error_text[:500]}",
+                        expected_content_types=service_expected_types,
+                        received_content_type=content_type
+                    )
 
         content_type = resp.headers.get("content-type", "")
 
@@ -355,3 +501,77 @@ async def proxy_request(service: str, path: str, request: Request):
 
     except httpx.RequestError as e:
         return JSONResponse(status_code=502, content={"error": f"Proxy error: {str(e)}"})
+
+@app.post("/libreoffice-md")
+async def libreoffice_to_markdown(request: Request, file: UploadFile = File(...)):
+    """Convert document to PDF using LibreOffice, then to markdown using Unstructured-IO."""
+    if not UNSTRUCTURED_AVAILABLE:
+        return JSONResponse(status_code=503, content={"error": "Unstructured library not available"})
+
+    try:
+        # Read the uploaded file
+        file_content = await file.read()
+
+        # Step 1: Convert document to PDF using LibreOffice
+        libreoffice_client = request.app.state.libreoffice_client
+        service_url = SERVICES["libreoffice"]
+
+        # Prepare LibreOffice request
+        files = {"file": (file.filename, BytesIO(file_content), file.content_type or "application/octet-stream")}
+        data = {"convert-to": "pdf"}
+
+        libreoffice_response = await libreoffice_client.post(
+            f"{service_url}/request",
+            files=files,
+            data=data
+        )
+
+        if libreoffice_response.status_code != 200:
+            return JSONResponse(status_code=libreoffice_response.status_code,
+                              content={"error": f"LibreOffice conversion failed: {libreoffice_response.text}"})
+
+        # Get the PDF content from LibreOffice response
+        pdf_content = libreoffice_response.content
+
+        # Step 2: Convert PDF to markdown using Unstructured-IO service directly
+        client = request.app.state.client
+        unstructured_url = SERVICES["unstructured-io"]
+
+        # Prepare request to unstructured-io service
+        unstructured_files = {"files": ("converted.pdf", BytesIO(pdf_content), "application/pdf")}
+        unstructured_data = {}
+
+        unstructured_response = await client.post(
+            f"{unstructured_url}/general/v0/general",
+            files=unstructured_files,
+            data=unstructured_data
+        )
+
+        if unstructured_response.status_code != 200:
+            return JSONResponse(status_code=unstructured_response.status_code,
+                              content={"error": f"Unstructured-IO error: {unstructured_response.text}"})
+
+        # Parse JSON response into elements using local unstructured library
+        json_data = unstructured_response.json()
+        elements = []
+        for item in json_data:
+            # Convert each JSON item to element using unstructured's dict parsing
+            from unstructured.staging.base import dict_to_elements
+            elements.extend(dict_to_elements([item]))
+
+        # Convert elements to markdown
+        markdown_content = elements_to_md(elements)
+
+        # Generate output filename
+        base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
+        output_filename = f"{base_name}.md"
+
+        return StreamingResponse(
+            BytesIO(markdown_content.encode('utf-8')),
+            media_type="text/markdown",
+            headers={"Content-Disposition": f"attachment; filename={output_filename}"}
+        )
+
+    except Exception as e:
+        logger.exception("Error in libreoffice_to_markdown")
+        return JSONResponse(status_code=500, content={"error": f"Conversion failed: {str(e)}"})

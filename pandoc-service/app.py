@@ -4,12 +4,68 @@ import subprocess
 import tempfile
 import os
 import shutil
+import mimetypes
+
+# Try to import python-magic for comprehensive MIME type detection
+try:
+    import magic
+    USE_MAGIC = True
+    print("python-magic loaded successfully")
+except ImportError:
+    USE_MAGIC = False
+    print("python-magic not available, using fallback methods")
 
 app = FastAPI()
 
 @app.get("/ping")
 async def ping():
     return {"success": True, "data": "PONG!"}
+
+def get_mime_type(file_path: str, output_format: str) -> str:
+    """
+    Get MIME type using multiple detection methods with fallbacks.
+    
+    Priority order:
+    1. python-magic (content-based detection)
+    2. mimetypes (extension-based detection) 
+    3. hardcoded fallback (known format mappings)
+    """
+    
+    # Method 1: python-magic (most accurate - detects from file content)
+    if USE_MAGIC:
+        try:
+            detected = magic.from_file(file_path, mime=True)
+            print(f"python-magic detected: {detected} for format: {output_format}")
+            # For some formats, python-magic might not be perfect, so we can override
+            if output_format == "html" and detected == "text/plain":
+                print("Overriding python-magic detection for HTML")
+                return "text/html"
+            return detected
+        except Exception as e:
+            print(f"python-magic detection failed: {e}")
+    
+    # Method 2: mimetypes (built-in, extension-based)
+    try:
+        media_type, _ = mimetypes.guess_type(file_path)
+        if media_type:
+            print(f"mimetypes detected: {media_type}")
+            return media_type
+    except Exception as e:
+        print(f"mimetypes detection failed: {e}")
+    
+    # Method 3: hardcoded fallback (most reliable for known formats)
+    fallback_types = {
+        "pdf": "application/pdf",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "html": "text/html",
+        "txt": "text/plain",
+        "md": "text/markdown",
+        "tex": "application/x-tex"
+    }
+    
+    fallback = fallback_types.get(output_format, "application/octet-stream")
+    print(f"Using fallback MIME type: {fallback}")
+    return fallback
 
 @app.post("/convert")
 async def convert_file(
@@ -44,6 +100,9 @@ async def convert_file(
         if result.returncode != 0:
             raise HTTPException(status_code=500, detail=f"Pandoc error: {result.stderr}")
 
+        # Get MIME type using comprehensive detection
+        media_type = get_mime_type(output_path, output_format)
+
         # Return the converted file and schedule cleanup after response
         def _cleanup(paths):
             for p in paths:
@@ -57,7 +116,7 @@ async def convert_file(
 
         return FileResponse(
             output_path,
-            media_type="application/octet-stream",
+            media_type=media_type,
             filename=f"{os.path.splitext(file.filename)[0]}.{output_format}"
         )
 

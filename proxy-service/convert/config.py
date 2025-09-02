@@ -78,6 +78,9 @@ CONVERSION_MATRIX = {
     ("tex", "pdf"): [
         (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to PDF"),
     ],
+    ("latex", "pdf"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to PDF"),
+    ],
     ("epub", "pdf"): [
         (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "E-book to PDF"),
         (ConversionService.PANDOC, ConversionPriority.SECONDARY, "E-book format support"),
@@ -163,6 +166,9 @@ CONVERSION_MATRIX = {
     ("tex", "md"): [
         (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to Markdown"),
     ],
+    ("latex", "md"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to Markdown"),
+    ],
     ("rtf", "md"): [
         (ConversionService.PANDOC, ConversionPriority.PRIMARY, "RTF to Markdown"),
     ],
@@ -185,6 +191,9 @@ CONVERSION_MATRIX = {
         (ConversionService.PANDOC, ConversionPriority.PRIMARY, "Markdown to HTML"),
     ],
     ("tex", "html"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to HTML"),
+    ],
+    ("latex", "html"): [
         (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to HTML"),
     ],
     ("rtf", "html"): [

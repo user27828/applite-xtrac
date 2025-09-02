@@ -1,4 +1,4 @@
-# Docker Compose configuration (compatible with both Docker and Podman)
+# AppLite-Convert: Docker Compose configuration (compatible with both Docker and Podman)
 # Use with: docker-compose up --build
 # Or with Podman: podman-compose up --build
 version: '3.8'
@@ -44,7 +44,7 @@ services:
   proxy:
     build: ./proxy-service
     ports:
-      - "8369:8369"
+      - "${APPLITE_CONVERT_PORT:-8369}:8369"
     networks:
       - app-network
 

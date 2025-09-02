@@ -3,12 +3,15 @@ FROM docker.io/pandoc/extra:latest
 # Install Python and pip
 RUN apk add --no-cache python3 py3-pip
 
+# Install libmagic (required for python-magic)
+RUN apk add --no-cache libmagic file
+
 # Create virtual environment
 RUN python3 -m venv /opt/venv
 
 # Activate virtual environment and install packages
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install fastapi uvicorn python-multipart
+RUN pip install fastapi uvicorn python-multipart python-magic
 
 # Create app directory
 WORKDIR /app

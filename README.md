@@ -1,8 +1,13 @@
-# Multi-Service Document Processing API
-
-AppLite Convert Container
+# AppLite Convert - Multi-Service Document Processing API
 
 This project provides a unified API gateway for multiple document processing services using Podman and podman-compose.
+
+## Goals
+
+1. To extract the best semantic representation of common documents and output it for ETL
+or LLM pipelines.  
+1. To convert between popular formats or at least to popular formats from outdated or unpopular ones (right `.pages`!?).  The terti
+1. To convert well-structured, formatted, and supported formats to PDF (via Gotenberg).  Our emphasis is HTML>PDF, but many other inputs are supported.
 
 ## Services
 
@@ -13,16 +18,29 @@ This project provides a unified API gateway for multiple document processing ser
 
 ## Architecture
 
-The main proxy service runs on port 8369 and routes requests based on URL prefixes:
+The main proxy service runs on a configurable port (default: 8369) and routes requests based on URL prefixes:
+
+**Proxied sub-containers**:
 
 - `/unstructured-io/*` → Unstructured IO API (port 8000)
 - `/libreoffice/*` → LibreOffice API (port 2004)
 - `/pandoc/*` → Pandoc API (port 3000)
 - `/gotenberg/*` → Gotenberg API (port 4000)
+
+**Helper endpoints**:
+
 - `/convert/*` → High-level conversion aliases (auto-routing)
 - `/ping` → General health check
+- `/ping-all` → General health check - All container services
 - `/{service}/ping` → Service-specific health check
-- `/docs` → API documentation (dark mode enabled)
+- `/docs` → API documentation
+
+**Chained endpoints**: (uses multiple services or transforms service input/output)
+
+- `/unstructured-io-md` → Normal Unstructured IO input file with markdown output
+- `/unstructured-io-txt` → Normal Unstructured IO input file with text output
+- `/libreoffice-md` → Normal LibreOffice input file with markdown output.  `-txt` isn't handled because LibreOffice can output that regularly.
+
 
 **Proxy Features:**
 - Supports all HTTP methods (GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD)
@@ -34,7 +52,7 @@ The main proxy service runs on port 8369 and routes requests based on URL prefix
 ### Network Security
 
 **External Access:**
-- Only port `8369` is exposed to the outside world
+- Only the configured proxy port is exposed to the outside world (default: `8369`)
 - All other services run on an isolated internal network
 
 **Internal Network:**
@@ -46,9 +64,9 @@ The main proxy service runs on port 8369 and routes requests based on URL prefix
 
 The API provides high-level conversion aliases at `/convert/*` that automatically route to the most reliable service for each conversion type. These endpoints are optimized for common document workflows, especially **resume/CV/cover letter** processing.
 
-### Priority Formats (Resume/CV Focus)
+### Priority Formats (Documents)
 
-**Input Formats:** `pptx`, `ppt`, `docx`, `odt`, `rtf`, `txt`, `html`, `md`, `tex`  
+**Input Formats:** _\<http(s) URL\>_, `pptx`, `ppt`, `docx`, `odt`, `rtf`, `txt`, `html`, `md`, `tex`, `latex`, `pages`  
 **Output Formats:** `pdf`, `docx`, `html`, `md`, `txt`, `json`
 
 ### 📖 Complete Documentation
@@ -56,6 +74,8 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 For comprehensive information about all available conversion endpoints, usage examples, service selection logic, and configuration details, see **[docs/FORMATS.md](docs/FORMATS.md#🔄-conversion-api-endpoints)**.
 
 ### Quick Examples
+
+**Note:** Replace `8369` with your configured port if using `APPLITE_CONVERT_PORT`.
 
 **Convert DOCX to PDF:**
 ```bash
@@ -78,7 +98,7 @@ Each endpoint automatically selects the optimal service:
 - **PDF Output**: Gotenberg (highest quality for HTML/DOCX/PPTX/XLSX)
 - **JSON Output**: Unstructured IO (best structure extraction)
 - **DOCX Output**: LibreOffice or Pandoc (format-specific optimization)
-- **Markdown Output**: Pandoc (native support)
+- **Markdown Output**: Pandoc (native support).  LibreOffice supports md output, but is far less reliable than Pandoc.
 
 ### Additional Endpoints
 
@@ -91,12 +111,12 @@ Each endpoint automatically selects the optimal service:
 1. Clone this repository
 2. **For Podman**: Ensure registries are configured (see troubleshooting section)
 3. Run `podman-compose up --build`
-4. The API will be available at `http://localhost:8369`
+4. The API will be available at `http://localhost:8369` (or your configured port via `APPLITE_CONVERT_PORT`)
 
 ### Test Health Checks
 
 ```bash
-# General ping
+# General ping (replace 8369 with your configured port)
 curl http://localhost:8369/ping
 
 # Comprehensive health check
@@ -721,3 +741,4 @@ curl http://localhost:8369/libreoffice/ping
 curl http://localhost:8369/pandoc/ping
 curl http://localhost:8369/gotenberg/
 curl http://localhost:8369/unstructured-io/general/v0/general -F "files=@test.txt" -F "output_format=json"
+```
