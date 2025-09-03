@@ -6,8 +6,8 @@ This project provides a unified API gateway for multiple document processing ser
 
 1. To extract the best semantic representation of common documents and output it for ETL
 or LLM pipelines.  
-1. To convert between popular formats or at least to popular formats from outdated or unpopular ones (right `.pages`!?).  The terti
-1. To convert well-structured, formatted, and supported formats to PDF (via Gotenberg).  Our emphasis is HTML>PDF, but many other inputs are supported.
+1. To convert between popular formats or at least to popular formats from outdated or unpopular ones (right `.pages`!?).  
+2. To convert well-structured, formatted, and supported formats to PDF (via Gotenberg).  Our emphasis is HTML>PDF, but many other inputs are supported.
 
 ## Services
 
@@ -21,6 +21,8 @@ or LLM pipelines.
 The main proxy service runs on a configurable port (default: 8369) and routes requests based on URL prefixes:
 
 **Proxied sub-containers**:
+
+Proxying to these containers aims to preserve the original functionality of the containers.  The documented features of these projects should all function as expected, but with the proxy URL prefix.
 
 - `/unstructured-io/*` → Unstructured IO API (port 8000)
 - `/libreoffice/*` → LibreOffice API (port 2004)
@@ -87,6 +89,26 @@ curl -X POST "http://localhost:8369/convert/docx-pdf" -F "file=@resume.docx" -o 
 curl -X POST "http://localhost:8369/convert/pdf-json" -F "file=@document.pdf" -o structure.json
 ```
 
+**Convert URL to PDF:**
+```bash
+curl -X POST "http://localhost:8369/convert/url-pdf" -F "url=https://example.com" -o webpage.pdf
+```
+
+**Extract URL content structure:**
+```bash
+curl -X POST "http://localhost:8369/convert/url-json" -F "url=https://example.com" -o webpage.json
+```
+
+**Convert URL to Markdown:**
+```bash
+curl -X POST "http://localhost:8369/convert/url-md" -F "url=https://example.com" -o webpage.md
+```
+
+**Convert URL to plain text:**
+```bash
+curl -X POST "http://localhost:8369/convert/url-txt" -F "url=https://example.com" -o webpage.txt
+```
+
 **List all supported conversions:**
 ```bash
 curl http://localhost:8369/convert/supported
@@ -98,7 +120,7 @@ Each endpoint automatically selects the optimal service:
 - **PDF Output**: Gotenberg (highest quality for HTML/DOCX/PPTX/XLSX)
 - **JSON Output**: Unstructured IO (best structure extraction)
 - **DOCX Output**: LibreOffice or Pandoc (format-specific optimization)
-- **Markdown Output**: Pandoc (native support).  LibreOffice supports md output, but is far less reliable than Pandoc.
+- **URL Input**: Gotenberg for PDF, Unstructured IO for JSON/Markdown/Text
 
 ### Additional Endpoints
 

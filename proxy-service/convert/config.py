@@ -124,6 +124,20 @@ CONVERSION_MATRIX = {
         (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Outlook message structure extraction"),
     ],
 
+    # URL Input Conversions
+    ("url", "pdf"): [
+        (ConversionService.GOTENBERG, ConversionPriority.PRIMARY, "URL to PDF conversion with full CSS support"),
+    ],
+    ("url", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "URL content structure extraction"),
+    ],
+    ("url", "md"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "URL to markdown conversion"),
+    ],
+    ("url", "txt"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "URL to text conversion"),
+    ],
+
     # DOCX Output Conversions
     ("md", "docx"): [
         (ConversionService.PANDOC, ConversionPriority.PRIMARY, "Markdown to Word"),

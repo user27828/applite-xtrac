@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Response, UploadFile, File
+from fastapi import FastAPI, Request, Response, UploadFile, File, Form
 from fastapi.responses import JSONResponse, StreamingResponse
 import httpx
 from contextlib import asynccontextmanager
@@ -6,6 +6,8 @@ import json
 from io import BytesIO
 import logging
 import asyncio
+from urllib.parse import urlparse
+import re
 
 # Import unstructured libraries for JSON to markdown/text conversion
 try:
@@ -188,7 +190,8 @@ async def service_ping(service: str, request: Request):
     if service not in SERVICES:
         return JSONResponse(status_code=404, content={"error": "Service not found"})
     
-    service_url = SERVICES[service]
+    # Change here: use the proxied URL for ping
+    service_url = f"http://localhost:8369/{service}"
     
     try:
         # Select appropriate client for the service
@@ -196,13 +199,19 @@ async def service_ping(service: str, request: Request):
             ping_client = app.state.libreoffice_client
         elif service == "gotenberg":
             ping_client = app.state.gotenberg_client
+        elif service == "unstructured-io":
+            ping_client = request.app.state.client  # Use the main client for unstructured-io
         else:
             ping_client = httpx.AsyncClient(timeout=5.0)
         
         if service == "unstructured-io":
-            # Use POST request to general endpoint for health check
-            response = await ping_client.post(f"{service_url}/general/v0/general", 
-                                           json={"dummy": "data"})
+            # Use GET request to check if service is responding - should return 405
+            response = await ping_client.get(f"{service_url}/general/v0/general")
+            # For unstructured-io, 405 (method not allowed) means service is healthy
+            if response.status_code == 405:
+                return {"success": True, "data": "PONG!", "service": service}
+            else:
+                return JSONResponse(status_code=503, content={"success": False, "error": f"Service {service} unhealthy (status: {response.status_code})"})
         elif service == "libreoffice":
             # Use GET request to root endpoint for LibreOffice REST API health check
             response = await ping_client.get(f"{service_url}/")
@@ -215,16 +224,16 @@ async def service_ping(service: str, request: Request):
             async with httpx.AsyncClient(timeout=10.0) as fresh_client:
                 response = await fresh_client.get(f"{service_url}/")
         
-        if response.status_code < 400:
+        if response.status_code < 400 or (service == "unstructured-io" and response.status_code == 405):
             return {"success": True, "data": "PONG!", "service": service}
         else:
-            return JSONResponse(status_code=503, content={"success": False, "error": f"Service {service} unhealthy"})
+            return JSONResponse(status_code=503, content={"success": False, "error": f"Service {service} unhealthy (status: {response.status_code})"})
     
     except httpx.RequestError as e:
         return JSONResponse(status_code=503, content={"success": False, "error": f"Service {service} unreachable"})
     finally:
         # Close the client if it was created locally (not from app.state)
-        if 'ping_client' in locals() and ping_client not in [app.state.libreoffice_client, app.state.gotenberg_client]:
+        if 'ping_client' in locals() and ping_client not in [app.state.libreoffice_client, app.state.gotenberg_client, request.app.state.client]:
             await ping_client.aclose()
 
 @app.post("/unstructured-io-md")
@@ -330,6 +339,8 @@ async def unstructured_to_text(request: Request, file: UploadFile = File(...)):
     except Exception as e:
         logger.exception("Error in unstructured_to_text")
         return JSONResponse(status_code=500, content={"error": f"Conversion failed: {str(e)}"})
+
+
 
 @app.api_route("/{service}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
 async def proxy_request(service: str, path: str, request: Request):
@@ -575,3 +586,24 @@ async def libreoffice_to_markdown(request: Request, file: UploadFile = File(...)
     except Exception as e:
         logger.exception("Error in libreoffice_to_markdown")
         return JSONResponse(status_code=500, content={"error": f"Conversion failed: {str(e)}"})
+
+def validate_url(url: str) -> bool:
+    """Validate that the URL is properly formatted and uses http/https."""
+    if not url or not isinstance(url, str):
+        return False
+    
+    # Basic URL validation
+    try:
+        parsed = urlparse(url)
+        # Must have scheme and netloc
+        if not parsed.scheme or not parsed.netloc:
+            return False
+        # Only allow http and https
+        if parsed.scheme not in ['http', 'https']:
+            return False
+        # Basic sanity check for netloc
+        if not re.match(r'^[a-zA-Z0-9.-]+$', parsed.netloc.replace(':', '').replace('.', '')):
+            return False
+        return True
+    except Exception:
+        return False
