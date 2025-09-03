@@ -56,6 +56,34 @@ def create_error_response(status_code: int, error_type: str, service: str = None
     return JSONResponse(status_code=status_code, content=error_data)
 
 
+async def check_unstructured_io_health(client: httpx.AsyncClient, service_url: str) -> tuple[bool, int]:
+    """Centralized health check for unstructured-io service.
+    
+    Returns:
+        tuple: (is_healthy: bool, status_code: int)
+    """
+    try:
+        # Try the main processing endpoint which should always be available
+        response = await client.get(f"{service_url}/general/v0/general")
+    except httpx.RequestError:
+        # If main endpoint fails, try root as fallback
+        try:
+            response = await client.get(f"{service_url}/")
+        except httpx.RequestError:
+            # Service is unreachable
+            return False, 0
+    
+    # For unstructured-io, accept specific status codes as healthy
+    # 405=method not allowed (expected for GET on POST endpoint)
+    # 404=not found (endpoint exists but method not allowed)
+    # 422=unprocessable entity (service is up but request invalid)
+    # 200=ok (if somehow it works)
+    if response.status_code in [200, 404, 405, 422]:
+        return True, response.status_code
+    else:
+        return False, response.status_code
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create shared AsyncClients with different timeouts for different services
@@ -109,16 +137,13 @@ async def ping_all():
                 service_client = client
 
             if service == "unstructured-io":
-                # Try the main processing endpoint which should always be available
-                try:
-                    response = await service_client.get(f"{service_url}/general/v0/general")
-                except:
-                    # If main endpoint fails, try root as fallback
-                    response = await service_client.get(f"{service_url}/")
-                # For unstructured-io, accept any response as healthy since 404/405/422 might be expected
-                if response.status_code in [200, 404, 405, 422]:  # 405=method not allowed, still means service is up
-                    results[service] = {"status": "healthy", "response_code": response.status_code}
-                    continue
+                # Use centralized health check function
+                is_healthy, status_code = await check_unstructured_io_health(service_client, service_url)
+                results[service] = {
+                    "status": "healthy" if is_healthy else "unhealthy",
+                    "response_code": status_code
+                }
+                continue
             elif service == "libreoffice":
                 # Attempt GET to root; 404 is expected and indicates the service is running
                 response = await service_client.get(f"{service_url}/")
@@ -205,13 +230,12 @@ async def service_ping(service: str, request: Request):
             ping_client = httpx.AsyncClient(timeout=5.0)
         
         if service == "unstructured-io":
-            # Use GET request to check if service is responding - should return 405
-            response = await ping_client.get(f"{service_url}/general/v0/general")
-            # For unstructured-io, 405 (method not allowed) means service is healthy
-            if response.status_code == 405:
+            # Use centralized health check function
+            is_healthy, status_code = await check_unstructured_io_health(ping_client, service_url)
+            if is_healthy:
                 return {"success": True, "data": "PONG!", "service": service}
             else:
-                return JSONResponse(status_code=503, content={"success": False, "error": f"Service {service} unhealthy (status: {response.status_code})"})
+                return JSONResponse(status_code=503, content={"success": False, "error": f"Service {service} unhealthy (status: {status_code})"})
         elif service == "libreoffice":
             # Use GET request to root endpoint for LibreOffice REST API health check
             response = await ping_client.get(f"{service_url}/")
