@@ -5,7 +5,7 @@ This module provides high-level conversion aliases that automatically route
 to the most reliable service for each conversion type.
 """
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Request, Form
+from fastapi import APIRouter, UploadFile, File, HTTPException, Request, Form, Query
 from fastapi.responses import StreamingResponse, JSONResponse
 import httpx
 import logging
@@ -27,6 +27,13 @@ from .config import (
     get_primary_conversion,
     ConversionService,
     get_supported_conversions
+)
+from .url_helpers import (
+    handle_url_conversion_request,
+    cleanup_conversion_temp_files,
+    get_url_conversion_info,
+    validate_url_conversion_request,
+    get_supported_input_formats
 )
 
 # Set up logging
@@ -106,7 +113,31 @@ async def _convert_file(
     if file and url:
         raise HTTPException(status_code=400, detail="Cannot provide both file and url")
     
+    # Handle URL inputs by fetching content first
+    temp_file_wrapper = None
+    conversion_metadata = {}
+    
     try:
+        if url:
+            try:
+                # Use URL conversion manager to fetch content if needed
+                temp_file_wrapper, conversion_metadata = await handle_url_conversion_request(
+                    url, service.value, input_format
+                )
+                
+                # If we got a temp file, use it as the file input
+                if temp_file_wrapper:
+                    file = temp_file_wrapper
+                    # Update input format if it was auto-detected
+                    if conversion_metadata.get('detected_format'):
+                        input_format = conversion_metadata['detected_format']
+                        
+            except Exception as e:
+                # Clean up any temp files if something went wrong
+                if conversion_metadata.get('temp_file_path'):
+                    cleanup_conversion_temp_files(conversion_metadata)
+                raise
+
         # Get service client
         client = await _get_service_client(service, request)
 
@@ -114,7 +145,7 @@ async def _convert_file(
         service_url = SERVICE_URLS[service]
 
         if service == ConversionService.UNSTRUCTURED_IO:
-            # Unstructured IO supports both files and URLs
+            # Unstructured IO now supports URLs through fetching
             if file:
                 # Read file content
                 file_content = await file.read()
@@ -128,14 +159,10 @@ async def _convert_file(
                 unstructured_output_format = mime_mapping.get(output_format, output_format)
                 data = {"output_format": unstructured_output_format}
             else:
-                # URL input for Unstructured-IO is intentionally disabled here.
-                # Unstructured-IO in this deployment expects multipart file uploads
-                # (form field `files`). For URL-to-content conversions, use the
-                # Gotenberg-backed `/convert/url-pdf` (for PDF) or upload the
-                # fetched content as a file. Reject URL input for Unstructured-IO.
+                # This should not happen anymore since we fetch URLs above
                 raise HTTPException(
-                    status_code=400,
-                    detail="Unstructured-IO does not accept URL input in this proxy. Upload a file or use /convert/url-pdf for URL->PDF conversions."
+                    status_code=500,
+                    detail="URL input should have been converted to file input"
                 )
 
             # For markdown and text outputs, we need to get JSON and convert locally
@@ -330,10 +357,20 @@ async def _convert_file(
 
     except httpx.RequestError as e:
         logger.error(f"Request error for {service}: {e}")
+        # Clean up temp files on error
+        if conversion_metadata.get('temp_file_path'):
+            cleanup_conversion_temp_files(conversion_metadata)
         raise HTTPException(status_code=503, detail=f"Service {service} unavailable")
     except Exception as e:
         logger.error(f"Conversion error: {e}")
+        # Clean up temp files on error
+        if conversion_metadata.get('temp_file_path'):
+            cleanup_conversion_temp_files(conversion_metadata)
         raise HTTPException(status_code=500, detail=f"Conversion failed: {str(e)}")
+    finally:
+        # Clean up temp file wrapper if it exists
+        if temp_file_wrapper:
+            await temp_file_wrapper.close()
 
 
 # Resume/CV/Cover Letter Priority Conversions
@@ -613,17 +650,93 @@ async def get_supported_conversions_endpoint():
     })
 
 
-@router.get("/info/{input_format}-{output_format}")
-async def get_conversion_info(input_format: str, output_format: str):
-    """Get information about a specific conversion pair"""
+@router.get("/url-info/{input_format}-{output_format}")
+async def get_url_conversion_info_endpoint(input_format: str, output_format: str, url: str = None):
+    """Get information about URL conversion capabilities"""
     methods = get_primary_conversion(input_format, output_format)
     if not methods:
         raise HTTPException(status_code=404, detail=f"Conversion {input_format} to {output_format} not supported")
 
     service, description = methods
-    return JSONResponse(content={
+    
+    info = {
         "input_format": input_format,
         "output_format": output_format,
         "primary_service": service.value,
-        "description": description
-    })
+        "description": description,
+        "url_support": {
+            "direct_url": service.value in ["gotenberg"],  # Services that support direct URL input
+            "fetch_required": service.value in ["unstructured-io", "libreoffice", "pandoc"],
+            "supported": True
+        }
+    }
+    
+    if url:
+        # Add URL-specific information if URL is provided
+        url_info = get_url_conversion_info(url, service.value, input_format)
+        info["url_analysis"] = url_info
+    
+    return JSONResponse(content=info)
+
+
+@router.post("/validate-url")
+async def validate_url_endpoint_post(url: str = Form(...)):
+    """
+    Validate a URL and its content format for conversion (POST method).
+
+    This endpoint fetches the URL content and validates that the format
+    is supported for conversion, without performing the actual conversion.
+    """
+    return await _validate_url_common(url)
+
+
+@router.get("/validate-url")
+async def validate_url_endpoint_get(url: str = Query(..., description="URL to validate")):
+    """
+    Validate a URL and its content format for conversion (GET method).
+
+    This endpoint fetches the URL content and validates that the format
+    is supported for conversion, without performing the actual conversion.
+    
+    Example: /convert/validate-url?url=https://example.com
+    """
+    return await _validate_url_common(url)
+
+
+async def _validate_url_common(url: str):
+    """
+    Common validation logic for both GET and POST methods.
+    """
+    try:
+        # Use the validation function to check URL and content
+        file_wrapper, metadata = await validate_url_conversion_request(
+            url, "unstructured-io", "auto"  # Use a service that fetches content
+        )
+
+        # Clean up the temp file since we're not using it
+        if file_wrapper and 'temp_file_path' in metadata:
+            cleanup_conversion_temp_files(metadata)
+
+        return JSONResponse(content={
+            "valid": True,
+            "url": url,
+            "detected_format": metadata.get('detected_format'),
+            "validated_format": metadata.get('validated_format'),
+            "content_type": metadata.get('content_type'),
+            "message": f"URL content format '{metadata.get('validated_format')}' is supported for conversion"
+        })
+
+    except HTTPException as e:
+        return JSONResponse(content={
+            "valid": False,
+            "url": url,
+            "error": e.detail,
+            "supported_formats": list(get_supported_input_formats())
+        }, status_code=e.status_code)
+    except Exception as e:
+        return JSONResponse(content={
+            "valid": False,
+            "url": url,
+            "error": f"Validation failed: {str(e)}",
+            "supported_formats": list(get_supported_input_formats())
+        }, status_code=500)

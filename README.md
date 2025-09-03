@@ -75,6 +75,8 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 
 For comprehensive information about all available conversion endpoints, usage examples, service selection logic, and configuration details, see **[docs/FORMATS.md](docs/FORMATS.md#🔄-conversion-api-endpoints)**.
 
+For detailed information about URL fetching capabilities, Scrapy integration, and remote content processing, see **[docs/README_URL_FETCHING.md](docs/README_URL_FETCHING.md)**.
+
 ### Quick Examples
 
 **Note:** Replace `8369` with your configured port if using `APPLITE_CONVERT_PORT`.
