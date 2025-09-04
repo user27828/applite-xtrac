@@ -48,313 +48,413 @@ class ConversionPriority(Enum):
 
 # Conversion matrix defining input -> output format mappings with preferred services
 CONVERSION_MATRIX = {
-    # PDF Output Conversions (Gotenberg preferred for supported formats)
-    ("html", "pdf"): [
-        (ConversionService.GOTENBERG, ConversionPriority.PRIMARY, "High-fidelity HTML to PDF with CSS support"),
-        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "Good for simple HTML"),
-        (ConversionService.LIBREOFFICE, ConversionPriority.TERTIARY, "Basic HTML support"),
+    ("doc", "md"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Legacy Word to Markdown (chained: LibreOffice → Pandoc)"),
     ],
+
+    ("docx", "html"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Word to HTML"),
+        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "Word to HTML"),
+    ],
+
+    ("docx", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Document structure extraction"),
+    ],
+
+    ("docx", "md"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "Word to Markdown"),
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.SECONDARY, "Structure extraction only"),
+    ],
+
     ("docx", "pdf"): [
         (ConversionService.GOTENBERG, ConversionPriority.PRIMARY, "High-quality office document to PDF"),
         (ConversionService.LIBREOFFICE, ConversionPriority.SECONDARY, "Excellent office format support"),
         (ConversionService.PANDOC, ConversionPriority.TERTIARY, "Limited office format support"),
     ],
-    ("pptx", "pdf"): [
-        (ConversionService.GOTENBERG, ConversionPriority.PRIMARY, "High-quality presentation to PDF"),
-        (ConversionService.LIBREOFFICE, ConversionPriority.SECONDARY, "Excellent presentation support"),
-    ],
-    ("ppt", "pdf"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Legacy presentation format support"),
-        (ConversionService.GOTENBERG, ConversionPriority.SECONDARY, "May work via LibreOffice"),
-    ],
-    ("xlsx", "pdf"): [
-        (ConversionService.GOTENBERG, ConversionPriority.PRIMARY, "High-quality spreadsheet to PDF"),
-        (ConversionService.LIBREOFFICE, ConversionPriority.SECONDARY, "Excellent spreadsheet support"),
-    ],
-    ("xls", "pdf"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Legacy spreadsheet format support"),
-        (ConversionService.GOTENBERG, ConversionPriority.SECONDARY, "May work via LibreOffice"),
-    ],
-    ("odt", "pdf"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Native OpenDocument support"),
-        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "Good OpenDocument support"),
-    ],
-    ("ods", "pdf"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Native OpenDocument spreadsheet support"),
-    ],
-    ("odp", "pdf"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Native OpenDocument presentation support"),
-    ],
-    ("rtf", "pdf"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Good RTF support"),
-        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "Limited RTF support"),
-    ],
-    ("txt", "pdf"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Simple text to PDF"),
-        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "Text to PDF via LaTeX"),
-    ],
-    ("md", "pdf"): [
-        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "Markdown to PDF via LaTeX"),
-        (ConversionService.LIBREOFFICE, ConversionPriority.SECONDARY, "Basic markdown support"),
-    ],
-    ("tex", "pdf"): [
-        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to PDF"),
-    ],
-    ("latex", "pdf"): [
-        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to PDF"),
-    ],
-    ("epub", "pdf"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "E-book to PDF"),
-        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "E-book format support"),
-    ],
-    ("pages", "pdf"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Pages to PDF via LibreOffice"),
-    ],
 
-    # JSON Output Conversions (Unstructured IO preferred)
-    ("docx", "json"): [
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Document structure extraction"),
-    ],
-    ("pdf", "json"): [
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "PDF structure extraction"),
-    ],
-    ("pptx", "json"): [
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Presentation structure extraction"),
-    ],
-    ("ppt", "json"): [
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Legacy presentation structure extraction"),
-    ],
-    ("xlsx", "json"): [
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Spreadsheet structure extraction"),
-    ],
-    ("html", "json"): [
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "HTML structure extraction"),
-    ],
-    ("epub", "json"): [
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "E-book structure extraction"),
-    ],
-    ("rtf", "json"): [
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "RTF structure extraction"),
-    ],
-    ("txt", "json"): [
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Text structure extraction"),
-    ],
-    ("eml", "json"): [
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Email structure extraction"),
-    ],
-    ("msg", "json"): [
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Outlook message structure extraction"),
-    ],
-    ("odt", "json"): [
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "OpenDocument structure extraction"),
-    ],
-
-    # URL Input Conversions
-    ("url", "pdf"): [
-        (ConversionService.GOTENBERG, ConversionPriority.PRIMARY, "URL to PDF conversion with full CSS support"),
-    ],
-    ("url", "json"): [
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "URL content structure extraction"),
-    ],
-    ("url", "md"): [
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "URL to markdown conversion"),
-    ],
-    ("url", "txt"): [
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "URL to text conversion"),
-    ],
-
-    # DOCX Output Conversions
-    ("md", "docx"): [
-        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "Markdown to Word"),
-        (ConversionService.LIBREOFFICE, ConversionPriority.SECONDARY, "Via intermediate format"),
-    ],
-    ("html", "docx"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "HTML to Word"),
-        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "HTML to Word"),
-    ],
-    ("pdf", "docx"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "PDF to Word (OCR-like)"),
-    ],
-    ("rtf", "docx"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "RTF to Word"),
-        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "Limited RTF support"),
-    ],
-    ("txt", "docx"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Text to Word"),
-        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "Text to Word"),
-    ],
-    ("odt", "docx"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "OpenDocument to Word"),
-        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "OpenDocument support"),
-    ],
-    ("pages", "docx"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Pages to DOCX via LibreOffice")
-    ],
-
-    # Markdown Output Conversions (Pandoc preferred)
-    ("docx", "md"): [
-        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "Word to Markdown"),
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.SECONDARY, "Structure extraction only"),
-    ],
-    ("html", "md"): [
-        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "HTML to Markdown"),
-    ],
-    ("pdf", "md"): [
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "PDF to text structure"),
-    ],
-    ("tex", "md"): [
-        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to Markdown"),
-    ],
-    ("latex", "md"): [
-        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to Markdown"),
-    ],
-    ("rtf", "md"): [
-        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "RTF to Markdown"),
-    ],
-    ("txt", "md"): [
-        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "Text to Markdown"),
-    ],
-    ("epub", "md"): [
-        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "E-book to Markdown"),
-    ],
-    ("odt", "md"): [
-        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "OpenDocument to Markdown"),
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.SECONDARY, "Structure extraction only"),
-    ],
-
-    # HTML Output Conversions
-    ("docx", "html"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Word to HTML"),
-        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "Word to HTML"),
-    ],
-    ("pdf", "html"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "PDF to HTML"),
-    ],
-    ("md", "html"): [
-        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "Markdown to HTML"),
-    ],
-    ("tex", "html"): [
-        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to HTML"),
-    ],
-    ("latex", "html"): [
-        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to HTML"),
-    ],
-    ("rtf", "html"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "RTF to HTML"),
-        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "Limited RTF support"),
-    ],
-    ("txt", "html"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Text to HTML"),
-        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "Text to HTML"),
-    ],
-    ("odt", "html"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "OpenDocument to HTML"),
-        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "OpenDocument support"),
-    ],
-    ("pages", "html"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Pages to HTML via LibreOffice")
-    ],
-    ("xlsx", "html"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Excel to HTML via LibreOffice"),
-    ],
-    ("xls", "html"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Legacy Excel to HTML via LibreOffice"),
-    ],
-
-    # LaTeX Output Conversions (Pandoc preferred)
-    ("md", "tex"): [
-        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "Markdown to LaTeX"),
-    ],
-    ("html", "tex"): [
-        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "HTML to LaTeX"),
-    ],
     ("docx", "tex"): [
         (ConversionService.PANDOC, ConversionPriority.PRIMARY, "Word to LaTeX"),
     ],
-    ("txt", "tex"): [
-        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "Text to LaTeX"),
-    ],
 
-    # Text Output Conversions
     ("docx", "txt"): [
         (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Word to Text"),
         (ConversionService.UNSTRUCTURED_IO, ConversionPriority.SECONDARY, "Text extraction"),
         (ConversionService.PANDOC, ConversionPriority.TERTIARY, "Word to Text"),
     ],
-    ("pdf", "txt"): [
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "PDF text extraction"),
-        (ConversionService.LIBREOFFICE, ConversionPriority.SECONDARY, "PDF to Text"),
+
+    ("eml", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Email structure extraction"),
     ],
+
+    ("epub", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "E-book structure extraction"),
+    ],
+
+    ("epub", "md"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "E-book to Markdown"),
+    ],
+
+    ("epub", "pdf"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "E-book to PDF"),
+        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "E-book format support"),
+    ],
+
+    ("html", "docx"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "HTML to Word"),
+        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "HTML to Word"),
+    ],
+
+    ("html", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "HTML structure extraction"),
+    ],
+
+    ("html", "md"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "HTML to Markdown"),
+    ],
+
+    ("html", "pdf"): [
+        (ConversionService.GOTENBERG, ConversionPriority.PRIMARY, "High-fidelity HTML to PDF with CSS support"),
+        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "Good for simple HTML"),
+        (ConversionService.LIBREOFFICE, ConversionPriority.TERTIARY, "Basic HTML support"),
+    ],
+
+    ("html", "tex"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "HTML to LaTeX"),
+    ],
+
     ("html", "txt"): [
         (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "HTML text extraction"),
         (ConversionService.LIBREOFFICE, ConversionPriority.SECONDARY, "HTML to Text"),
         (ConversionService.PANDOC, ConversionPriority.TERTIARY, "HTML to Text"),
     ],
+
+    ("latex", "docx"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to Word"),
+    ],
+
+    ("latex", "html"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to HTML"),
+    ],
+
+    ("latex", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "LaTeX structure extraction"),
+    ],
+
+    ("latex", "md"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to Markdown"),
+    ],
+
+    ("latex", "pdf"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to PDF"),
+    ],
+
+    ("latex", "txt"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to Text"),
+    ],
+
+    ("md", "docx"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "Markdown to Word"),
+        (ConversionService.LIBREOFFICE, ConversionPriority.SECONDARY, "Via intermediate format"),
+    ],
+
+    ("md", "html"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "Markdown to HTML"),
+    ],
+
+    ("md", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Markdown structure extraction"),
+    ],
+
+    ("md", "pdf"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "Markdown to PDF via LaTeX"),
+        (ConversionService.LIBREOFFICE, ConversionPriority.SECONDARY, "Basic markdown support"),
+    ],
+
+    ("md", "tex"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "Markdown to LaTeX"),
+    ],
+
     ("md", "txt"): [
         (ConversionService.PANDOC, ConversionPriority.PRIMARY, "Markdown to Text"),
         (ConversionService.UNSTRUCTURED_IO, ConversionPriority.SECONDARY, "Text extraction"),
     ],
-    ("rtf", "txt"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "RTF to Text"),
-        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.SECONDARY, "Text extraction"),
+
+    ("msg", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Outlook message structure extraction"),
     ],
-    ("pages", "txt"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Pages to TXT via LibreOffice")
+
+    ("numbers", "html"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Numbers to HTML via LibreOffice"),
     ],
+
+    ("numbers", "json"): [
+        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Apple Numbers to JSON via local processing"),
+    ],
+
+    ("numbers", "md"): [
+        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Apple Numbers to Markdown via chained conversion"),
+    ],
+
+    ("numbers", "txt"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Numbers to Text via LibreOffice"),
+    ],
+
+    ("numbers", "xlsx"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Numbers to Excel via LibreOffice"),
+    ],
+
+    ("odp", "pdf"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Native OpenDocument presentation support"),
+    ],
+
+    ("ods", "html"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "OpenDocument spreadsheet to HTML"),
+    ],
+
+    ("ods", "md"): [
+        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "ODS to Markdown via local processing"),
+    ],
+
+    ("ods", "pdf"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Native OpenDocument spreadsheet support"),
+    ],
+
+    ("ods", "txt"): [
+        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "ODS to Text via local processing"),
+    ],
+
+    ("odt", "docx"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "OpenDocument to Word"),
+        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "OpenDocument support"),
+    ],
+
+    ("odt", "html"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "OpenDocument to HTML"),
+        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "OpenDocument support"),
+    ],
+
+    ("odt", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "OpenDocument structure extraction"),
+    ],
+
+    ("odt", "md"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "OpenDocument to Markdown"),
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.SECONDARY, "Structure extraction only"),
+    ],
+
+    ("odt", "pdf"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Native OpenDocument support"),
+        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "Good OpenDocument support"),
+    ],
+
     ("odt", "txt"): [
         (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "OpenDocument to Text"),
         (ConversionService.UNSTRUCTURED_IO, ConversionPriority.SECONDARY, "Text extraction"),
         (ConversionService.PANDOC, ConversionPriority.TERTIARY, "OpenDocument to Text"),
     ],
 
-    # Apple Pages to Markdown (Chained conversion: Pages → DOCX → Markdown)
-    ("pages", "md"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Pages to Markdown (chained: LibreOffice → Pandoc)"),
+    ("pages", "docx"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Pages to DOCX via LibreOffice")
     ],
 
-    # Apple Pages to JSON (Chained conversion: Pages → DOCX → JSON)
+    ("pages", "html"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Pages to HTML via LibreOffice")
+    ],
+
     ("pages", "json"): [
         (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Apple Pages to JSON via chained conversion"),
     ],
 
-    # Excel to Markdown/Text Conversions (Custom implementation)
-    ("xlsx", "md"): [
-        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Excel to Markdown via local processing"),
+    ("pages", "md"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Pages to Markdown (chained: LibreOffice → Pandoc)"),
     ],
-    ("xlsx", "txt"): [
-        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Excel to Text via local processing"),
+
+    ("pages", "pdf"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Pages to PDF via LibreOffice"),
     ],
+
+    ("pages", "txt"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Pages to TXT via LibreOffice")
+    ],
+
+    ("pdf", "docx"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "PDF to Word (OCR-like)"),
+    ],
+
+    ("pdf", "html"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "PDF to HTML"),
+    ],
+
+    ("pdf", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "PDF structure extraction"),
+    ],
+
+    ("pdf", "md"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "PDF to text structure"),
+    ],
+
+    ("pdf", "txt"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "PDF text extraction"),
+        (ConversionService.LIBREOFFICE, ConversionPriority.SECONDARY, "PDF to Text"),
+    ],
+
+    ("ppt", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Legacy presentation structure extraction"),
+    ],
+
+    ("ppt", "pdf"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Legacy presentation format support"),
+        (ConversionService.GOTENBERG, ConversionPriority.SECONDARY, "May work via LibreOffice"),
+    ],
+
+    ("pptx", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Presentation structure extraction"),
+    ],
+
+    ("pptx", "pdf"): [
+        (ConversionService.GOTENBERG, ConversionPriority.PRIMARY, "High-quality presentation to PDF"),
+        (ConversionService.LIBREOFFICE, ConversionPriority.SECONDARY, "Excellent presentation support"),
+    ],
+
+    ("rtf", "docx"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "RTF to Word"),
+        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "Limited RTF support"),
+    ],
+
+    ("rtf", "html"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "RTF to HTML"),
+        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "Limited RTF support"),
+    ],
+
+    ("rtf", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "RTF structure extraction"),
+    ],
+
+    ("rtf", "md"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "RTF to Markdown"),
+    ],
+
+    ("rtf", "pdf"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Good RTF support"),
+        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "Limited RTF support"),
+    ],
+
+    ("rtf", "txt"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "RTF to Text"),
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.SECONDARY, "Text extraction"),
+    ],
+
+    ("tex", "docx"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to Word"),
+    ],
+
+    ("tex", "html"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to HTML"),
+    ],
+
+    ("tex", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "LaTeX structure extraction"),
+    ],
+
+    ("tex", "md"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to Markdown"),
+    ],
+
+    ("tex", "pdf"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to PDF"),
+    ],
+
+    ("tex", "txt"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to Text"),
+    ],
+
+    ("txt", "docx"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Text to Word"),
+        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "Text to Word"),
+    ],
+
+    ("txt", "html"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Text to HTML"),
+        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "Text to HTML"),
+    ],
+
+    ("txt", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Text structure extraction"),
+    ],
+
+    ("txt", "md"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "Text to Markdown"),
+    ],
+
+    ("txt", "pdf"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Simple text to PDF"),
+        (ConversionService.PANDOC, ConversionPriority.SECONDARY, "Text to PDF via LaTeX"),
+    ],
+
+    ("txt", "tex"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "Text to LaTeX"),
+    ],
+
+    ("url", "html"): [
+        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "URL to HTML content fetching"),
+    ],
+
+    ("url", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "URL content structure extraction"),
+    ],
+
+    ("url", "md"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "URL to markdown conversion"),
+    ],
+
+    ("url", "pdf"): [
+        (ConversionService.GOTENBERG, ConversionPriority.PRIMARY, "URL to PDF conversion with full CSS support"),
+    ],
+
+    ("url", "txt"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "URL to text conversion"),
+    ],
+
+    ("xls", "html"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Legacy Excel to HTML via LibreOffice"),
+    ],
+
+    ("xls", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Legacy Excel structure extraction"),
+    ],
+
     ("xls", "md"): [
         (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Legacy Excel to Markdown via local processing"),
     ],
+
+    ("xls", "pdf"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Legacy spreadsheet format support"),
+        (ConversionService.GOTENBERG, ConversionPriority.SECONDARY, "May work via LibreOffice"),
+    ],
+
     ("xls", "txt"): [
         (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Legacy Excel to Text via local processing"),
     ],
-    ("ods", "html"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "OpenDocument spreadsheet to HTML"),
-    ],
-    ("ods", "md"): [
-        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "ODS to Markdown via local processing"),
-    ],
-    ("ods", "txt"): [
-        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "ODS to Text via local processing"),
+
+    ("xlsx", "html"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Excel to HTML via LibreOffice"),
     ],
 
-    # Apple Numbers Conversions
-    ("numbers", "txt"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Numbers to Text via LibreOffice"),
+    ("xlsx", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Spreadsheet structure extraction"),
     ],
-    ("numbers", "md"): [
-        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Apple Numbers to Markdown via chained conversion"),
+
+    ("xlsx", "md"): [
+        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Excel to Markdown via local processing"),
     ],
-    ("numbers", "html"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Numbers to HTML via LibreOffice"),
+
+    ("xlsx", "pdf"): [
+        (ConversionService.GOTENBERG, ConversionPriority.PRIMARY, "High-quality spreadsheet to PDF"),
+        (ConversionService.LIBREOFFICE, ConversionPriority.SECONDARY, "Excellent spreadsheet support"),
     ],
-    ("numbers", "json"): [
-        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Apple Numbers to JSON via local processing"),
-    ],
-    ("numbers", "xlsx"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Numbers to Excel via LibreOffice"),
+
+    ("xlsx", "txt"): [
+        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Excel to Text via local processing"),
     ],
 }
 

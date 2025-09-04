@@ -411,7 +411,7 @@ main() {
             ;;
         *)
             log_error "Unknown command: $command"
-            echo "Usage: $0 {up|down|stop|start|start:d|status|ps|logs|restart|dev|dev:stop|update|resources|health|aliases}"
+            echo "Usage: $0 {up|down|stop|start|start:d|status|ps|logs|restart|dev|dev:stop|update|resources|health}"
             echo ""
             echo "Commands:"
             echo "  up           Start all services"
@@ -429,33 +429,11 @@ main() {
             echo "  update       Pull latest Docker images"
             echo "  resources    Show container resource usage"
             echo "  health       Check service health"
-            echo "  aliases      Show instructions for setting up shell aliases"
             exit 1
             ;;
     esac
 }
 
-# Setup convenience aliases
-# To use these aliases, add the following to your ~/.bashrc or ~/.zshrc:
-# source /path/to/applite-convert/docker-run.sh aliases
-setup_aliases() {
-    echo "Add these lines to your ~/.bashrc or ~/.zshrc:"
-    echo ""
-    echo "# Applite Convert aliases"
-    echo "alias stop='$(pwd)/docker-run.sh down'"
-    echo "alias start='$(pwd)/docker-run.sh up'"
-    echo "alias startd='$(pwd)/docker-run.sh up-d'"
-    echo "alias status='$(pwd)/docker-run.sh health'"
-    echo "alias ps='$(pwd)/docker-run.sh health'"
-    echo ""
-    echo "Then restart your shell or run: source ~/.bashrc"
-}
-
-# Handle special commands before main processing
-if [ "${1:-}" = "aliases" ]; then
-    setup_aliases
-    exit 0
-fi
 
 # Execute the main function with all script arguments
 main "$@"

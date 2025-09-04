@@ -42,20 +42,14 @@ This document provides a comprehensive overview of supported file formats across
     - [HTML Output Conversions](#html-output-conversions)
     - [LaTeX Output Conversions](#latex-output-conversions)
     - [Plain Text Output Conversions](#plain-text-output-conversions)
-  - [🔍 Utility Endpoints](#-utility-endpoints)
   - [💡 Usage Examples](#-usage-examples)
     - [Convert a DOCX Resume to PDF](#convert-a-docx-resume-to-pdf)
     - [Extract PDF Structure](#extract-pdf-structure)
     - [Convert URL to PDF](#convert-url-to-pdf)
+    - [Convert URL to HTML](#convert-url-to-html)
     - [Convert Markdown to DOCX](#convert-markdown-to-docx)
     - [List All Supported Conversions](#list-all-supported-conversions)
   - [🧠 Service Intelligence](#-service-intelligence)
-  - [⚠️ Error Handling](#️-error-handling)
-  - [📏 File Size Limits](#-file-size-limits)
-  - [📤 Response Format](#-response-format)
-  - [⚙️ Configuration](#️-configuration)
-  - [🧪 Testing](#-testing)
-  - [📚 Navigation](#-navigation)
 
 ---
 
@@ -72,43 +66,45 @@ This document provides a comprehensive overview of supported file formats across
 
 | Input → Output | PDF | DOCX | HTML | MD | TEX | TXT | JSON |
 |----------------|-----|------|------|----|-----|-----|------|
-| .asciidoc | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ |
-| .csv | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
-| .dbf | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| .asciidoc | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ |
+| .csv | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ✅* |
+| .dbf | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ |
 | .doc | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ |
 | .docx | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| .eml | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| .eml | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* |
 | .epub | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ |
-| .fb2 | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ |
-| .gnumeric | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
-| .heic | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| .fb2 | ✅* | ❌ | ✅* | ✅* | ❌ | ✅* | ❌ |
+| .gnumeric | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ |
+| .heic | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* |
 | .html | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| .jpg | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| .key | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| .jpg | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* |
+| .key | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ |
 | .latex | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ |
 | .md | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ |
-| .msg | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| .odp | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| .msg | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* |
+| .odp | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ |
 | .ods | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
 | .odt | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| .org | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ |
-| .pages | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
-| .parquet | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| .org | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ |
+| .pages | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
+| .parquet | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ |
 | .pdf | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
-| .png | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| .png | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* |
 | .ppt | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
 | .pptx | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
-| .rst | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ |
+| .rst | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ |
 | .rtf | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
 | .tex | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ |
-| .textile | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ |
-| .tsv | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
+| .textile | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ |
+| .tsv | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ✅* |
 | .txt | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
-| _\<url\>_ | ✅ | ❌ | ❌ | ✅ | ❌ | ✅ | ✅ |
-| .wiki | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ |
-| .xls | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| _\<url\>_ | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ |
+| .wiki | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ |
+| .xls | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
 | .xlsx | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
 
+
+> **Note**: `✅*` indicates that the format pair is supported by the underlying services but does **not** have a dedicated `/convert/*` endpoint. These conversions are only accessible by directly calling the proxied service endpoints (refer to individual service documentation for syntax). Service names marked with `*` in the conversion tables also indicate missing `/convert/*` endpoints for those specific conversions.
 
 ## Comprehensive Format Support
 
@@ -123,12 +119,12 @@ This document provides a comprehensive overview of supported file formats across
 | HTML | .html | ✅ | ✅ | ✅ | ✅ | Web publishing - Gotenberg can convert HTML to PDF with full CSS support |
 | Markdown | .md | ❌ | ❌ | ✅ | ❌ | Pandoc native |
 | LaTeX | .tex | ❌ | ❌ | ✅ | ❌ | Academic publishing |
-| reStructuredText | .rst | ❌ | ❌ | ✅ | ❌ | Python documentation |
-| AsciiDoc | .asciidoc | ❌ | ❌ | ✅ | ❌ | Technical writing |
-| MediaWiki | .wiki | ❌ | ❌ | ✅ | ❌ | Wiki markup |
-| Textile | .textile | ❌ | ❌ | ✅ | ❌ | Lightweight markup |
-| Org Mode | .org | ❌ | ❌ | ✅ | ❌ | Emacs format |
-| FictionBook | .fb2 | ❌ | ✅ | ✅ | ❌ | E-book format |
+| reStructuredText | .rst | ❌ | ❌ | ✅* | ❌ | Python documentation |
+| AsciiDoc | .asciidoc | ❌ | ❌ | ✅* | ❌ | Technical writing |
+| MediaWiki | .wiki | ❌ | ❌ | ✅* | ❌ | Wiki markup |
+| Textile | .textile | ❌ | ❌ | ✅* | ❌ | Lightweight markup |
+| Org Mode | .org | ❌ | ❌ | ✅* | ❌ | Emacs format |
+| FictionBook | .fb2 | ❌ | ✅* | ✅* | ❌ | E-book format |
 
 ### Spreadsheets
 | Format | Extension | Unstructured IO | LibreOffice | Pandoc | Gotenberg | Notes |
@@ -136,56 +132,56 @@ This document provides a comprehensive overview of supported file formats across
 | Excel 97-2003 | .xls | ❌ | ✅ | ❌ | ✅ | Legacy format - Gotenberg supports via LibreOffice |
 | Excel 2007+ | .xlsx | ✅ | ✅ | ❌ | ✅ | Modern Excel - Gotenberg supports via LibreOffice |
 | OpenDocument Spreadsheet | .ods | ❌ | ✅ | ❌ | ❌ | Open standard |
-| CSV | .csv | ✅ | ✅ | ✅ | ❌ | Universal data format |
-| TSV | .tsv | ✅ | ✅ | ✅ | ❌ | Tab-separated values |
-| dBase | .dbf | ❌ | ✅ | ❌ | ❌ | Database format |
-| Apache Parquet | .parquet | ❌ | ✅ | ❌ | ❌ | Big data format |
-| Gnumeric | .gnumeric | ❌ | ✅ | ❌ | ❌ | GNOME spreadsheet |
+| CSV | .csv | ✅* | ✅* | ✅* | ❌ | Universal data format |
+| TSV | .tsv | ✅* | ✅* | ✅* | ❌ | Tab-separated values |
+| dBase | .dbf | ❌ | ✅* | ❌ | ❌ | Database format |
+| Apache Parquet | .parquet | ❌ | ✅* | ❌ | ❌ | Big data format |
+| Gnumeric | .gnumeric | ❌ | ✅* | ❌ | ❌ | GNOME spreadsheet |
 
 ### Presentations
 | Format | Extension | Unstructured IO | LibreOffice | Pandoc | Gotenberg | Notes |
 |--------|-----------|----------------|-------------|--------|-----------|-------|
 | PowerPoint 97-2003 | .ppt | ✅ | ✅ | ❌ | ✅ | Legacy format - Gotenberg supports via LibreOffice |
 | PowerPoint 2007+ | .pptx | ✅ | ✅ | ❌ | ✅ | Modern PowerPoint - Gotenberg supports via LibreOffice |
-| OpenDocument Presentation | .odp | ❌ | ✅ | ❌ | ❌ | Open standard |
-| Apple Keynote | .key | ❌ | ✅ | ❌ | ❌ | macOS format |
+| OpenDocument Presentation | .odp | ❌ | ✅* | ❌ | ❌ | Open standard |
+| Apple Keynote | .key | ❌ | ✅* | ❌ | ❌ | macOS format |
 
 ### E-books and Publishing
 | Format | Extension | Unstructured IO | LibreOffice | Pandoc | Gotenberg | Notes |
 |--------|-----------|----------------|-------------|--------|-----------|-------|
 | EPUB | .epub | ✅ | ✅ | ✅ | ❌ | E-book standard |
-| FictionBook 2.0 | .fb2 | ❌ | ✅ | ✅ | ❌ | Russian e-book format |
+| FictionBook 2.0 | .fb2 | ❌ | ✅* | ✅* | ❌ | Russian e-book format |
 
 ### Email and Communications
 | Format | Extension | Unstructured IO | LibreOffice | Pandoc | Gotenberg | Notes |
 |--------|-----------|----------------|-------------|--------|-----------|-------|
-| Email Message | .eml | ✅ | ❌ | ❌ | ❌ | **GAP**: No conversion to document formats |
-| Outlook Message | .msg | ✅ | ❌ | ❌ | ❌ | **GAP**: No conversion to document formats |
+| Email Message | .eml | ✅* | ❌ | ❌ | ❌ | **GAP**: No conversion to document formats |
+| Outlook Message | .msg | ✅* | ❌ | ❌ | ❌ | **GAP**: No conversion to document formats |
 
 ### Images and Graphics
 | Format | Extension | Unstructured IO | LibreOffice | Pandoc | Gotenberg | Notes |
 |--------|-----------|----------------|-------------|--------|-----------|-------|
-| PNG | .png | ✅ | ❌ | ❌ | ❌ | **GAP**: No conversion to document formats |
-| JPEG | .jpg, .jpeg | ✅ | ❌ | ❌ | ❌ | **GAP**: No conversion to document formats |
-| HEIC | .heic | ✅ | ❌ | ❌ | ❌ | **GAP**: No conversion to document formats |
+| PNG | .png | ✅* | ❌ | ❌ | ❌ | **GAP**: No conversion to document formats |
+| JPEG | .jpg, .jpeg | ✅* | ❌ | ❌ | ❌ | **GAP**: No conversion to document formats |
+| HEIC | .heic | ✅* | ❌ | ❌ | ❌ | **GAP**: No conversion to document formats |
 
 ### Legacy and Specialized Formats
 | Format | Extension | Unstructured IO | LibreOffice | Pandoc | Gotenberg | Notes |
 |--------|-----------|----------------|-------------|--------|-----------|-------|
-| WordPerfect | .wpd | ❌ | ✅ | ❌ | ❌ | Legacy word processor |
-| Microsoft Works | .wps, .wdb | ❌ | ✅ | ❌ | ❌ | Old office suite |
-| Microsoft Write | .wri | ❌ | ✅ | ❌ | ❌ | Very old format |
-| MacWrite | .mcw, .mwd | ❌ | ✅ | ❌ | ❌ | Classic Mac format |
-| WriteNow | .wn | ❌ | ✅ | ❌ | ❌ | Old Mac format |
-| Palm Doc | .pdb | ❌ | ✅ | ❌ | ❌ | PDA format |
-| Pocket Word | .psw | ❌ | ✅ | ❌ | ❌ | Windows CE format |
-| WordPerfect Graphics | .wpg | ❌ | ✅ | ❌ | ❌ | Vector graphics |
-| Microsoft Publisher | .pub | ❌ | ✅ | ❌ | ❌ | Desktop publishing |
-| Corel Draw | .cdr | ❌ | ✅ | ❌ | ❌ | Vector graphics |
-| Freehand | .fh | ❌ | ✅ | ❌ | ❌ | Vector graphics |
-| PageMaker | .p65, .pm, .pmd | ❌ | ✅ | ❌ | ❌ | Desktop publishing |
-| QuarkXPress | .qxd, .qxt | ❌ | ✅ | ❌ | ❌ | Desktop publishing |
-| Zoner Draw | .zmf | ❌ | ✅ | ❌ | ❌ | Vector graphics |
+| WordPerfect | .wpd | ❌ | ✅* | ❌ | ❌ | Legacy word processor |
+| Microsoft Works | .wps, .wdb | ❌ | ✅* | ❌ | ❌ | Old office suite |
+| Microsoft Write | .wri | ❌ | ✅* | ❌ | ❌ | Very old format |
+| MacWrite | .mcw, .mwd | ❌ | ✅* | ❌ | ❌ | Classic Mac format |
+| WriteNow | .wn | ❌ | ✅* | ❌ | ❌ | Old Mac format |
+| Palm Doc | .pdb | ❌ | ✅* | ❌ | ❌ | PDA format |
+| Pocket Word | .psw | ❌ | ✅* | ❌ | ❌ | Windows CE format |
+| WordPerfect Graphics | .wpg | ❌ | ✅* | ❌ | ❌ | Vector graphics |
+| Microsoft Publisher | .pub | ❌ | ✅* | ❌ | ❌ | Desktop publishing |
+| Corel Draw | .cdr | ❌ | ✅* | ❌ | ❌ | Vector graphics |
+| Freehand | .fh | ❌ | ✅* | ❌ | ❌ | Vector graphics |
+| PageMaker | .p65, .pm, .pmd | ❌ | ✅* | ❌ | ❌ | Desktop publishing |
+| QuarkXPress | .qxd, .qxt | ❌ | ✅* | ❌ | ❌ | Desktop publishing |
+| Zoner Draw | .zmf | ❌ | ✅* | ❌ | ❌ | Vector graphics |
 
 ## Output Format Support
 
@@ -349,9 +345,8 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 | `xlsx-pdf` | Gotenberg | XLSX to PDF |
 | `xls-pdf` | LibreOffice | XLS to PDF |
 | `ods-pdf` | LibreOffice | ODS to PDF |
-| `odp-pdf` | LibreOffice | ODP to PDF |
+| `odp-pdf` | LibreOffice* | ODP to PDF |
 | `epub-pdf` | LibreOffice | EPUB to PDF |
-| `pages-pdf` | LibreOffice | Apple Pages to PDF |
 
 ### JSON Structure Extraction
 
@@ -366,8 +361,8 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 | `epub-json` | Unstructured IO | EPUB structure extraction |
 | `rtf-json` | Unstructured IO | RTF structure extraction |
 | `txt-json` | Unstructured IO | Text structure extraction |
-| `eml-json` | Unstructured IO | Email structure extraction |
-| `msg-json` | Unstructured IO | Outlook message extraction |
+| `eml-json` | Unstructured IO* | Email structure extraction |
+| `msg-json` | Unstructured IO* | Outlook message extraction |
 
 ### URL-Based Conversions
 
@@ -377,6 +372,7 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 | `url-json` | Unstructured IO | URL content structure |
 | `url-md` | Unstructured IO | URL to Markdown |
 | `url-txt` | Unstructured IO | URL to plain text |
+| `url-html` | Local | URL to HTML |
 
 ### DOCX Output Conversions
 
@@ -384,7 +380,7 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 |--------------|----------------|-------------|
 | `md-docx` | Pandoc | Markdown to DOCX |
 | `html-docx` | LibreOffice | HTML to DOCX |
-| `pdf-docx` | LibreOffice | PDF to DOCX |
+| `pdf-docx` | LibreOffice* | PDF to DOCX |
 | `rtf-docx` | LibreOffice | RTF to DOCX |
 | `txt-docx` | LibreOffice | Text to DOCX |
 | `odt-docx` | LibreOffice | ODT to DOCX |
@@ -424,62 +420,52 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 
 | Input → TEX | Primary Service | Description |
 |-------------|----------------|-------------|
-| `md-tex` | Pandoc | Markdown to LaTeX |
-| `html-tex` | Pandoc | HTML to LaTeX |
-| `docx-tex` | Pandoc | DOCX to LaTeX |
-| `txt-tex` | Pandoc | Text to LaTeX |
+| `md-tex` | Pandoc* | Markdown to LaTeX |
+| `html-tex` | Pandoc* | HTML to LaTeX |
+| `docx-tex` | Pandoc* | DOCX to LaTeX |
+| `txt-tex` | Pandoc* | Text to LaTeX |
 
 ### Plain Text Output Conversions
 
 | Input → TXT | Primary Service | Description |
 |-------------|----------------|-------------|
-| `docx-txt` | LibreOffice | DOCX to Text |
+| `docx-txt` | LibreOffice* | DOCX to Text |
 | `pdf-txt` | Unstructured IO | PDF to Text |
 | `html-txt` | Unstructured IO | HTML to Text |
 | `md-txt` | Pandoc | Markdown to Text |
 | `rtf-txt` | LibreOffice | RTF to Text |
 | `pages-txt` | LibreOffice | Apple Pages to Text |
 
-## 🔍 Utility Endpoints
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /convert/supported` | Get all supported conversion pairs |
-| `GET /convert/info/{input}-{output}` | Get conversion details |
-| `GET /convert/url-info/{input}-{output}` | Get URL conversion details |
-
 ## 💡 Usage Examples
 
 ### Convert a DOCX Resume to PDF
 
 ```bash
-curl -X POST "http://localhost:8369/convert/docx-pdf" \
-  -F "file=@resume.docx" \
-  -o resume.pdf
+curl -X POST "http://localhost:8369/convert/docx-pdf" -F "file=@resume.docx" -o resume.pdf
 ```
 
 ### Extract PDF Structure
 
 ```bash
-curl -X POST "http://localhost:8369/convert/pdf-json" \
-  -F "file=@document.pdf" \
-  -o document-structure.json
+curl -X POST "http://localhost:8369/convert/pdf-json" -F "file=@document.pdf" -o document-structure.json
 ```
 
 ### Convert URL to PDF
 
 ```bash
-curl -X POST "http://localhost:8369/convert/url-pdf" \
-  -F "url=https://example.com" \
-  -o webpage.pdf
+curl -X POST "http://localhost:8369/convert/url-pdf" -F "url=https://example.com" -o webpage.pdf
+```
+
+### Convert URL to HTML
+
+```bash
+curl -X POST "http://localhost:8369/convert/url-html" -F "url=https://example.com" -o webpage.html
 ```
 
 ### Convert Markdown to DOCX
 
 ```bash
-curl -X POST "http://localhost:8369/convert/md-docx" \
-  -F "file=@document.md" \
-  -o document.docx
+curl -X POST "http://localhost:8369/convert/md-docx" -F "file=@document.md" -o document.docx
 ```
 
 ### List All Supported Conversions
@@ -495,70 +481,7 @@ Each endpoint automatically selects the optimal service:
 - **PDF Output**: Gotenberg (highest quality for HTML/DOCX/PPTX/XLSX)
 - **JSON Output**: Unstructured IO (best structure extraction)
 - **DOCX Output**: LibreOffice or Pandoc (format-specific optimization)
-- **URL Input**: Gotenberg for PDF, Unstructured IO for JSON/Markdown/Text
+- **URL Input**: Gotenberg for PDF, Unstructured IO for JSON/Markdown/Text/HTML
 - **Markdown/LaTeX**: Pandoc (native support)
 - **Legacy Formats**: LibreOffice (broadest compatibility)
-
-## ⚠️ Error Handling
-
-All endpoints include comprehensive error handling:
-
-- **400**: Invalid file format or request
-- **404**: Conversion pair not supported
-- **500**: Internal conversion error
-- **502**: Service unavailable
-- **503**: Service timeout
-
-## 📏 File Size Limits
-
-- **General files**: 50MB limit
-- **PDF files**: 100MB limit (for structure extraction)
-- **Office documents**: 50MB limit
-- **Text files**: 10MB limit
-
-## 📤 Response Format
-
-All conversion endpoints return:
-- **Content-Type**: Appropriate MIME type for output format
-- **Content-Disposition**: `attachment; filename=output.ext`
-- **Streaming Response**: Efficient handling of large files
-
-## ⚙️ Configuration
-
-The conversion logic is defined in `proxy-service/convert/config.py` and can be easily extended:
-
-```python
-# Add new conversion pair
-CONVERSION_MATRIX[("newformat", "output")] = [
-    (ConversionService.SERVICE_NAME, ConversionPriority.PRIMARY, "Description"),
-]
-```
-
-## 🧪 Testing
-
-Test the endpoints with the provided examples or use the `/convert/supported` endpoint to see all available conversions.
-
----
-
-## 📚 Navigation
-
-- [← Back to Main README](../README.md)
-- [Service Overview](#service-overview)
-- [Comprehensive Format Support](#comprehensive-format-support)
-  - [Text Documents](#text-documents)
-  - [Spreadsheets](#spreadsheets)
-  - [Presentations](#presentations)
-  - [E-books and Publishing](#e-books-and-publishing)
-  - [Email and Communications](#email-and-communications)
-  - [Images and Graphics](#images-and-graphics)
-  - [Legacy and Specialized Formats](#legacy-and-specialized-formats)
-- [Output Format Support](#output-format-support)
-- [Conversion Gaps and Limitations](#conversion-gaps-and-limitations)
-- [Recommended Conversion Workflows](#recommended-conversion-workflows)
-- [🔄 Conversion API Endpoints](#🔄-conversion-api-endpoints)
-  - [Priority Focus](#🎯-priority-focus-resumecv-cover-letter-formats)
-  - [Available Endpoints](#📋-available-endpoints)
-  - [Usage Examples](#💡-usage-examples)
-  - [Service Intelligence](#🧠-service-intelligence)
-  - [Configuration](#⚙️-configuration)
-- [Future Enhancement Opportunities](#future-enhancement-opportunities)
+- **URL to HTML**: Local service (direct content fetching)
