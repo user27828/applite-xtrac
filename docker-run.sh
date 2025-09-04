@@ -289,14 +289,80 @@ stop_dev_mode() {
     docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME down \
         unstructured-io libreoffice pandoc gotenberg || log_warning "Failed to stop containerized services"
     
-    # Kill local proxy process
-    local proxy_pid=$(pgrep -f "uvicorn.*convert.main:app")
-    if [ -n "$proxy_pid" ]; then
-        log_info "Stopping local proxy service (PID: $proxy_pid)"
-        kill $proxy_pid
+    # Kill local proxy process with graceful shutdown first, then force kill
+    # Try multiple patterns to find uvicorn processes
+    local proxy_pids=$(pgrep -f "uvicorn.*app:app.*8369" || pgrep -f "uvicorn.*convert.*app:app" || pgrep -f "uvicorn.*--port 8369" || true)
+    
+    if [ -n "$proxy_pids" ]; then
+        log_info "Found proxy service processes: $proxy_pids"
+        
+        # Kill all found processes
+        for proxy_pid in $proxy_pids; do
+            if kill -0 $proxy_pid 2>/dev/null; then
+                log_info "Stopping proxy service (PID: $proxy_pid)"
+                
+                # Try graceful shutdown first
+                kill $proxy_pid 2>/dev/null || true
+                
+                # Wait up to 5 seconds for graceful shutdown
+                local count=0
+                while [ $count -lt 5 ] && kill -0 $proxy_pid 2>/dev/null; do
+                    sleep 1
+                    count=$((count + 1))
+                done
+                
+                # If still running, force kill with SIGKILL
+                if kill -0 $proxy_pid 2>/dev/null; then
+                    log_warning "Proxy service (PID: $proxy_pid) didn't stop gracefully, force killing..."
+                    kill -9 $proxy_pid 2>/dev/null || true
+                    
+                    # Wait a moment for the kill to take effect
+                    sleep 1
+                    
+                    # Check if it's finally dead
+                    if kill -0 $proxy_pid 2>/dev/null; then
+                        log_error "Failed to kill proxy service (PID: $proxy_pid)"
+                    else
+                        log_success "Proxy service (PID: $proxy_pid) force killed successfully"
+                    fi
+                else
+                    log_success "Proxy service (PID: $proxy_pid) stopped gracefully"
+                fi
+            fi
+        done
+    else
+        log_info "No proxy service processes found"
     fi
     
     log_success "Development mode stopped"
+}
+
+# Helper functions for common operations
+do_start() {
+    local background=${1:-false}
+    
+    check_dependencies
+    validate_config
+    check_ports
+    
+    if $background; then
+        log_info "Starting services in background with Docker..."
+    else
+        log_info "Starting services with Docker..."
+    fi
+    
+    docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME up -d --build "$@" || log_error "Failed to start services"
+    wait_for_services
+    check_health
+}
+
+do_stop() {
+    log_info "Stopping services..."
+    docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME down "$@" || log_warning "Failed to stop services"
+}
+
+do_health() {
+    check_health
 }
 
 # Main command processing
@@ -305,27 +371,17 @@ main() {
     shift
     
     case "$command" in
-        "up")
-            check_dependencies
-            validate_config
-            check_ports
-            log_info "Starting services with Docker..."
-            docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME up -d --build "$@" || log_error "Failed to start services"
-            wait_for_services
-            check_health
+        "up"|"start")
+            do_start false "$@"
             ;;
-        "up-d")
-            check_dependencies
-            validate_config
-            check_ports
-            log_info "Starting services in background with Docker..."
-            docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME up -d --build "$@" || log_error "Failed to start services"
-            wait_for_services
-            check_health
+        "up-d"|"start:d")
+            do_start true "$@"
             ;;
-        "down")
-            log_info "Stopping services..."
-            docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME down "$@" || log_warning "Failed to stop services"
+        "down"|"stop")
+            do_stop "$@"
+            ;;
+        "status"|"ps"|"health")
+            do_health
             ;;
         "logs")
             if [ $# -eq 0 ]; then
@@ -353,16 +409,53 @@ main() {
         "resources")
             show_resources
             ;;
-        "health")
-            check_health
-            ;;
         *)
             log_error "Unknown command: $command"
-            echo "Usage: $0 {up|down|logs|restart|dev|dev:stop|update|resources|health}"
+            echo "Usage: $0 {up|down|stop|start|start:d|status|ps|logs|restart|dev|dev:stop|update|resources|health|aliases}"
+            echo ""
+            echo "Commands:"
+            echo "  up           Start all services"
+            echo "  up-d         Start all services in background"
+            echo "  down         Stop all services"
+            echo "  stop         Alias for 'down'"
+            echo "  start        Alias for 'up'"
+            echo "  startd      Alias for 'up-d'"
+            echo "  status       Alias for 'health'"
+            echo "  ps           Alias for 'health'"
+            echo "  logs <svc>   Show logs for a specific service"
+            echo "  restart      Restart all services"
+            echo "  dev          Start development mode (containers + local proxy)"
+            echo "  dev:stop     Stop development mode"
+            echo "  update       Pull latest Docker images"
+            echo "  resources    Show container resource usage"
+            echo "  health       Check service health"
+            echo "  aliases      Show instructions for setting up shell aliases"
             exit 1
             ;;
     esac
 }
+
+# Setup convenience aliases
+# To use these aliases, add the following to your ~/.bashrc or ~/.zshrc:
+# source /path/to/applite-convert/docker-run.sh aliases
+setup_aliases() {
+    echo "Add these lines to your ~/.bashrc or ~/.zshrc:"
+    echo ""
+    echo "# Applite Convert aliases"
+    echo "alias stop='$(pwd)/docker-run.sh down'"
+    echo "alias start='$(pwd)/docker-run.sh up'"
+    echo "alias startd='$(pwd)/docker-run.sh up-d'"
+    echo "alias status='$(pwd)/docker-run.sh health'"
+    echo "alias ps='$(pwd)/docker-run.sh health'"
+    echo ""
+    echo "Then restart your shell or run: source ~/.bashrc"
+}
+
+# Handle special commands before main processing
+if [ "${1:-}" = "aliases" ]; then
+    setup_aliases
+    exit 0
+fi
 
 # Execute the main function with all script arguments
 main "$@"

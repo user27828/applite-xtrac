@@ -104,7 +104,7 @@ This document provides a comprehensive overview of supported file formats across
 | .textile | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ |
 | .tsv | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
 | .txt | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
-| .url | ✅ | ❌ | ❌ | ✅ | ❌ | ✅ | ✅ |
+| _\<url\>_ | ✅ | ❌ | ❌ | ✅ | ❌ | ✅ | ✅ |
 | .wiki | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ |
 | .xls | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
 | .xlsx | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |

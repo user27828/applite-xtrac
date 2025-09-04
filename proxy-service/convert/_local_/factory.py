@@ -14,14 +14,27 @@ import pandas as pd
 import xlrd
 import openpyxl
 
+try:
+    from numbers_parser import Document
+    NUMBERS_PARSER_AVAILABLE = True
+except ImportError as e:
+    Document = None
+    NUMBERS_PARSER_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
+
+# Log the availability of numbers-parser
+if NUMBERS_PARSER_AVAILABLE:
+    logger.info("numbers-parser successfully imported")
+else:
+    logger.warning("numbers-parser import failed")
 
 
 class LocalConversionFactory:
     """
     Factory for local document conversions.
 
-    Currently supports Excel (.xls, .xlsx) to text/markdown conversions.
+    Currently supports Excel (.xls, .xlsx), OpenDocument (.ods), and Apple Numbers (.numbers) to text/markdown conversions.
     """
 
     def __init__(self):
@@ -37,7 +50,7 @@ class LocalConversionFactory:
         Args:
             file_content: Raw bytes of the input file
             filename: Original filename
-            input_format: Input format (e.g., 'xlsx', 'xls')
+            input_format: Input format (e.g., 'xlsx', 'xls', 'ods')
             output_format: Desired output format (e.g., 'md', 'txt')
 
         Returns:
@@ -48,7 +61,7 @@ class LocalConversionFactory:
         """
         try:
             # Determine converter based on input format
-            if input_format in ['xlsx', 'xls']:
+            if input_format in ['xlsx', 'xls', 'ods', 'numbers']:
                 converter = self._converters['excel']
             else:
                 raise HTTPException(status_code=400, detail=f"Unsupported input format for local conversion: {input_format}")
@@ -88,6 +101,9 @@ class LocalConversionFactory:
             elif output_format == "txt":
                 content = self._excel_to_text(df, base_name)
                 media_type = "text/plain"
+            elif output_format == "json":
+                content = self._excel_to_json(df, base_name)
+                media_type = "application/json"
             else:
                 raise HTTPException(status_code=400, detail=f"Unsupported output format: {output_format}")
 
@@ -104,10 +120,10 @@ class LocalConversionFactory:
 
     def _read_excel_file(self, file_content: bytes, filename: str) -> pd.DataFrame:
         """
-        Read Excel file content and return as pandas DataFrame.
+        Read Excel/ODS/Numbers file content and return as pandas DataFrame.
 
         Args:
-            file_content: Raw bytes of the Excel file
+            file_content: Raw bytes of the Excel/ODS/Numbers file
             filename: Filename to determine format
 
         Returns:
@@ -125,17 +141,68 @@ class LocalConversionFactory:
                 engine = 'openpyxl'
             elif filename.lower().endswith('.xls'):
                 engine = 'xlrd'
+            elif filename.lower().endswith('.ods'):
+                engine = 'odf'
+            elif filename.lower().endswith('.numbers'):
+                # Handle Apple Numbers files
+                if not NUMBERS_PARSER_AVAILABLE or not Document:
+                    raise HTTPException(status_code=503, detail="Numbers file support requires the 'numbers-parser' package. Please install it with: pip install numbers-parser")
+                
+                # Save to temporary file for numbers-parser
+                import tempfile
+                import os
+                with tempfile.NamedTemporaryFile(suffix='.numbers', delete=False) as temp_file:
+                    temp_file.write(file_content)
+                    temp_file_path = temp_file.name
+                
+                try:
+                    # Parse Numbers file
+                    doc = Document(temp_file_path)
+                    # Get the first sheet (or we could iterate through all sheets)
+                    if len(doc.sheets) == 0:
+                        raise HTTPException(status_code=400, detail="Numbers file contains no sheets")
+                    
+                    sheet = doc.sheets[0]
+                    
+                    # Convert to DataFrame
+                    data = []
+                    headers = []
+                    
+                    # Get headers from first row if it exists
+                    if len(sheet.rows) > 0:
+                        headers = [str(cell.value) if cell.value is not None else f"Column_{i}" for i, cell in enumerate(sheet.rows[0])]
+                        data = [[cell.value for cell in row] for row in sheet.rows[1:]]
+                    else:
+                        # Empty sheet
+                        headers = ["Column_0"]
+                        data = []
+                    
+                    df = pd.DataFrame(data, columns=headers)
+                    
+                finally:
+                    # Clean up temp file
+                    if os.path.exists(temp_file_path):
+                        os.unlink(temp_file_path)
+                
+                return df
             else:
-                raise HTTPException(status_code=400, detail="Unsupported Excel file format")
-
-            # Read Excel file
-            df = pd.read_excel(buffer, engine=engine)
-
-            return df
+                raise HTTPException(status_code=400, detail="Unsupported spreadsheet file format")
 
         except Exception as e:
-            logger.error(f"Error reading Excel file: {e}")
-            raise HTTPException(status_code=400, detail=f"Failed to read Excel file: {str(e)}")
+            logger.error(f"Error reading spreadsheet file: {e}")
+            error_msg = str(e)
+            
+            # Provide more helpful error messages for common issues
+            if "odfpy" in error_msg.lower():
+                error_msg = "ODS file support requires the 'odfpy' package. Please install it with: pip install odfpy"
+            elif "openpyxl" in error_msg.lower():
+                error_msg = "XLSX file support requires the 'openpyxl' package. Please install it with: pip install openpyxl"
+            elif "xlrd" in error_msg.lower():
+                error_msg = "XLS file support requires the 'xlrd' package. Please install it with: pip install xlrd"
+            elif "numbers_parser" in error_msg.lower() or "numbersparser" in error_msg.lower():
+                error_msg = "Numbers file support requires the 'numbers-parser' package. Please install it with: pip install numbers-parser"
+            
+            raise HTTPException(status_code=400, detail=f"Failed to read spreadsheet file: {error_msg}")
 
     def _excel_to_markdown(self, df: pd.DataFrame, filename: str = "") -> str:
         """
@@ -214,6 +281,23 @@ class LocalConversionFactory:
 
         return header + "\n".join(text_lines)
 
+    def _excel_to_json(self, df: pd.DataFrame, filename: str = "") -> str:
+        """
+        Convert a pandas DataFrame to JSON format.
+
+        Args:
+            df: DataFrame containing the Excel data
+            filename: Original filename (not used in JSON conversion)
+
+        Returns:
+            JSON formatted string
+        """
+        if df.empty:
+            return "{}"  # Return empty JSON object for empty DataFrame
+
+        # Convert DataFrame to JSON
+        return df.to_json(orient="records")
+
 
 # Global factory instance
 factory = LocalConversionFactory()
@@ -226,7 +310,7 @@ def convert_file_locally(file_content: bytes, filename: str, input_format: str, 
     Args:
         file_content: Raw bytes of the input file
         filename: Original filename
-        input_format: Input format (e.g., 'xlsx', 'xls')
+        input_format: Input format (e.g., 'xlsx', 'xls', 'ods')
         output_format: Desired output format (e.g., 'md', 'txt')
 
     Returns:

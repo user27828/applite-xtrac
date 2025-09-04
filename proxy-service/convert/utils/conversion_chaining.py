@@ -14,6 +14,16 @@ from fastapi.responses import StreamingResponse
 from ..config import ConversionService
 from ..router import _get_service_client, DYNAMIC_SERVICE_URLS
 
+# Try to import unstructured functions for local markdown/text conversion
+try:
+    from unstructured.staging.base import elements_to_md, elements_to_text, dict_to_elements
+    UNSTRUCTURED_AVAILABLE = True
+except ImportError:
+    UNSTRUCTURED_AVAILABLE = False
+    elements_to_md = None
+    elements_to_text = None
+    dict_to_elements = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -134,14 +144,71 @@ async def chain_conversions(
             elif step.service == ConversionService.UNSTRUCTURED_IO:
                 # Unstructured IO conversion
                 files = {"files": (current_filename, BytesIO(current_content), f"application/{step.input_format}")}
-                data = {"output_format": step.output_format}
-                data.update(step.extra_params)
+                
+                # Special handling for markdown/text outputs from unstructured-io
+                if step.output_format in ["md", "txt"]:
+                    # For markdown/text, get JSON from unstructured-io and convert locally
+                    data = {}  # No output_format specified to get JSON
+                    
+                    response = await client.post(
+                        f"{service_url}/general/v0/general",
+                        files=files,
+                        data=data
+                    )
+                    
+                    if response.status_code == 200:
+                        # Convert JSON response to elements and then to markdown/text
+                        json_data = response.json()
+                        
+                        # Check if unstructured library is available
+                        if not UNSTRUCTURED_AVAILABLE:
+                            raise HTTPException(
+                                status_code=503, 
+                                detail="Unstructured library not available for local markdown/text conversion"
+                            )
+                        
+                        # Convert JSON to elements - json_data is already a list of element dicts
+                        elements = dict_to_elements(json_data)
+                        
+                        # Convert to markdown or text
+                        if step.output_format == "md":
+                            content = elements_to_md(elements)
+                            media_type = "text/markdown"
+                        else:  # txt
+                            content = elements_to_text(elements)
+                            media_type = "text/plain"
+                        
+                        # Generate output filename
+                        base_name = current_filename.rsplit(".", 1)[0] if "." in current_filename else current_filename
+                        output_filename = f"{base_name}.{step.output_format}"
+                        
+                        # Return the converted content
+                        current_content = content.encode('utf-8')
+                        current_filename = output_filename
+                        continue  # Skip the rest of the loop and continue to next step
+                            
+                    else:
+                        raise HTTPException(
+                            status_code=response.status_code,
+                            detail=f"Unstructured-IO service error: {response.text}"
+                        )
+                else:
+                    # Regular unstructured-io conversion
+                    # Map output_format to MIME types for Unstructured-IO (same as _convert_file)
+                    mime_mapping = {
+                        "json": "application/json",
+                        "md": "text/markdown", 
+                        "txt": "text/plain"
+                    }
+                    unstructured_output_format = mime_mapping.get(step.output_format, step.output_format)
+                    data = {"output_format": unstructured_output_format}
+                    data.update(step.extra_params)
 
-                response = await client.post(
-                    f"{service_url}/general/v0/general",
-                    files=files,
-                    data=data
-                )
+                    response = await client.post(
+                        f"{service_url}/general/v0/general",
+                        files=files,
+                        data=data
+                    )
 
             elif step.service == ConversionService.GOTENBERG:
                 # Gotenberg conversion

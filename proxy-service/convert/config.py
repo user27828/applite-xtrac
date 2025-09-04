@@ -145,6 +145,9 @@ CONVERSION_MATRIX = {
     ("msg", "json"): [
         (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Outlook message structure extraction"),
     ],
+    ("odt", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "OpenDocument structure extraction"),
+    ],
 
     # URL Input Conversions
     ("url", "pdf"): [
@@ -213,6 +216,10 @@ CONVERSION_MATRIX = {
     ],
     ("epub", "md"): [
         (ConversionService.PANDOC, ConversionPriority.PRIMARY, "E-book to Markdown"),
+    ],
+    ("odt", "md"): [
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "OpenDocument to Markdown"),
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.SECONDARY, "Structure extraction only"),
     ],
 
     # HTML Output Conversions
@@ -294,10 +301,20 @@ CONVERSION_MATRIX = {
     ("pages", "txt"): [
         (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Pages to TXT via LibreOffice")
     ],
+    ("odt", "txt"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "OpenDocument to Text"),
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.SECONDARY, "Text extraction"),
+        (ConversionService.PANDOC, ConversionPriority.TERTIARY, "OpenDocument to Text"),
+    ],
 
     # Apple Pages to Markdown (Chained conversion: Pages → DOCX → Markdown)
     ("pages", "md"): [
         (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Pages to Markdown (chained: LibreOffice → Pandoc)"),
+    ],
+
+    # Apple Pages to JSON (Chained conversion: Pages → DOCX → JSON)
+    ("pages", "json"): [
+        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Apple Pages to JSON via chained conversion"),
     ],
 
     # Excel to Markdown/Text Conversions (Custom implementation)
@@ -312,6 +329,32 @@ CONVERSION_MATRIX = {
     ],
     ("xls", "txt"): [
         (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Legacy Excel to Text via local processing"),
+    ],
+    ("ods", "html"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "OpenDocument spreadsheet to HTML"),
+    ],
+    ("ods", "md"): [
+        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "ODS to Markdown via local processing"),
+    ],
+    ("ods", "txt"): [
+        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "ODS to Text via local processing"),
+    ],
+
+    # Apple Numbers Conversions
+    ("numbers", "txt"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Numbers to Text via LibreOffice"),
+    ],
+    ("numbers", "md"): [
+        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Apple Numbers to Markdown via chained conversion"),
+    ],
+    ("numbers", "html"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Numbers to HTML via LibreOffice"),
+    ],
+    ("numbers", "json"): [
+        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Apple Numbers to JSON via local processing"),
+    ],
+    ("numbers", "xlsx"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Numbers to Excel via LibreOffice"),
     ],
 }
 
