@@ -259,18 +259,26 @@ start_local_proxy() {
         source venv/bin/activate
     fi
     
-    # Set environment variables for local development
+    # Set environment variables for local development with network optimizations
     export APPLITE_CONVERT_PORT=8369
     export UNSTRUCTURED_IO_URL="http://localhost:8000"
-    export LIBREOFFICE_URL="http://localhost:3000" 
+    export LIBREOFFICE_URL="http://localhost:2004" 
     export PANDOC_URL="http://localhost:3030"
     export GOTENBERG_URL="http://localhost:3001"
+    
+    # Network optimization environment variables for Docker communication
+    export HTTPX_TIMEOUT="15.0"           # Shorter timeout for dev mode
+    export HTTPX_CONNECT_TIMEOUT="5.0"    # Faster connection timeout
+    export HTTPX_READ_TIMEOUT="10.0"      # Shorter read timeout
+    export HTTPX_POOL_TIMEOUT="3.0"       # Faster pool timeout
+    export DISABLE_IPV6="true"            # Force IPv4 only to avoid DNS conflicts
+    export DOCKER_NETWORK_MODE="bridge"   # Explicit bridge mode
     
     log_info "Starting proxy service locally on port 8369..."
     log_info "Press Ctrl+C to stop"
     
     # Start with auto-reload for development
-    uvicorn convert.main:app --host 0.0.0.0 --port 8369 --reload
+    uvicorn app:app --host 0.0.0.0 --port 8369 --reload --reload-exclude 'venv/'
 }
 
 # Stop development mode
@@ -336,7 +344,7 @@ main() {
         "dev")
             dev_mode
             ;;
-        "stop-dev")
+        "dev:stop")
             stop_dev_mode
             ;;
         "update")
@@ -350,7 +358,7 @@ main() {
             ;;
         *)
             log_error "Unknown command: $command"
-            echo "Usage: $0 {up|down|logs|restart|dev|stop-dev|update|resources|health}"
+            echo "Usage: $0 {up|down|logs|restart|dev|dev:stop|update|resources|health}"
             exit 1
             ;;
     esac

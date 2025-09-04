@@ -68,8 +68,8 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 
 ### Priority Formats (Documents)
 
-**Input Formats:** _\<http(s) URL\>_, `pptx`, `ppt`, `docx`, `odt`, `rtf`, `txt`, `html`, `md`, `tex`, `latex`, `pages`  
-**Output Formats:** `pdf`, `docx`, `html`, `md`, `txt`, `json`
+**Input Formats:** _\<http(s) URL\>_, `pptx`, `ppt`, `docx`, `odt`, `rtf`, `txt`, `html`, `md`, `tex`, `latex`, `pages`, `xlsx`, `xls`, `ods`, `odp`, `epub`, `eml`, `msg`  
+**Output Formats:** `pdf`, `docx`, `html`, `md`, `txt`, `json`, `tex`
 
 ### 📖 Complete Documentation
 
@@ -111,9 +111,29 @@ curl -X POST "http://localhost:8369/convert/url-md" -F "url=https://example.com"
 curl -X POST "http://localhost:8369/convert/url-txt" -F "url=https://example.com" -o webpage.txt
 ```
 
+**Convert Markdown to DOCX:**
+```bash
+curl -X POST "http://localhost:8369/convert/md-docx" -F "file=@document.md" -o document.docx
+```
+
+**Convert Apple Pages to PDF:**
+```bash
+curl -X POST "http://localhost:8369/convert/pages-pdf" -F "file=@document.pages" -o document.pdf
+```
+
+**Convert Excel to PDF:**
+```bash
+curl -X POST "http://localhost:8369/convert/xlsx-pdf" -F "file=@spreadsheet.xlsx" -o spreadsheet.pdf
+```
+
 **List all supported conversions:**
 ```bash
 curl http://localhost:8369/convert/supported
+```
+
+**Get conversion details:**
+```bash
+curl http://localhost:8369/convert/info/docx-pdf
 ```
 
 ### Service Intelligence

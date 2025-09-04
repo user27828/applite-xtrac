@@ -14,7 +14,10 @@ from io import BytesIO
 from urllib.parse import urlparse
 import re
 
-# Import Excel processing libraries
+# Import local conversion factory
+from ._local_ import LocalConversionFactory
+
+# Import Excel processing libraries (for backwards compatibility)
 try:
     import pandas as pd
     PANDAS_AVAILABLE = True
@@ -45,13 +48,13 @@ except ImportError:
     dict_to_elements = None
     UNSTRUCTURED_AVAILABLE = False
 
-from .utils.conversion_spreadsheets import convert_excel_to_format
 from .config import (
     get_primary_conversion,
     ConversionService,
-    get_supported_conversions
+    get_supported_conversions,
+    get_service_urls
 )
-from .url_helpers import (
+from .utils.url_helpers import (
     handle_url_conversion_request,
     cleanup_conversion_temp_files,
     get_url_conversion_info,
@@ -71,8 +74,23 @@ SERVICE_URLS = {
     ConversionService.LIBREOFFICE: "http://libreoffice:2004",
     ConversionService.PANDOC: "http://pandoc:3000",
     ConversionService.GOTENBERG: "http://gotenberg:3000",
-    ConversionService._LOCAL_: None  # Local processing, no URL needed
+    ConversionService.LOCAL: None  # Local processing, no URL needed
 }
+
+# Get dynamic service URLs that match the main app configuration
+def get_dynamic_service_urls():
+    """Get service URLs with the same logic as the main app"""
+    urls = get_service_urls()
+    return {
+        ConversionService.UNSTRUCTURED_IO: urls.get("unstructured-io"),
+        ConversionService.LIBREOFFICE: urls.get("libreoffice"),
+        ConversionService.PANDOC: urls.get("pandoc"),
+        ConversionService.GOTENBERG: urls.get("gotenberg"),
+        ConversionService.LOCAL: None
+    }
+
+# Use dynamic URLs
+DYNAMIC_SERVICE_URLS = get_dynamic_service_urls()
 
 
 def validate_url(url: str) -> bool:
@@ -166,7 +184,7 @@ async def _convert_file(
         client = await _get_service_client(service, request)
 
         # Prepare request based on service
-        service_url = SERVICE_URLS[service]
+        service_url = DYNAMIC_SERVICE_URLS[service]
 
         if service == ConversionService.UNSTRUCTURED_IO:
             # Unstructured IO now supports URLs through fetching
@@ -336,15 +354,16 @@ async def _convert_file(
                     files=files
                 )
 
-        elif service == ConversionService._LOCAL_:
-            # Local processing - handle Excel files using local conversion functions
+        elif service == ConversionService.LOCAL:
+            # Local processing - handle files using local conversion factory
             if not file:
                 raise HTTPException(status_code=400, detail="Local processing only supports file input")
             
             file_content = await file.read()
             
-            # Use the local Excel conversion function
-            content, media_type, output_filename = convert_excel_to_format(file_content, file.filename, output_format)
+            # Use the local conversion factory
+            factory = LocalConversionFactory()
+            content, media_type, output_filename = factory.convert(file_content, file.filename, input_format, output_format)
             
             # Return directly as StreamingResponse (skip the normal response handling)
             return StreamingResponse(
@@ -591,7 +610,8 @@ async def convert_xls_to_pdf(request: Request, file: UploadFile = File(...)):
 async def convert_xls_to_md(request: Request, file: UploadFile = File(...)):
     """Convert XLS to Markdown (Legacy spreadsheet to Markdown)"""
     file_content = await file.read()
-    content, media_type, output_filename = convert_excel_to_format(file_content, file.filename, "md")
+    factory = LocalConversionFactory()
+    content, media_type, output_filename = factory.convert(file_content, file.filename, "xls", "md")
     return StreamingResponse(
         BytesIO(content.encode('utf-8')),
         media_type=media_type,
@@ -603,7 +623,8 @@ async def convert_xls_to_md(request: Request, file: UploadFile = File(...)):
 async def convert_xls_to_txt(request: Request, file: UploadFile = File(...)):
     """Convert XLS to Text (Legacy spreadsheet to Text)"""
     file_content = await file.read()
-    content, media_type, output_filename = convert_excel_to_format(file_content, file.filename, "txt")
+    factory = LocalConversionFactory()
+    content, media_type, output_filename = factory.convert(file_content, file.filename, "xls", "txt")
     return StreamingResponse(
         BytesIO(content.encode('utf-8')),
         media_type=media_type,
@@ -615,7 +636,8 @@ async def convert_xls_to_txt(request: Request, file: UploadFile = File(...)):
 async def convert_xlsx_to_md(request: Request, file: UploadFile = File(...)):
     """Convert XLSX to Markdown (Spreadsheet to Markdown)"""
     file_content = await file.read()
-    content, media_type, output_filename = convert_excel_to_format(file_content, file.filename, "md")
+    factory = LocalConversionFactory()
+    content, media_type, output_filename = factory.convert(file_content, file.filename, "xlsx", "md")
     return StreamingResponse(
         BytesIO(content.encode('utf-8')),
         media_type=media_type,
@@ -627,12 +649,27 @@ async def convert_xlsx_to_md(request: Request, file: UploadFile = File(...)):
 async def convert_xlsx_to_txt(request: Request, file: UploadFile = File(...)):
     """Convert XLSX to Text (Spreadsheet to Text)"""
     file_content = await file.read()
-    content, media_type, output_filename = convert_excel_to_format(file_content, file.filename, "txt")
+    factory = LocalConversionFactory()
+    content, media_type, output_filename = factory.convert(file_content, file.filename, "xlsx", "txt")
     return StreamingResponse(
         BytesIO(content.encode('utf-8')),
         media_type=media_type,
         headers={"Content-Disposition": f"attachment; filename={output_filename}"}
     )
+
+
+@router.post("/xlsx-html")
+async def convert_xlsx_to_html(request: Request, file: UploadFile = File(...)):
+    """Convert XLSX to HTML (Spreadsheet to HTML)"""
+    service, description = get_primary_conversion("xlsx", "html") or (ConversionService.LIBREOFFICE, "Fallback")
+    return await _convert_file(request, file=file, input_format="xlsx", output_format="html", service=service)
+
+
+@router.post("/xls-html")
+async def convert_xls_to_html(request: Request, file: UploadFile = File(...)):
+    """Convert XLS to HTML (Legacy spreadsheet to HTML)"""
+    service, description = get_primary_conversion("xls", "html") or (ConversionService.LIBREOFFICE, "Fallback")
+    return await _convert_file(request, file=file, input_format="xls", output_format="html", service=service)
 
 
 # Apple Pages Conversions
@@ -662,6 +699,47 @@ async def convert_pages_to_txt(request: Request, file: UploadFile = File(...)):
     """Convert Apple Pages to TXT"""
     service, description = get_primary_conversion("pages", "txt") or (ConversionService.LIBREOFFICE, "Fallback")
     return await _convert_file(request, file=file, input_format="pages", output_format="txt", service=service)
+
+
+@router.post("/pages-md")
+async def convert_pages_to_md(request: Request, file: UploadFile = File(...)):
+    """Convert Apple Pages to Markdown (chained conversion: Pages → DOCX → Markdown)"""
+    try:
+        # Read the uploaded file
+        file_content = await file.read()
+
+        # Define the conversion chain
+        from .utils.conversion_chaining import chain_conversions, ConversionStep
+
+        conversion_steps = [
+            ConversionStep(
+                service=ConversionService.LIBREOFFICE,
+                input_format="pages",
+                output_format="docx",
+                description="Convert Apple Pages to DOCX using LibreOffice"
+            ),
+            ConversionStep(
+                service=ConversionService.PANDOC,
+                input_format="docx",
+                output_format="md",
+                extra_params={"extra_args": "--from=docx"},
+                description="Convert DOCX to Markdown using Pandoc"
+            )
+        ]
+
+        # Execute the chained conversion
+        return await chain_conversions(
+            request=request,
+            initial_file_content=file_content,
+            initial_filename=file.filename,
+            conversion_steps=conversion_steps,
+            final_output_format="md",
+            final_content_type="text/markdown"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in pages_to_md conversion: {e}")
+        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
 
 
 # URL-based conversion endpoints

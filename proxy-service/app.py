@@ -20,6 +20,9 @@ except ImportError:
 # Import the conversion router
 from convert.router import router as convert_router
 
+# Import service URL configuration
+from convert.config import get_service_urls
+
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -86,11 +89,58 @@ async def check_unstructured_io_health(client: httpx.AsyncClient, service_url: s
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create shared AsyncClients with different timeouts for different services
-    app.state.client = httpx.AsyncClient(timeout=30.0)  # General client with 30s timeout
-    app.state.libreoffice_client = httpx.AsyncClient(timeout=120.0)  # LibreOffice needs longer timeout
-    app.state.gotenberg_client = httpx.AsyncClient(timeout=60.0, 
-                                                     transport=httpx.AsyncHTTPTransport(retries=1))  # Gotenberg client
+    # Create shared AsyncClients optimized for Docker networking
+    # Connection limits and keepalive for better performance with containers
+    limits = httpx.Limits(
+        max_keepalive_connections=20,  # Keep connections alive
+        max_connections=100,           # Total connection limit
+        keepalive_expiry=30.0          # Keep connections alive for 30s
+    )
+
+    # Transport with Docker networking optimizations
+    transport = httpx.AsyncHTTPTransport(limits=limits)
+
+    # Optimized timeouts for dev mode (faster than production)
+    dev_timeout = httpx.Timeout(
+        connect=5.0,    # Faster connection timeout
+        read=15.0,      # Shorter read timeout
+        write=10.0,     # Shorter write timeout
+        pool=5.0        # Shorter pool timeout
+    )
+
+    app.state.client = httpx.AsyncClient(
+        timeout=dev_timeout,
+        transport=transport,
+        # Disable automatic redirects to reduce latency
+        follow_redirects=False
+    )
+
+    # LibreOffice needs longer timeouts due to document processing
+    libreoffice_timeout = httpx.Timeout(
+        connect=5.0,
+        read=30.0,      # Longer for document processing
+        write=15.0,
+        pool=5.0
+    )
+    app.state.libreoffice_client = httpx.AsyncClient(
+        timeout=libreoffice_timeout,
+        transport=transport,
+        follow_redirects=False 
+    )
+
+    # Gotenberg client with optimized settings
+    gotenberg_timeout = httpx.Timeout(
+        connect=5.0,
+        read=20.0,      # Medium timeout for PDF processing
+        write=15.0,
+        pool=5.0
+    )
+    app.state.gotenberg_client = httpx.AsyncClient(
+        timeout=gotenberg_timeout,
+        transport=httpx.AsyncHTTPTransport(limits=limits),
+        follow_redirects=False
+    )
+
     try:
         yield
     finally:
@@ -104,14 +154,8 @@ app = FastAPI(lifespan=lifespan)
 # Include the conversion router
 app.include_router(convert_router)
 
-# Service URLs - using localhost since all services run on host network
-SERVICES = {
-    # Use service DNS names available on the compose network
-    "unstructured-io": "http://unstructured-io:8000",
-    "libreoffice": "http://libreoffice:2004",
-    "pandoc": "http://pandoc:3000",
-    "gotenberg": "http://gotenberg:3000"
-}
+# Service URLs - with fallback mechanism for different environments
+SERVICES = get_service_urls()
 
 @app.get("/ping")
 async def general_ping():
@@ -215,19 +259,17 @@ async def service_ping(service: str, request: Request):
     if service not in SERVICES:
         return JSONResponse(status_code=404, content={"error": "Service not found"})
     
-    # Change here: use the proxied URL for ping
-    service_url = f"http://localhost:8369/{service}"
+    # Use the same logic as ping-all: ping the internal service directly
+    service_url = SERVICES[service]
     
     try:
-        # Select appropriate client for the service
+        # Select appropriate client for the service (same as ping-all)
         if service == "libreoffice":
             ping_client = app.state.libreoffice_client
         elif service == "gotenberg":
             ping_client = app.state.gotenberg_client
-        elif service == "unstructured-io":
-            ping_client = request.app.state.client  # Use the main client for unstructured-io
         else:
-            ping_client = httpx.AsyncClient(timeout=5.0)
+            ping_client = request.app.state.client
         
         if service == "unstructured-io":
             # Use centralized health check function
@@ -237,17 +279,21 @@ async def service_ping(service: str, request: Request):
             else:
                 return JSONResponse(status_code=503, content={"success": False, "error": f"Service {service} unhealthy (status: {status_code})"})
         elif service == "libreoffice":
-            # Use GET request to root endpoint for LibreOffice REST API health check
+            # Attempt GET to root; 404 is expected and indicates the service is running
             response = await ping_client.get(f"{service_url}/")
+            # For libreoffice, 404 is actually healthy
+            if response.status_code == 404:
+                return {"success": True, "data": "PONG!", "service": service}
+            else:
+                # For any other status code, treat as unhealthy
+                return JSONResponse(status_code=503, content={"success": False, "error": f"Service {service} unhealthy (status: {response.status_code})"})
         elif service == "pandoc":
-            # Use our custom ping endpoint
             response = await ping_client.get(f"{service_url}/ping")
         elif service == "gotenberg":
             # Gotenberg should respond with 200 OK to a GET request to /
-            # Use a fresh client for Gotenberg to avoid any context issues
-            async with httpx.AsyncClient(timeout=10.0) as fresh_client:
-                response = await fresh_client.get(f"{service_url}/")
+            response = await ping_client.get(f"{service_url}/")
         
+        # Check response status (same logic as ping-all)
         if response.status_code < 400 or (service == "unstructured-io" and response.status_code == 405):
             return {"success": True, "data": "PONG!", "service": service}
         else:
@@ -255,10 +301,6 @@ async def service_ping(service: str, request: Request):
     
     except httpx.RequestError as e:
         return JSONResponse(status_code=503, content={"success": False, "error": f"Service {service} unreachable"})
-    finally:
-        # Close the client if it was created locally (not from app.state)
-        if 'ping_client' in locals() and ping_client not in [app.state.libreoffice_client, app.state.gotenberg_client, request.app.state.client]:
-            await ping_client.aclose()
 
 @app.post("/unstructured-io-md")
 async def unstructured_to_markdown(request: Request, file: UploadFile = File(...)):

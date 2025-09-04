@@ -4,26 +4,58 @@ This document provides a comprehensive overview of supported file formats across
 
 ## 📋 Table of Contents
 
+- [Format Support Matrix](#format-support-matrix)
+  - [📋 Table of Contents](#-table-of-contents)
 - [Service Overview](#service-overview)
-- [Comprehensive Format Support](#comprehensive-format-support)
-  - [Text Documents](#text-documents)
-  - [Spreadsheets](#spreadsheets)
-  - [Presentations](#presentations)
-  - [E-books and Publishing](#e-books-and-publishing)
-  - [Email and Communications](#email-and-communications)
-  - [Images and Graphics](#images-and-graphics)
-  - [Legacy and Specialized Formats](#legacy-and-specialized-formats)
-- [Output Format Support](#output-format-support)
-- [Conversion Gaps and Limitations](#conversion-gaps-and-limitations)
-- [Recommended Conversion Workflows](#recommended-conversion-workflows)
-- [🔄 Conversion API Endpoints](#🔄-conversion-api-endpoints)
-  - [Priority Focus](#🎯-priority-focus-resumecv-cover-letter-formats)
-  - [Available Endpoints](#📋-available-endpoints)
-  - [Usage Examples](#💡-usage-examples)
-  - [Service Intelligence](#🧠-service-intelligence)
-  - [Configuration](#⚙️-configuration)
-- [Future Enhancement Opportunities](#future-enhancement-opportunities)
-- [📚 Navigation](#📚-navigation)
+  - [Master Format Support Matrix](#master-format-support-matrix)
+  - [Comprehensive Format Support](#comprehensive-format-support)
+    - [Text Documents](#text-documents)
+    - [Spreadsheets](#spreadsheets)
+    - [Presentations](#presentations)
+    - [E-books and Publishing](#e-books-and-publishing)
+    - [Email and Communications](#email-and-communications)
+    - [Images and Graphics](#images-and-graphics)
+    - [Legacy and Specialized Formats](#legacy-and-specialized-formats)
+  - [Output Format Support](#output-format-support)
+    - [Primary Output Formats](#primary-output-formats)
+    - [Specialized Output Formats](#specialized-output-formats)
+  - [Conversion Gaps and Limitations](#conversion-gaps-and-limitations)
+    - [Critical Gaps (No Service Support)](#critical-gaps-no-service-support)
+    - [Limited Support Gaps](#limited-support-gaps)
+    - [Service-Specific Limitations](#service-specific-limitations)
+  - [Recommended Conversion Workflows](#recommended-conversion-workflows)
+    - [For Office Documents → PDF](#for-office-documents--pdf)
+    - [For Markup → Office Documents](#for-markup--office-documents)
+    - [For Mixed Content](#for-mixed-content)
+    - [For Web Content](#for-web-content)
+  - [Future Enhancement Opportunities](#future-enhancement-opportunities)
+- [🔄 Conversion API Endpoints](#-conversion-api-endpoints)
+  - [🎯 Priority Focus: Resume/CV/Cover Letter Formats](#-priority-focus-resumecvcover-letter-formats)
+    - [Priority Input Formats](#priority-input-formats)
+    - [Priority Output Formats](#priority-output-formats)
+  - [📋 Complete Conversion Matrix](#-complete-conversion-matrix)
+    - [PDF Output Conversions (High Priority)](#pdf-output-conversions-high-priority)
+    - [JSON Structure Extraction](#json-structure-extraction)
+    - [URL-Based Conversions](#url-based-conversions)
+    - [DOCX Output Conversions](#docx-output-conversions)
+    - [Markdown Output Conversions](#markdown-output-conversions)
+    - [HTML Output Conversions](#html-output-conversions)
+    - [LaTeX Output Conversions](#latex-output-conversions)
+    - [Plain Text Output Conversions](#plain-text-output-conversions)
+  - [🔍 Utility Endpoints](#-utility-endpoints)
+  - [💡 Usage Examples](#-usage-examples)
+    - [Convert a DOCX Resume to PDF](#convert-a-docx-resume-to-pdf)
+    - [Extract PDF Structure](#extract-pdf-structure)
+    - [Convert URL to PDF](#convert-url-to-pdf)
+    - [Convert Markdown to DOCX](#convert-markdown-to-docx)
+    - [List All Supported Conversions](#list-all-supported-conversions)
+  - [🧠 Service Intelligence](#-service-intelligence)
+  - [⚠️ Error Handling](#️-error-handling)
+  - [📏 File Size Limits](#-file-size-limits)
+  - [📤 Response Format](#-response-format)
+  - [⚙️ Configuration](#️-configuration)
+  - [🧪 Testing](#-testing)
+  - [📚 Navigation](#-navigation)
 
 ---
 
@@ -35,6 +67,48 @@ This document provides a comprehensive overview of supported file formats across
 | **LibreOffice** | Office document conversion | Extensive office formats (DOC, DOCX, XLS, XLSX, PPT, PPTX, ODT, ODS, ODP, etc.) | PDF, HTML, DOCX, ODT, and many others |
 | **Pandoc** | Universal document conversion | Markdown, HTML, LaTeX, DOCX, ODT, RST, AsciiDoc, and 40+ formats | PDF, HTML, DOCX, LaTeX, Markdown, and 50+ formats |
 | **Gotenberg** | HTML and office document to PDF conversion | HTML, URLs, DOCX, XLSX, PPTX, and other office formats | PDF |
+
+## Master Format Support Matrix
+
+| Input → Output | PDF | DOCX | HTML | MD | TEX | TXT | JSON |
+|----------------|-----|------|------|----|-----|-----|------|
+| .asciidoc | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ |
+| .csv | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
+| .dbf | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| .doc | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ |
+| .docx | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| .eml | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| .epub | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ |
+| .fb2 | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ |
+| .gnumeric | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| .heic | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| .html | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| .jpg | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| .key | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| .latex | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ |
+| .md | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ |
+| .msg | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| .odp | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| .ods | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| .odt | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| .org | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ |
+| .pages | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
+| .parquet | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| .pdf | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
+| .png | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| .ppt | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
+| .pptx | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
+| .rst | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ |
+| .rtf | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
+| .tex | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ |
+| .textile | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ |
+| .tsv | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
+| .txt | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
+| .url | ✅ | ❌ | ❌ | ✅ | ❌ | ✅ | ✅ |
+| .wiki | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ |
+| .xls | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| .xlsx | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
+
 
 ## Comprehensive Format Support
 
@@ -116,16 +190,16 @@ This document provides a comprehensive overview of supported file formats across
 ## Output Format Support
 
 ### Primary Output Formats
-| Format | Unstructured IO | LibreOffice | Pandoc | Gotenberg | Use Case |
-|--------|----------------|-------------|--------|-----------|----------|
-| PDF | ❌ | ✅ | ✅ | ✅ | Universal document format - Gotenberg provides high-fidelity HTML/CSS to PDF |
-| HTML | ❌ | ✅ | ✅ | ✅ | Web publishing |
-| DOCX | ❌ | ✅ | ✅ | ❌ | Modern Word format |
-| ODT | ❌ | ✅ | ✅ | ❌ | Open document format |
-| Markdown | ❌ | ❌ | ✅ | ❌ | Lightweight markup |
-| LaTeX | ❌ | ❌ | ✅ | ❌ | Academic publishing |
-| Plain Text | ❌ | ✅ | ✅ | ❌ | Simple text output |
-| JSON | ✅ | ❌ | ❌ | ❌ | Structured data extraction |
+| Format | Unstructured IO | LibreOffice | Pandoc | Gotenberg |
+|--------|----------------|-------------|--------|-----------|
+| PDF | ❌ | ✅ | ✅ | ✅ |
+| HTML | ❌ | ✅ | ✅ | ✅ |
+| DOCX | ❌ | ✅ | ✅ | ❌ |
+| ODT | ❌ | ✅ | ✅ | ❌ |
+| Markdown | ❌ | ❌ | ✅ | ❌ |
+| LaTeX | ❌ | ❌ | ✅ | ❌ |
+| Plain Text | ❌ | ✅ | ✅ | ❌ |
+| JSON | ✅ | ❌ | ❌ | ❌ |
 
 ### Specialized Output Formats
 | Format | Service | Notes |
@@ -243,8 +317,10 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 - `docx`, `odt`, `rtf` - Word processing documents
 - `html` - Web content
 - `md` - Markdown
-- `tex` - LaTeX
+- `tex`, `latex` - Academic content
 - `txt` - Plain text
+- `pages` - Apple Pages documents
+- `url` - Web URLs
 
 ### Priority Output Formats
 - `pdf` - Universal document format
@@ -254,64 +330,123 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 - `txt` - Plain text
 - `json` - Structured data
 
-## 📋 Available Endpoints
+## 📋 Complete Conversion Matrix
 
 ### PDF Output Conversions (High Priority)
 
-| Endpoint | Description | Primary Service | Use Case |
-|----------|-------------|----------------|----------|
-| `POST /convert/docx-pdf` | DOCX to PDF | Gotenberg | Resume/CV conversion |
-| `POST /convert/pptx-pdf` | PPTX to PDF | Gotenberg | Presentation portfolios |
-| `POST /convert/ppt-pdf` | PPT to PDF | LibreOffice | Legacy presentation |
-| `POST /convert/html-pdf` | HTML to PDF | Gotenberg | Web resumes/profiles |
-| `POST /convert/md-pdf` | Markdown to PDF | Pandoc | Technical resumes |
-| `POST /convert/tex-pdf` | LaTeX to PDF | Pandoc | Academic content |
-| `POST /convert/txt-pdf` | Text to PDF | LibreOffice | Simple text to PDF |
-| `POST /convert/rtf-pdf` | RTF to PDF | LibreOffice | Legacy text format |
-| `POST /convert/odt-pdf` | ODT to PDF | LibreOffice | Open document |
+| Input → PDF | Primary Service | Description |
+|-------------|----------------|-------------|
+| `docx-pdf` | Gotenberg | DOCX to PDF |
+| `pptx-pdf` | Gotenberg | PPTX to PDF |
+| `ppt-pdf` | LibreOffice | PPT to PDF |
+| `html-pdf` | Gotenberg | HTML to PDF |
+| `md-pdf` | Pandoc | Markdown to PDF |
+| `tex-pdf` | Pandoc | LaTeX to PDF |
+| `latex-pdf` | Pandoc | LaTeX to PDF |
+| `txt-pdf` | LibreOffice | Text to PDF |
+| `rtf-pdf` | LibreOffice | RTF to PDF |
+| `odt-pdf` | LibreOffice | ODT to PDF |
+| `xlsx-pdf` | Gotenberg | XLSX to PDF |
+| `xls-pdf` | LibreOffice | XLS to PDF |
+| `ods-pdf` | LibreOffice | ODS to PDF |
+| `odp-pdf` | LibreOffice | ODP to PDF |
+| `epub-pdf` | LibreOffice | EPUB to PDF |
+| `pages-pdf` | LibreOffice | Apple Pages to PDF |
 
 ### JSON Structure Extraction
 
-| Endpoint | Description | Primary Service | Use Case |
-|----------|-------------|----------------|----------|
-| `POST /convert/docx-json` | DOCX to JSON | Unstructured IO | Document analysis |
-| `POST /convert/pdf-json` | PDF to JSON | Unstructured IO | Document analysis |
-| `POST /convert/pptx-json` | PPTX to JSON | Unstructured IO | Presentation analysis |
-| `POST /convert/html-json` | HTML to JSON | Unstructured IO | Web content analysis |
+| Input → JSON | Primary Service | Description |
+|--------------|----------------|-------------|
+| `docx-json` | Unstructured IO | DOCX structure extraction |
+| `pdf-json` | Unstructured IO | PDF structure extraction |
+| `pptx-json` | Unstructured IO | PPTX structure extraction |
+| `ppt-json` | Unstructured IO | PPT structure extraction |
+| `xlsx-json` | Unstructured IO | XLSX structure extraction |
+| `html-json` | Unstructured IO | HTML structure extraction |
+| `epub-json` | Unstructured IO | EPUB structure extraction |
+| `rtf-json` | Unstructured IO | RTF structure extraction |
+| `txt-json` | Unstructured IO | Text structure extraction |
+| `eml-json` | Unstructured IO | Email structure extraction |
+| `msg-json` | Unstructured IO | Outlook message extraction |
 
-### Markdown Conversions
+### URL-Based Conversions
 
-| Endpoint | Description | Primary Service | Use Case |
-|----------|-------------|----------------|----------|
-| `POST /convert/docx-md` | DOCX to Markdown | Pandoc | Content extraction |
-| `POST /convert/html-md` | HTML to Markdown | Pandoc | Content extraction |
-| `POST /convert/pdf-md` | PDF to Markdown | Unstructured IO | Content extraction |
+| URL → Output | Primary Service | Description |
+|--------------|----------------|-------------|
+| `url-pdf` | Gotenberg | URL to PDF |
+| `url-json` | Unstructured IO | URL content structure |
+| `url-md` | Unstructured IO | URL to Markdown |
+| `url-txt` | Unstructured IO | URL to plain text |
 
-### DOCX Conversions
+### DOCX Output Conversions
 
-| Endpoint | Description | Primary Service | Use Case |
-|----------|-------------|----------------|----------|
-| `POST /convert/md-docx` | Markdown to DOCX | Pandoc | Document creation |
-| `POST /convert/html-docx` | HTML to DOCX | LibreOffice | Document creation |
-| `POST /convert/rtf-docx` | RTF to DOCX | LibreOffice | Format upgrade |
-| `POST /convert/txt-docx` | Text to DOCX | LibreOffice | Document creation |
+| Input → DOCX | Primary Service | Description |
+|--------------|----------------|-------------|
+| `md-docx` | Pandoc | Markdown to DOCX |
+| `html-docx` | LibreOffice | HTML to DOCX |
+| `pdf-docx` | LibreOffice | PDF to DOCX |
+| `rtf-docx` | LibreOffice | RTF to DOCX |
+| `txt-docx` | LibreOffice | Text to DOCX |
+| `odt-docx` | LibreOffice | ODT to DOCX |
+| `pages-docx` | LibreOffice | Apple Pages to DOCX |
 
-### Additional Conversions
+### Markdown Output Conversions
 
-| Endpoint | Description | Primary Service | Use Case |
-|----------|-------------|----------------|----------|
-| `POST /convert/xlsx-pdf` | XLSX to PDF | Gotenberg | Spreadsheet to PDF |
-| `POST /convert/xls-pdf` | XLS to PDF | LibreOffice | Legacy spreadsheet |
-| `POST /convert/epub-pdf` | EPUB to PDF | LibreOffice | E-book to PDF |
-| `POST /convert/ods-pdf` | ODS to PDF | LibreOffice | OpenDocument spreadsheet |
-| `POST /convert/odp-pdf` | ODP to PDF | LibreOffice | OpenDocument presentation |
+| Input → MD | Primary Service | Description |
+|------------|----------------|-------------|
+| `docx-md` | Pandoc | DOCX to Markdown |
+| `html-md` | Pandoc | HTML to Markdown |
+| `pdf-md` | Unstructured IO | PDF to Markdown |
+| `tex-md` | Pandoc | LaTeX to Markdown |
+| `latex-md` | Pandoc | LaTeX to Markdown |
+| `rtf-md` | Pandoc | RTF to Markdown |
+| `txt-md` | Pandoc | Text to Markdown |
+| `epub-md` | Pandoc | EPUB to Markdown |
+| `pages-md` | LibreOffice | Apple Pages to Markdown |
+
+### HTML Output Conversions
+
+| Input → HTML | Primary Service | Description |
+|--------------|----------------|-------------|
+| `docx-html` | LibreOffice | DOCX to HTML |
+| `pdf-html` | LibreOffice | PDF to HTML |
+| `md-html` | Pandoc | Markdown to HTML |
+| `tex-html` | Pandoc | LaTeX to HTML |
+| `latex-html` | Pandoc | LaTeX to HTML |
+| `rtf-html` | LibreOffice | RTF to HTML |
+| `txt-html` | LibreOffice | Text to HTML |
+| `odt-html` | LibreOffice | ODT to HTML |
+| `pages-html` | LibreOffice | Apple Pages to HTML |
+| `xlsx-html` | LibreOffice | XLSX to HTML |
+| `xls-html` | LibreOffice | XLS to HTML |
+
+### LaTeX Output Conversions
+
+| Input → TEX | Primary Service | Description |
+|-------------|----------------|-------------|
+| `md-tex` | Pandoc | Markdown to LaTeX |
+| `html-tex` | Pandoc | HTML to LaTeX |
+| `docx-tex` | Pandoc | DOCX to LaTeX |
+| `txt-tex` | Pandoc | Text to LaTeX |
+
+### Plain Text Output Conversions
+
+| Input → TXT | Primary Service | Description |
+|-------------|----------------|-------------|
+| `docx-txt` | LibreOffice | DOCX to Text |
+| `pdf-txt` | Unstructured IO | PDF to Text |
+| `html-txt` | Unstructured IO | HTML to Text |
+| `md-txt` | Pandoc | Markdown to Text |
+| `rtf-txt` | LibreOffice | RTF to Text |
+| `pages-txt` | LibreOffice | Apple Pages to Text |
 
 ## 🔍 Utility Endpoints
 
 | Endpoint | Description |
 |----------|-------------|
 | `GET /convert/supported` | Get all supported conversion pairs |
-| `GET /convert/info/{input}-{output}` | Get info about a specific conversion |
+| `GET /convert/info/{input}-{output}` | Get conversion details |
+| `GET /convert/url-info/{input}-{output}` | Get URL conversion details |
 
 ## 💡 Usage Examples
 
@@ -323,15 +458,7 @@ curl -X POST "http://localhost:8369/convert/docx-pdf" \
   -o resume.pdf
 ```
 
-### Convert a Markdown Cover Letter to DOCX
-
-```bash
-curl -X POST "http://localhost:8369/convert/md-docx" \
-  -F "file=@cover-letter.md" \
-  -o cover-letter.docx
-```
-
-### Extract Structure from a PDF
+### Extract PDF Structure
 
 ```bash
 curl -X POST "http://localhost:8369/convert/pdf-json" \
@@ -339,25 +466,38 @@ curl -X POST "http://localhost:8369/convert/pdf-json" \
   -o document-structure.json
 ```
 
-### Convert HTML Content to PDF
+### Convert URL to PDF
 
 ```bash
-curl -X POST "http://localhost:8369/convert/html-pdf" \
-  -F "file=@webpage.html" \
+curl -X POST "http://localhost:8369/convert/url-pdf" \
+  -F "url=https://example.com" \
   -o webpage.pdf
+```
+
+### Convert Markdown to DOCX
+
+```bash
+curl -X POST "http://localhost:8369/convert/md-docx" \
+  -F "file=@document.md" \
+  -o document.docx
+```
+
+### List All Supported Conversions
+
+```bash
+curl http://localhost:8369/convert/supported
 ```
 
 ## 🧠 Service Intelligence
 
-Each endpoint automatically selects the optimal service based on quality and reliability:
+Each endpoint automatically selects the optimal service:
 
-### Primary Service Preferences
-
-- **PDF Output**: Gotenberg (highest quality for HTML/DOCX/PPTX/XLSX) → LibreOffice → Pandoc
+- **PDF Output**: Gotenberg (highest quality for HTML/DOCX/PPTX/XLSX)
 - **JSON Output**: Unstructured IO (best structure extraction)
-- **DOCX Output**: LibreOffice (office formats) → Pandoc (markup formats)
-- **Markdown Output**: Pandoc (native support) → Unstructured IO (fallback)
-- **HTML Output**: LibreOffice (office formats) → Pandoc (markup formats)
+- **DOCX Output**: LibreOffice or Pandoc (format-specific optimization)
+- **URL Input**: Gotenberg for PDF, Unstructured IO for JSON/Markdown/Text
+- **Markdown/LaTeX**: Pandoc (native support)
+- **Legacy Formats**: LibreOffice (broadest compatibility)
 
 ## ⚠️ Error Handling
 

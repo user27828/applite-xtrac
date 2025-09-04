@@ -1,7 +1,6 @@
 # AppLite-Convert: Docker Compose configuration (compatible with both Docker and Podman)
 # Use with: docker-compose up --build
 # Or with Podman: podman-compose up --build
-version: '3.8'
 
 services:
   unstructured-io:
@@ -57,3 +56,9 @@ services:
 networks:
   app-network:
     driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: applite-bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1

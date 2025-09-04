@@ -20,7 +20,7 @@ from .url_fetcher import (
     should_use_url_fetch,
     URLFetchError
 )
-from .config import get_supported_conversions
+from ..config import get_supported_conversions
 
 logger = logging.getLogger(__name__)
 

@@ -1,6 +1,6 @@
-# Docker Setup Guide
+# Docker Setup Guide for AppLite Convert
 
-This guide provides comprehensive instructions for setting up Docker in different environments. Docker Desktop on Windows automatically exposes Docker runtimes to WSL distributions, while Ubuntu/Debian systems require direct Docker Engine installation.
+This guide provides comprehensive instructions for setting up Docker in different environments to run the AppLite Convert multi-service document processing API. Docker Desktop on Windows automatically exposes Docker runtimes to WSL distributions, while Ubuntu/Debian systems require direct Docker Engine installation.
 
 ## 1. Windows + WSL (Docker Desktop)
 
@@ -97,7 +97,62 @@ curl -fsSL https://get.docker.com -o get-docker.sh
 sudo sh get-docker.sh
 ```
 
-## 3. Using Docker Compose
+## 3. AppLite Convert Setup
+
+### Clone and Setup Project
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd applite-convert
+
+# Make scripts executable
+chmod +x docker-run.sh test-network-performance.sh
+
+# Start development mode (recommended for development)
+./docker-run.sh dev
+
+# Or start all services in containers
+./docker-run.sh up
+```
+
+### Development Mode vs Production Mode
+
+**Development Mode** (`./docker-run.sh dev`):
+- Proxy service runs locally on host (port 8369)
+- Conversion services run in Docker containers
+- Hot reload enabled for proxy development
+- Faster for development workflow
+- **Recommended for development**
+
+**Production Mode** (`./docker-run.sh up`):
+- All services run in Docker containers
+- Complete container isolation
+- Better for production deployment
+- Slower startup but more stable
+
+### Network Configuration
+
+The project uses optimized Docker networking:
+
+```yaml
+networks:
+  app-network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: applite-bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
+```
+
+This configuration provides:
+- **Custom bridge network** for better isolation
+- **Optimized IP addressing** to avoid conflicts
+- **Performance improvements** for host-container communication
+
+## 4. Using Docker Compose
 
 Both setups support Docker Compose:
 
@@ -113,19 +168,49 @@ docker compose up
 docker-compose up
 ```
 
-## 4. Troubleshooting
+### Available Commands
+
+```bash
+# Development mode (recommended)
+./docker-run.sh dev
+
+# Production mode
+./docker-run.sh up
+
+# Stop all services
+./docker-run.sh down
+
+# View logs
+./docker-run.sh logs
+
+# Check service status
+./docker-run.sh status
+
+# Test network performance
+./test-network-performance.sh
+```
+
+## 5. Troubleshooting
 
 ### WSL-Specific Issues
 
 - **WSL version**: Ensure you're using WSL 2 (run `wsl -l -v` to check)
 - **Integration not working**: Restart Docker Desktop and WSL terminal
 - **File permissions**: Ensure your user has access to Docker socket
+- **Slow performance**: Store project files in WSL filesystem (`~/project`) not Windows mounts (`/mnt/c/`)
 
 ### Ubuntu/Debian Issues
 
 - **Permission denied**: Run with `sudo` or add user to docker group
 - **Service not starting**: `sudo systemctl start docker`
 - **Firewall conflicts**: Docker may conflict with ufw/firewalld
+
+### AppLite Convert Specific Issues
+
+- **Port conflicts**: Check if ports 8000, 2004, 3000, 3001, 8369 are available
+- **Slow responses**: Run `./test-network-performance.sh` to diagnose network issues
+- **Container startup failures**: Check Docker Desktop resource allocation
+- **Network timeouts**: Ensure Docker Desktop networking is properly configured
 
 ### General Troubleshooting
 
@@ -138,11 +223,70 @@ sudo journalctl -u docker
 
 # Test basic functionality
 docker run --rm hello-world
+
+# Check AppLite Convert services
+curl http://localhost:8369/ping
+curl http://localhost:8369/ping-all
 ```
 
-## 5. Best Practices
+## 6. Performance Optimization
+
+### Docker Desktop Settings
+
+For optimal performance with AppLite Convert:
+
+1. **Resources** → **Advanced**:
+   - Allocate at least 4GB RAM
+   - Allocate at least 2 CPU cores
+   - Allocate at least 20GB disk space
+
+2. **Docker Engine** (Advanced):
+   ```json
+   {
+     "features": {
+       "buildkit": true
+     },
+     "builder": {
+       "gc": {
+         "enabled": true,
+         "defaultKeepStorage": "20GB"
+       }
+     }
+   }
+   ```
+
+### Network Optimization
+
+The project includes network optimizations for development:
+
+- **Connection pooling** to reduce latency
+- **Keep-alive connections** for better performance
+- **IPv4 prioritization** to avoid DNS resolution delays
+- **Optimized timeouts** for development workflow
+
+### Development Workflow
+
+```bash
+# Start development mode
+./docker-run.sh dev
+
+# Test API endpoints
+curl http://localhost:8369/ping
+curl http://localhost:8369/convert/supported
+
+# Monitor performance
+./test-network-performance.sh
+
+# View logs
+./docker-run.sh logs
+```
+
+## 7. Best Practices
 
 - **WSL**: Store source code in the Linux filesystem (`~/project`) rather than Windows mounts (`/mnt/c/`)
 - **Security**: Use Docker's built-in security features rather than relying on WSL isolation
 - **Performance**: Enable Docker Desktop's WSL 2 backend for best performance
 - **Updates**: Keep Docker Desktop updated for latest WSL integration improvements
+- **Development**: Use `./docker-run.sh dev` for development with hot reload
+- **Monitoring**: Regularly run `./test-network-performance.sh` to monitor performance
+- **Cleanup**: Use `./docker-run.sh down` to properly stop all services

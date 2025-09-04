@@ -13,13 +13,13 @@ import os
 # Add the convert module to the path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from convert.url_fetcher import (
+from convert.utils.url_fetcher import (
     fetch_url_content,
     fetch_url_to_temp_file,
     detect_content_format,
     URLFetchError
 )
-from convert.url_helpers import (
+from convert.utils.url_helpers import (
     prepare_url_for_conversion,
     validate_and_prepare_url_conversion
 )

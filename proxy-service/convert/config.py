@@ -9,13 +9,34 @@ from typing import Dict, List, Tuple, Optional
 from enum import Enum
 
 
+# Service URL Configuration
+# Define service URLs for different environments (Docker vs local development)
+SERVICE_URL_CONFIGS = {
+    "unstructured-io": {
+        "docker": "http://unstructured-io:8000",
+        "local": "http://localhost:8000"
+    },
+    "libreoffice": {
+        "docker": "http://libreoffice:2004",
+        "local": "http://localhost:2004"
+    },
+    "pandoc": {
+        "docker": "http://pandoc:3000",
+        "local": "http://localhost:3030"
+    },
+    "gotenberg": {
+        "docker": "http://gotenberg:3000",
+        "local": "http://localhost:3001"
+    }
+}
+
 class ConversionService(Enum):
     """Available conversion services."""
     UNSTRUCTURED_IO = "unstructured-io"
     LIBREOFFICE = "libreoffice"
     PANDOC = "pandoc"
     GOTENBERG = "gotenberg"
-    _LOCAL_ = "local"
+    LOCAL = "local"
 
 
 class ConversionPriority(Enum):
@@ -226,6 +247,12 @@ CONVERSION_MATRIX = {
     ("pages", "html"): [
         (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Pages to HTML via LibreOffice")
     ],
+    ("xlsx", "html"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Excel to HTML via LibreOffice"),
+    ],
+    ("xls", "html"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Legacy Excel to HTML via LibreOffice"),
+    ],
 
     # LaTeX Output Conversions (Pandoc preferred)
     ("md", "tex"): [
@@ -268,18 +295,23 @@ CONVERSION_MATRIX = {
         (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Pages to TXT via LibreOffice")
     ],
 
+    # Apple Pages to Markdown (Chained conversion: Pages → DOCX → Markdown)
+    ("pages", "md"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Pages to Markdown (chained: LibreOffice → Pandoc)"),
+    ],
+
     # Excel to Markdown/Text Conversions (Custom implementation)
     ("xlsx", "md"): [
-        (ConversionService._LOCAL_, ConversionPriority.PRIMARY, "Excel to Markdown via local processing"),
+        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Excel to Markdown via local processing"),
     ],
     ("xlsx", "txt"): [
-        (ConversionService._LOCAL_, ConversionPriority.PRIMARY, "Excel to Text via local processing"),
+        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Excel to Text via local processing"),
     ],
     ("xls", "md"): [
-        (ConversionService._LOCAL_, ConversionPriority.PRIMARY, "Legacy Excel to Markdown via local processing"),
+        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Legacy Excel to Markdown via local processing"),
     ],
     ("xls", "txt"): [
-        (ConversionService._LOCAL_, ConversionPriority.PRIMARY, "Legacy Excel to Text via local processing"),
+        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Legacy Excel to Text via local processing"),
     ],
 }
 
@@ -344,3 +376,27 @@ def get_supported_conversions() -> Dict[str, List[str]]:
 
 # All supported format pairs for reference
 ALL_SUPPORTED_CONVERSIONS = list(CONVERSION_MATRIX.keys())
+
+def get_service_urls() -> Dict[str, str]:
+    """
+    Get service URLs with fallback mechanism for Docker vs local development.
+    
+    Returns:
+        Dictionary mapping service names to their resolved URLs
+    """
+    import os
+    import socket
+    
+    urls = {}
+    
+    for service, config in SERVICE_URL_CONFIGS.items():
+        # Try Docker URL first
+        try:
+            # Quick DNS resolution test
+            socket.gethostbyname(config["docker"].replace("http://", "").split(":")[0])
+            urls[service] = config["docker"]
+        except socket.gaierror:
+            # Fall back to localhost
+            urls[service] = config["local"]
+    
+    return urls
