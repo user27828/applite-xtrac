@@ -14,6 +14,28 @@ from io import BytesIO
 from urllib.parse import urlparse
 import re
 
+# Import Excel processing libraries
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    pd = None
+    PANDAS_AVAILABLE = False
+
+try:
+    import xlrd
+    XLRD_AVAILABLE = True
+except ImportError:
+    xlrd = None
+    XLRD_AVAILABLE = False
+
+try:
+    import openpyxl
+    OPENPYXL_AVAILABLE = True
+except ImportError:
+    openpyxl = None
+    OPENPYXL_AVAILABLE = False
+
 # Import unstructured libraries for JSON to markdown/text conversion
 try:
     from unstructured.staging.base import elements_to_md, dict_to_elements
@@ -23,6 +45,7 @@ except ImportError:
     dict_to_elements = None
     UNSTRUCTURED_AVAILABLE = False
 
+from .utils.conversion_spreadsheets import convert_excel_to_format
 from .config import (
     get_primary_conversion,
     ConversionService,
@@ -47,7 +70,8 @@ SERVICE_URLS = {
     ConversionService.UNSTRUCTURED_IO: "http://unstructured-io:8000",
     ConversionService.LIBREOFFICE: "http://libreoffice:2004",
     ConversionService.PANDOC: "http://pandoc:3000",
-    ConversionService.GOTENBERG: "http://gotenberg:3000"
+    ConversionService.GOTENBERG: "http://gotenberg:3000",
+    ConversionService._LOCAL_: None  # Local processing, no URL needed
 }
 
 
@@ -312,6 +336,23 @@ async def _convert_file(
                     files=files
                 )
 
+        elif service == ConversionService._LOCAL_:
+            # Local processing - handle Excel files using local conversion functions
+            if not file:
+                raise HTTPException(status_code=400, detail="Local processing only supports file input")
+            
+            file_content = await file.read()
+            
+            # Use the local Excel conversion function
+            content, media_type, output_filename = convert_excel_to_format(file_content, file.filename, output_format)
+            
+            # Return directly as StreamingResponse (skip the normal response handling)
+            return StreamingResponse(
+                BytesIO(content.encode('utf-8')),
+                media_type=media_type,
+                headers={"Content-Disposition": f"attachment; filename={output_filename}"}
+            )
+
         else:
             raise HTTPException(status_code=500, detail=f"Unsupported service: {service}")
 
@@ -546,25 +587,52 @@ async def convert_xls_to_pdf(request: Request, file: UploadFile = File(...)):
     return await _convert_file(request, file=file, input_format="xls", output_format="pdf", service=service)
 
 
-@router.post("/epub-pdf")
-async def convert_epub_to_pdf(request: Request, file: UploadFile = File(...)):
-    """Convert EPUB to PDF (E-book to PDF)"""
-    service, description = get_primary_conversion("epub", "pdf") or (ConversionService.LIBREOFFICE, "Fallback")
-    return await _convert_file(request, file=file, input_format="epub", output_format="pdf", service=service)
+@router.post("/xls-md")
+async def convert_xls_to_md(request: Request, file: UploadFile = File(...)):
+    """Convert XLS to Markdown (Legacy spreadsheet to Markdown)"""
+    file_content = await file.read()
+    content, media_type, output_filename = convert_excel_to_format(file_content, file.filename, "md")
+    return StreamingResponse(
+        BytesIO(content.encode('utf-8')),
+        media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename={output_filename}"}
+    )
 
 
-@router.post("/ods-pdf")
-async def convert_ods_to_pdf(request: Request, file: UploadFile = File(...)):
-    """Convert ODS to PDF (OpenDocument spreadsheet to PDF)"""
-    service, description = get_primary_conversion("ods", "pdf") or (ConversionService.LIBREOFFICE, "Fallback")
-    return await _convert_file(request, file=file, input_format="ods", output_format="pdf", service=service)
+@router.post("/xls-txt")
+async def convert_xls_to_txt(request: Request, file: UploadFile = File(...)):
+    """Convert XLS to Text (Legacy spreadsheet to Text)"""
+    file_content = await file.read()
+    content, media_type, output_filename = convert_excel_to_format(file_content, file.filename, "txt")
+    return StreamingResponse(
+        BytesIO(content.encode('utf-8')),
+        media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename={output_filename}"}
+    )
 
 
-@router.post("/odp-pdf")
-async def convert_odp_to_pdf(request: Request, file: UploadFile = File(...)):
-    """Convert ODP to PDF (OpenDocument presentation to PDF)"""
-    service, description = get_primary_conversion("odp", "pdf") or (ConversionService.LIBREOFFICE, "Fallback")
-    return await _convert_file(request, file=file, input_format="odp", output_format="pdf", service=service)
+@router.post("/xlsx-md")
+async def convert_xlsx_to_md(request: Request, file: UploadFile = File(...)):
+    """Convert XLSX to Markdown (Spreadsheet to Markdown)"""
+    file_content = await file.read()
+    content, media_type, output_filename = convert_excel_to_format(file_content, file.filename, "md")
+    return StreamingResponse(
+        BytesIO(content.encode('utf-8')),
+        media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename={output_filename}"}
+    )
+
+
+@router.post("/xlsx-txt")
+async def convert_xlsx_to_txt(request: Request, file: UploadFile = File(...)):
+    """Convert XLSX to Text (Spreadsheet to Text)"""
+    file_content = await file.read()
+    content, media_type, output_filename = convert_excel_to_format(file_content, file.filename, "txt")
+    return StreamingResponse(
+        BytesIO(content.encode('utf-8')),
+        media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename={output_filename}"}
+    )
 
 
 # Apple Pages Conversions

@@ -7,3 +7,6 @@ requests>=2.31.0
 scrapy>=2.11.0
 scrapy-user-agents>=0.1.1
 python-magic>=0.4.27
+pandas>=2.0.0
+xlrd>=2.0.0
+openpyxl>=3.1.0

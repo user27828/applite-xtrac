@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Podman-based startup script for the multi-service API
-# This script provides an easy way to manage the services with Podman
+# Docker-based startup script for the multi-service API
+# This script provides an easy way to manage the services with Docker
 
 set -euo pipefail  # Exit on error, undefined vars, and pipe failures
 
@@ -39,12 +39,16 @@ log_error() {
 check_dependencies() {
     local missing_deps=()
     
-    if ! command -v podman &> /dev/null; then
-        missing_deps+=("podman")
+    if ! command -v docker &> /dev/null; then
+        missing_deps+=("docker")
     fi
     
-    if ! command -v podman-compose &> /dev/null; then
-        missing_deps+=("podman-compose")
+    if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
+        missing_deps+=("docker-compose")
+    fi
+    
+    if ! command -v python &> /dev/null; then
+        missing_deps+=("python")
     fi
     
     if [ ${#missing_deps[@]} -ne 0 ]; then
@@ -85,6 +89,14 @@ check_ports() {
 wait_for_services() {
     local timeout=${1:-60}
     local interval=${2:-5}
+    shift 2
+    local services_to_check=("$@")
+    
+    # If no specific services provided, use all SERVICES
+    if [ ${#services_to_check[@]} -eq 0 ]; then
+        services_to_check=("${SERVICES[@]}")
+    fi
+    
     local elapsed=0
     
     log_info "Waiting for services to be ready..."
@@ -92,8 +104,8 @@ wait_for_services() {
     while [ $elapsed -lt $timeout ]; do
         local all_healthy=true
         
-        for service in "${SERVICES[@]}"; do
-            if ! podman-compose -f $COMPOSE_FILE -p $PROJECT_NAME ps $service | grep -q "Up"; then
+        for service in "${services_to_check[@]}"; do
+            if ! docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME ps $service 2>/dev/null | grep -q "Up"; then
                 all_healthy=false
                 break
             fi
@@ -117,11 +129,11 @@ check_health() {
     log_info "Checking service health..."
     
     # Try to ping the proxy service
-    if curl -s -f http://localhost:8369/ping >/dev/null 2>&1; then
+    if timeout 10 curl -s -f http://localhost:8369/ping >/dev/null 2>&1; then
         log_success "Proxy service is responding"
         
         # Check individual services via proxy
-        if curl -s -f http://localhost:8369/ping-all >/dev/null 2>&1; then
+        if timeout 10 curl -s -f http://localhost:8369/ping-all >/dev/null 2>&1; then
             log_success "All services are healthy"
         else
             log_warning "Some services may be unhealthy"
@@ -135,13 +147,13 @@ check_health() {
 # Show resource usage
 show_resources() {
     log_info "Container resource usage:"
-    podman stats --no-stream $(podman-compose -f $COMPOSE_FILE -p $PROJECT_NAME ps -q)
+    docker stats --no-stream $(docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME ps -q) 2>/dev/null || log_warning "Could not retrieve container stats (timeout or no containers running)"
 }
 
 # Pull latest images
 update_images() {
     log_info "Pulling latest images..."
-    podman-compose -f $COMPOSE_FILE -p $PROJECT_NAME pull
+    docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME pull || log_error "Failed to pull images"
     log_success "Images updated successfully"
 }
 
@@ -159,18 +171,18 @@ manage_service() {
     case $action in
         start)
             log_info "Starting service: $service"
-            podman-compose -f $COMPOSE_FILE -p $PROJECT_NAME up -d $service
+            docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME up -d $service || log_error "Failed to start service $service"
             ;;
         stop)
             log_info "Stopping service: $service"
-            podman-compose -f $COMPOSE_FILE -p $PROJECT_NAME stop $service
+            docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME stop $service || log_error "Failed to stop service $service"
             ;;
         restart)
             log_info "Restarting service: $service"
-            podman-compose -f $COMPOSE_FILE -p $PROJECT_NAME restart $service
+            docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME restart $service || log_error "Failed to restart service $service"
             ;;
         logs)
-            podman-compose -f $COMPOSE_FILE -p $PROJECT_NAME logs -f $service
+            timeout 30 docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME logs -f $service || log_error "Failed to get logs for service $service (timeout)"
             ;;
         *)
             log_error "Unknown action: $action"
@@ -198,11 +210,11 @@ dev_mode() {
     
     # Start all services except proxy
     log_info "Starting containerized services (excluding proxy)..."
-    podman-compose -f $COMPOSE_FILE -p $PROJECT_NAME up -d --build \
-        unstructured-io libreoffice pandoc gotenberg
+    docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME up -d --build \
+        unstructured-io libreoffice pandoc gotenberg || log_error "Failed to start containerized services"
     
     # Wait for containerized services
-    wait_for_services
+    wait_for_services 60 5 unstructured-io libreoffice pandoc gotenberg
     
     # Check containerized services health
     check_dev_services_health
@@ -217,7 +229,7 @@ check_dev_services_health() {
     
     # Check if containers are running
     for service in unstructured-io libreoffice pandoc gotenberg; do
-        if ! podman-compose -f $COMPOSE_FILE -p $PROJECT_NAME ps $service | grep -q "Up"; then
+        if ! docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME ps $service 2>/dev/null | grep -q "Up"; then
             log_error "Service $service is not running"
             return 1
         fi
@@ -266,8 +278,8 @@ stop_dev_mode() {
     log_info "Stopping development mode..."
     
     # Stop containerized services
-    podman-compose -f $COMPOSE_FILE -p $PROJECT_NAME down \
-        unstructured-io libreoffice pandoc gotenberg
+    docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME down \
+        unstructured-io libreoffice pandoc gotenberg || log_warning "Failed to stop containerized services"
     
     # Kill local proxy process
     local proxy_pid=$(pgrep -f "uvicorn.*convert.main:app")
@@ -289,8 +301,8 @@ main() {
             check_dependencies
             validate_config
             check_ports
-            log_info "Starting services with Podman..."
-            podman-compose -f $COMPOSE_FILE -p $PROJECT_NAME up --build "$@"
+            log_info "Starting services with Docker..."
+            docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME up -d --build "$@" || log_error "Failed to start services"
             wait_for_services
             check_health
             ;;
@@ -298,110 +310,51 @@ main() {
             check_dependencies
             validate_config
             check_ports
-            log_info "Starting services in background with Podman..."
-            podman-compose -f $COMPOSE_FILE -p $PROJECT_NAME up -d --build "$@"
+            log_info "Starting services in background with Docker..."
+            docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME up -d --build "$@" || log_error "Failed to start services"
             wait_for_services
             check_health
             ;;
         "down")
             log_info "Stopping services..."
-            podman-compose -f $COMPOSE_FILE -p $PROJECT_NAME down "$@"
+            docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME down "$@" || log_warning "Failed to stop services"
             ;;
         "logs")
-            if [ $# -gt 0 ]; then
-                podman-compose -f $COMPOSE_FILE -p $PROJECT_NAME logs "$@"
-            else
-                podman-compose -f $COMPOSE_FILE -p $PROJECT_NAME logs
-            fi
-            ;;
-        "build")
-            check_dependencies
-            validate_config
-            log_info "Building services..."
-            podman-compose -f $COMPOSE_FILE -p $PROJECT_NAME build "$@"
-            ;;
-        "clean")
-            log_info "Cleaning up containers and volumes..."
-            podman-compose -f $COMPOSE_FILE -p $PROJECT_NAME down --volumes "$@"
-            podman system prune -f
-            ;;
-        "status")
-            log_info "Service status:"
-            podman-compose -f $COMPOSE_FILE -p $PROJECT_NAME ps
-            ;;
-        "health")
-            check_health
-            ;;
-        "resources")
-            show_resources
-            ;;
-        "update")
-            update_images
-            ;;
-        "start")
             if [ $# -eq 0 ]; then
-                log_error "Please specify a service to start"
+                log_error "No service specified for logs"
+                log_info "Usage: $0 logs <service>"
                 exit 1
             fi
-            manage_service start "$1"
-            ;;
-        "stop")
-            if [ $# -eq 0 ]; then
-                log_error "Please specify a service to stop"
-                exit 1
-            fi
-            manage_service stop "$1"
+            
+            local service=$1
+            manage_service logs $service
             ;;
         "restart")
-            if [ $# -eq 0 ]; then
-                log_error "Please specify a service to restart"
-                exit 1
-            fi
-            manage_service restart "$1"
-            ;;
-        "service-logs")
-            if [ $# -eq 0 ]; then
-                log_error "Please specify a service"
-                exit 1
-            fi
-            manage_service logs "$1"
+            log_info "Restarting all services..."
+            docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME restart || log_warning "Failed to restart services"
             ;;
         "dev")
             dev_mode
             ;;
-        "dev:stop")
+        "stop-dev")
             stop_dev_mode
             ;;
-        "dev:logs")
-            # Show logs from containerized services only
-            podman-compose -f $COMPOSE_FILE -p $PROJECT_NAME logs \
-                unstructured-io libreoffice pandoc gotenberg "$@"
+        "update")
+            update_images
+            ;;
+        "resources")
+            show_resources
+            ;;
+        "health")
+            check_health
             ;;
         *)
-            echo "Usage: $0 {up|up-d|down|logs|build|clean|status|health|resources|update|start|stop|restart|service-logs|dev|dev-stop|dev-logs} [service]"
-            echo ""
-            echo "Commands:"
-            echo "  up [service]      - Start services (foreground)"
-            echo "  up-d [service]    - Start services (background)"
-            echo "  down [service]    - Stop services"
-            echo "  logs [service]    - Show logs (optionally for specific service)"
-            echo "  build [service]   - Build services"
-            echo "  clean             - Clean up containers and volumes"
-            echo "  status            - Show service status"
-            echo "  health            - Check service health"
-            echo "  resources         - Show resource usage"
-            echo "  update            - Pull latest images"
-            echo "  start <service>   - Start specific service"
-            echo "  stop <service>    - Stop specific service"
-            echo "  restart <service> - Restart specific service"
-            echo "  service-logs <service> - Show logs for specific service"
-            echo "  dev               - Start development mode (containers + local proxy)"
-            echo "  dev-stop          - Stop development mode"
-            echo "  dev-logs          - Show logs from containerized services only"
+            log_error "Unknown command: $command"
+            echo "Usage: $0 {up|down|logs|restart|dev|stop-dev|update|resources|health}"
             exit 1
             ;;
     esac
 }
 
-# Run main function with all arguments
+# Execute the main function with all script arguments
 main "$@"

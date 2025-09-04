@@ -1,6 +1,6 @@
 # AppLite Convert - Multi-Service Document Processing API
 
-This project provides a unified API gateway for multiple document processing services using Podman and podman-compose.
+This project provides a unified API gateway for multiple document processing services using Docker and docker-compose.
 
 ## Goals
 
@@ -133,8 +133,8 @@ Each endpoint automatically selects the optimal service:
 ## Quick Start
 
 1. Clone this repository
-2. **For Podman**: Ensure registries are configured (see troubleshooting section)
-3. Run `podman-compose up --build`
+2. **For Docker**: Ensure Docker and docker-compose are installed
+3. Run `docker-compose up --build`
 4. The API will be available at `http://localhost:8369` (or your configured port via `APPLITE_CONVERT_PORT`)
 
 ### Test Health Checks
@@ -159,25 +159,25 @@ For easier management, use the provided script:
 
 ```bash
 # Start services
-./podman-run.sh up
+./docker-run.sh up
 
 # Start in background
-./podman-run.sh up-d
+./docker-run.sh up-d
 
 # Build services
-./podman-run.sh build
+./docker-run.sh build
 
 # View logs
-./podman-run.sh logs
+./docker-run.sh logs
 
 # Check status
-./podman-run.sh status
+./docker-run.sh status
 
 # Stop services
-./podman-run.sh down
+./docker-run.sh down
 
 # Clean up
-./podman-run.sh clean
+./docker-run.sh clean
 ```
 
 ## API Endpoints
@@ -352,44 +352,42 @@ Health checks are implemented for each service:
 
 ```bash
 # Build all services
-podman-compose build
+docker-compose build
 
 # Build specific service
-podman-compose build pandoc
-podman-compose build proxy
+docker-compose build pandoc
+docker-compose build proxy
 ```
 
 ### Running Services
 
 ```bash
 # Start all services
-podman-compose up
+docker-compose up
 
 # Start in background
-podman-compose up -d
+docker-compose up -d
 
 # View logs
-podman-compose logs
+docker-compose logs
 
 # Stop services
-podman-compose down
+docker-compose down
 ```
 
-### Podman-Specific Commands
+### Docker-Specific Commands
 
 ```bash
 # List running containers
-podman ps
+docker ps
 
 # View container logs
-podman logs <container_name>
+docker logs <container_name>
 
 # Access container shell
-podman exec -it <container_name> /bin/bash
+docker exec -it <container_name> /bin/bash
 
 # Clean up
-podman system prune
-podman-compose down --volumes
 ```
 
 ### Local Python Development
@@ -431,42 +429,35 @@ For local development without containers, you can run the Python services direct
 
 ## Container Runtime Options
 
-This project uses Podman as the primary container runtime for enhanced security:
-
-**Podman Benefits:**
-- ✅ Rootless containers by default
-- ✅ Daemonless architecture (no background service)
-- ✅ Compatible with docker-compose via `podman-compose`
-- ✅ Better security model for production deployments
-- ✅ Native support for Kubernetes pod manifests
+This project uses Docker as the primary container runtime
 
 **Installation:**
 ```bash
 # Ubuntu/Debian
-sudo apt install podman podman-compose
+sudo apt install docker.io docker-compose
 
 # CentOS/RHEL/Fedora
-sudo dnf install podman podman-compose
+sudo dnf install docker docker-compose
 
 # macOS
-brew install podman podman-compose
+brew install docker docker-compose
 
 # Windows
-winget install RedHat.Podman
+# Download and install Docker Desktop from https://www.docker.com/products/docker-desktop
 ```
 
-**Alternative with Docker:**
-If you prefer Docker, you can still use it:
+**Alternative with Podman:**
+If you prefer Podman, you can still use it:
 ```bash
-# Using docker-compose
-docker-compose up --build
+# Using podman-compose
+podman-compose up --build
 ```
 
 ## Security Considerations
 
 - The LibreOffice and Pandoc services should not be exposed directly to the internet
 - The proxy service handles routing and can implement additional security measures
-- Podman's rootless mode provides additional security layers
+- Docker's user namespace isolation provides security layers
 - Consider adding authentication and rate limiting for production use
 
 ## Troubleshooting
@@ -475,7 +466,7 @@ docker-compose up --build
 
 **Common Issues & Solutions:**
 - [Build cache problems](#docker-build-cache-issues) - Code changes not taking effect
-- [Service connectivity](#podman-specific-troubleshooting) - Services not starting or unreachable  
+- [Service connectivity](#docker-specific-troubleshooting) - Services not starting or unreachable  
 - [Endpoint errors](#service-specific-endpoint-issues) - 404/422 errors from services
 - [Memory issues](#libreoffice-memory-leak-solution) - LibreOffice memory accumulation
 - [PEP 668 conflicts](#pep-668-externally-managed-environment) - Python package installation errors
@@ -483,53 +474,49 @@ docker-compose up --build
 ### Common Issues
 
 1. **Port conflicts**: Ensure port 8369 is available (other service ports are internal only)
-2. **Build failures**: Check Podman installation and disk space
+2. **Build failures**: Check Docker installation and disk space
 3. **Service connectivity**: Verify network configuration in docker-compose.yml
-4. **Permission issues**: Podman runs rootless by default - ensure proper user permissions
+4. **Permission issues**: Ensure Docker daemon is running and user has proper permissions
 5. **Build cache issues**: See [Docker Build Cache Issues](#docker-build-cache-issues)
 6. **Requirements corruption**: See [Requirements.txt Corruption](#requirements-txt-corruption)
 7. **Package size issues**: See [Unstructured Package Optimization](#unstructured-package-optimization)
 8. **Service endpoint errors**: See [Service-Specific Endpoint Issues](#service-specific-endpoint-issues)
 
-### Podman-Specific Troubleshooting
+### Docker-Specific Troubleshooting
 
 ```bash
-# Check if podman socket is running
-podman system service --help
+# Check if Docker daemon is running
+docker info
 
-# Reset podman environment
-podman system reset
+# Reset Docker environment (removes all containers, images, volumes)
+docker system prune -a --volumes
 
-# Fix shared mount warnings (run as root or with sudo)
-# Add to /etc/containers/storage.conf:
-# [storage]
-#   driver = "overlay"
-#   mount_program = "/usr/bin/fuse-overlayfs"
+# Check Docker disk usage
+docker system df
 ```
 
-If you're using WSL (Ubuntu) and Podman Desktop on Windows, there's an alternative static-binary installation and connection method that can help avoid distribution packaging issues. See `docs/PODMAN-DESKTOP-WSL.md` for step-by-step instructions.
+If you're using WSL (Ubuntu) and Docker Desktop on Windows, see `docs/DOCKER-DESKTOP-WSL.md` for Docker setup instructions.
 
 ### Registry Configuration
 
 If you encounter registry resolution issues:
 
 ```bash
-# Check registries configuration
-cat /etc/containers/registries.conf
+# Check Docker daemon status
+docker info
 
-# For unqualified image names, ensure registries are configured:
-# unqualified-search-registries = ["docker.io", "registry.fedoraproject.org"]
+# For image pull issues, ensure Docker daemon is running:
 ```
 
 ### Build Issues
 
 ```bash
 # Clean build cache
-podman system prune -a
+docker system prune -a
 
 # Rebuild specific service
-podman-compose build pandoc
-podman-compose build proxy
+docker-compose build pandoc
+docker-compose build proxy
 ```
 
 ### PEP 668 (Externally Managed Environment)
@@ -552,14 +539,14 @@ RUN pip install --break-system-packages package_name
 
 ```bash
 # View all logs
-podman-compose logs
+docker-compose logs
 
 # View specific service logs
-podman-compose logs proxy
-podman-compose logs unstructured-io
+docker-compose logs proxy
+docker-compose logs unstructured-io
 
 # Follow logs in real-time
-podman-compose logs -f
+docker-compose logs -f
 ```
 
 ### Image Tag Issues
@@ -585,7 +572,7 @@ If services fail to start with "Unknown option" errors:
 ### CNI Configuration Warnings
 
 The warnings about "plugin firewall does not support config version" are non-critical:
-- These are Podman networking warnings
+- These are Docker networking warnings
 - Services will still function normally
 - Can be ignored unless networking issues occur
 
@@ -634,7 +621,7 @@ libreoffice:
 - **Comprehensive Health Checks**: Real-time monitoring of all services with detailed status reporting
 - **Full PDF Support**: PDF generation capabilities through Pandoc with LaTeX support
 - **Multi-Format Conversion**: Support for PDF, DOCX, HTML, TXT, MD, and TEX formats
-- **Security**: Podman rootless containers for enhanced security
+- **Security**: Docker container isolation for enhanced security
 - **Streaming Responses**: Efficient handling of large file transfers
 - **Automatic Cleanup**: Background file cleanup for temporary processing files
 - **Timeout Protection**: Configurable timeouts (60s for conversions, 10s for general requests, 5s for health checks)
@@ -671,8 +658,8 @@ Docker/Podman uses layer caching during builds. The `COPY . /app/` step may use 
 **Immediate Verification:**
 ```bash
 # Check if container has your changes
-podman exec appliteconvert_proxy_1 cat /app/convert/config.py | grep "your_change"
-podman exec appliteconvert_proxy_1 cat /app/convert/router.py | grep "your_endpoint"
+docker exec appliteconvert_proxy_1 cat /app/convert/config.py | grep "your_change"
+docker exec appliteconvert_proxy_1 cat /app/convert/router.py | grep "your_endpoint"
 ```
 
 **Solutions:**
@@ -680,23 +667,20 @@ podman exec appliteconvert_proxy_1 cat /app/convert/router.py | grep "your_endpo
 1. **Force complete rebuild:**
 ```bash
 # Remove existing image completely
-podman rmi localhost/appliteconvert_proxy:latest
+docker rmi appliteconvert_proxy:latest
 
 # Rebuild with no cache and pull latest base image
-podman-compose build --no-cache --pull proxy
+docker-compose build --no-cache --pull proxy
 
 # Restart container
-podman-compose up -d proxy
+docker-compose up -d proxy
 ```
 
 2. **Manual file update (temporary workaround):**
 ```bash
 # Copy updated files directly into running container
-podman cp proxy-service/convert/config.py appliteconvert_proxy_1:/app/convert/config.py
-podman cp proxy-service/convert/router.py appliteconvert_proxy_1:/app/convert/router.py
-
-# Restart container to reload Python modules
-podman-compose restart proxy
+docker cp proxy-service/convert/config.py appliteconvert_proxy_1:/app/convert/config.py
+docker cp proxy-service/convert/router.py appliteconvert_proxy_1:/app/convert/router.py
 ```
 
 3. **Add timestamp for cache busting:**
@@ -711,24 +695,24 @@ COPY . /app/
 
 Then rebuild with:
 ```bash
-podman-compose build --build-arg BUILD_DATE=$(date +%s) proxy
+docker-compose build --build-arg BUILD_DATE=$(date +%s) proxy
 ```
 
 4. **Clear Python cache:**
 ```bash
 # Clear Python bytecode cache
-podman exec appliteconvert_proxy_1 find /app -name "*.pyc" -delete
-podman exec appliteconvert_proxy_1 find /app -name "__pycache__" -type d -exec rm -rf {} +
+docker exec appliteconvert_proxy_1 find /app -name "*.pyc" -delete
+docker exec appliteconvert_proxy_1 find /app -name "__pycache__" -type d -exec rm -rf {} +
 
 # Restart container
-podman-compose restart proxy
+docker-compose restart proxy
 ```
 
 **Prevention:**
 - Use `--no-cache` flag when rebuilding after significant code changes
 - Add version tags or timestamps to force cache invalidation
 - Test API endpoints after container rebuilds to verify changes took effect
-- When in doubt, use `podman rmi` to remove old images before rebuilding
+- When in doubt, use `docker rmi` to remove old images before rebuilding
 
 ### Service-Specific Endpoint Issues
 

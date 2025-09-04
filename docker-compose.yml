@@ -6,6 +6,8 @@ version: '3.8'
 services:
   unstructured-io:
     image: downloads.unstructured.io/unstructured-io/unstructured-api:latest
+    ports:
+      - "8000:8000"
     environment:
       - PORT=8000
     networks:
@@ -13,6 +15,8 @@ services:
 
   libreoffice:
     image: docker.io/libreofficedocker/libreoffice-unoserver:3.19
+    ports:
+      - "2004:2004"
     environment:
       - UNOSERVER_STOP_AFTER=50
     deploy:
@@ -26,13 +30,15 @@ services:
 
   pandoc:
     build: ./pandoc-service
+    ports:
+      - "3030:3000"
     networks:
       - app-network
 
   gotenberg:
     image: gotenberg/gotenberg:latest
     ports:
-      - "4000:3000"
+      - "3001:3000"
     command:
       - "gotenberg"
       - "--api-port=3000"

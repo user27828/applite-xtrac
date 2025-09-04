@@ -15,6 +15,7 @@ class ConversionService(Enum):
     LIBREOFFICE = "libreoffice"
     PANDOC = "pandoc"
     GOTENBERG = "gotenberg"
+    _LOCAL_ = "local"
 
 
 class ConversionPriority(Enum):
@@ -265,6 +266,20 @@ CONVERSION_MATRIX = {
     ],
     ("pages", "txt"): [
         (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Pages to TXT via LibreOffice")
+    ],
+
+    # Excel to Markdown/Text Conversions (Custom implementation)
+    ("xlsx", "md"): [
+        (ConversionService._LOCAL_, ConversionPriority.PRIMARY, "Excel to Markdown via local processing"),
+    ],
+    ("xlsx", "txt"): [
+        (ConversionService._LOCAL_, ConversionPriority.PRIMARY, "Excel to Text via local processing"),
+    ],
+    ("xls", "md"): [
+        (ConversionService._LOCAL_, ConversionPriority.PRIMARY, "Legacy Excel to Markdown via local processing"),
+    ],
+    ("xls", "txt"): [
+        (ConversionService._LOCAL_, ConversionPriority.PRIMARY, "Legacy Excel to Text via local processing"),
     ],
 }
 
