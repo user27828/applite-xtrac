@@ -307,9 +307,9 @@ start_local_proxy() {
     export GOTENBERG_URL="http://localhost:3001"
     
     # Network optimization environment variables for Docker communication
-    export HTTPX_TIMEOUT="15.0"           # Shorter timeout for dev mode
+    export HTTPX_TIMEOUT="1800.0"           # Shorter timeout for dev mode
     export HTTPX_CONNECT_TIMEOUT="5.0"    # Faster connection timeout
-    export HTTPX_READ_TIMEOUT="10.0"      # Shorter read timeout
+    export HTTPX_READ_TIMEOUT="1800.0"      # Shorter read timeout
     export HTTPX_POOL_TIMEOUT="3.0"       # Faster pool timeout
     export DISABLE_IPV6="true"            # Force IPv4 only to avoid DNS conflicts
     export DOCKER_NETWORK_MODE="bridge"   # Explicit bridge mode

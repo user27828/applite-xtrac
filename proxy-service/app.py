@@ -102,10 +102,10 @@ async def lifespan(app: FastAPI):
 
     # Optimized timeouts for dev mode (faster than production)
     dev_timeout = httpx.Timeout(
-        connect=5.0,    # Faster connection timeout
-        read=15.0,      # Shorter read timeout
-        write=10.0,     # Shorter write timeout
-        pool=5.0        # Shorter pool timeout
+        connect=5.0,    # connection timeout
+        read=1800.0,      # read timeout
+        write=300.0,     # write timeout
+        pool=5.0        # pool timeout
     )
 
     app.state.client = httpx.AsyncClient(
@@ -118,8 +118,8 @@ async def lifespan(app: FastAPI):
     # LibreOffice needs longer timeouts due to document processing
     libreoffice_timeout = httpx.Timeout(
         connect=5.0,
-        read=30.0,      # Longer for document processing
-        write=15.0,
+        read=1800.0, 
+        write=300.0,
         pool=5.0
     )
     app.state.libreoffice_client = httpx.AsyncClient(
@@ -131,14 +131,14 @@ async def lifespan(app: FastAPI):
     # Gotenberg client with optimized settings
     gotenberg_timeout = httpx.Timeout(
         connect=5.0,
-        read=20.0,      # Medium timeout for PDF processing
-        write=15.0,
+        read=1800.0,      # Medium timeout for PDF processing
+        write=300.0,
         pool=5.0
     )
     app.state.gotenberg_client = httpx.AsyncClient(
         timeout=gotenberg_timeout,
         transport=httpx.AsyncHTTPTransport(limits=limits),
-        follow_redirects=False
+        follow_redirects=False 
     )
 
     try:
@@ -146,7 +146,7 @@ async def lifespan(app: FastAPI):
     finally:
         await app.state.client.aclose()
         await app.state.libreoffice_client.aclose()
-        await app.state.gotenberg_client.aclose()
+        await app.state.gotenberg_client.aclose() 
 
 
 app = FastAPI(lifespan=lifespan)
@@ -428,7 +428,6 @@ async def unstructured_to_text(request: Request, file: UploadFile = File(...)):
         return JSONResponse(status_code=500, content={"error": f"Conversion failed: {str(e)}"})
 
 
-
 @app.api_route("/{service}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
 async def proxy_request(service: str, path: str, request: Request):
     logger.info(f"Proxy request: service={service}, path={path}")
@@ -673,24 +672,3 @@ async def libreoffice_to_markdown(request: Request, file: UploadFile = File(...)
     except Exception as e:
         logger.exception("Error in libreoffice_to_markdown")
         return JSONResponse(status_code=500, content={"error": f"Conversion failed: {str(e)}"})
-
-def validate_url(url: str) -> bool:
-    """Validate that the URL is properly formatted and uses http/https."""
-    if not url or not isinstance(url, str):
-        return False
-    
-    # Basic URL validation
-    try:
-        parsed = urlparse(url)
-        # Must have scheme and netloc
-        if not parsed.scheme or not parsed.netloc:
-            return False
-        # Only allow http and https
-        if parsed.scheme not in ['http', 'https']:
-            return False
-        # Basic sanity check for netloc
-        if not re.match(r'^[a-zA-Z0-9.-]+$', parsed.netloc.replace(':', '').replace('.', '')):
-            return False
-        return True
-    except Exception:
-        return False

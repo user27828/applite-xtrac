@@ -12,7 +12,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from ..config import ConversionService
-from ..router import _get_service_client, DYNAMIC_SERVICE_URLS
+from .conversion_core import _get_service_client, DYNAMIC_SERVICE_URLS
 
 # Try to import unstructured functions for local markdown/text conversion
 try:
