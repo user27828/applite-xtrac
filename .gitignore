@@ -295,3 +295,4 @@ Desktop.ini
 
 # Project specific
 .data/tests/sample-files/*
+.data/tests/output-files/*
