@@ -179,25 +179,25 @@ For easier management, use the provided script:
 
 ```bash
 # Start services
-./docker-run.sh up
+./run.sh up
 
 # Start in background
-./docker-run.sh up-d
+./run.sh up-d
 
 # Build services
-./docker-run.sh build
+./run.sh build
 
 # View logs
-./docker-run.sh logs
+./run.sh logs
 
 # Check status
-./docker-run.sh status
+./run.sh status
 
 # Stop services
-./docker-run.sh down
+./run.sh down
 
 # Clean up
-./docker-run.sh clean
+./run.sh clean
 ```
 
 ## API Endpoints
@@ -770,3 +770,34 @@ curl http://localhost:8369/pandoc/ping
 curl http://localhost:8369/gotenberg/
 curl http://localhost:8369/unstructured-io/general/v0/general -F "files=@test.txt" -F "output_format=json"
 ```
+
+## Testing
+
+The project includes comprehensive tests for validation and conversion functionality.
+
+### Running Tests
+
+Use the helper script to run tests:
+
+```bash
+# Run all tests
+./run.sh test
+
+# Run conversion tests only
+./run.sh test:conversion
+```
+
+### Test Coverage
+
+- **File Validation**: Validates output files for correctness and format compliance
+- **Conversion Tests**: Tests all supported conversion pairs with sample files
+- **Integration Tests**: End-to-end testing of the conversion pipeline
+- **Health Checks**: Validates service availability and responsiveness
+
+### Test Output
+
+Conversion tests provide detailed output including:
+- Conversion status and timing
+- File validation results (`/ Valid: ✅ Y /` or `/ Valid: ❌ N /`)
+- Service identification (GOTENBERG, LIBREOFFICE, etc.)
+- Error details for failed conversions

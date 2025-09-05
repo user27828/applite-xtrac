@@ -188,6 +188,10 @@ class LocalConversionFactory:
             else:
                 raise HTTPException(status_code=400, detail="Unsupported spreadsheet file format")
 
+            # Read the file using pandas
+            df = pd.read_excel(buffer, engine=engine)
+            return df
+
         except Exception as e:
             logger.error(f"Error reading spreadsheet file: {e}")
             error_msg = str(e)

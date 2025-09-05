@@ -361,7 +361,7 @@ CONVERSION_MATRIX = {
     ],
 
     ("tex", "pdf"): [
-        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to PDF"),
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "LaTeX to PDF via Pandoc"),
     ],
 
     ("tex", "txt"): [
@@ -456,6 +456,23 @@ CONVERSION_MATRIX = {
     ("xlsx", "txt"): [
         (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Excel to Text via local processing"),
     ],
+}
+
+
+# Service mapping for conversion method names to service identifiers
+# Used for filename generation and test reporting
+CONVERSION_METHOD_TO_SERVICE_MAP = {
+    "JSON Structure Extraction": "UNSTRUCTURED_IO",
+    "Markdown Conversion": "PANDOC",
+    "DOCX Conversion": "LIBREOFFICE",
+    "HTML Conversion": "LIBREOFFICE",
+    "PDF Generation": "GOTENBERG",
+    "Text Extraction": "UNSTRUCTURED_IO",
+    "XLSX Conversion": "LIBREOFFICE",
+    "RTF Conversion": "LIBREOFFICE",
+    "ODT Conversion": "LIBREOFFICE",
+    "PPTX Conversion": "LIBREOFFICE",
+    "File Conversion": "LOCAL"
 }
 
 

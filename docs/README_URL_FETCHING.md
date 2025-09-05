@@ -185,7 +185,7 @@ Enable debug logging to see URL fetching details:
 
 ```bash
 export LOG_LEVEL=DEBUG
-./docker-run.sh dev
+./run.sh dev
 ```
 
 ### Health Checks

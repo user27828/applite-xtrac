@@ -98,7 +98,7 @@ def validate_url(url: str) -> bool:
     if not url or not isinstance(url, str):
         return False
     
-    # Basic URL validation
+    # Basic URL validation 
     try:
         parsed = urlparse(url)
         # Must have scheme and netloc
@@ -305,7 +305,14 @@ async def _convert_file(
             # Add input format as extra arg if needed
             if input_format != "md":  # pandoc defaults to markdown
                 # Map tex/latex to latex for Pandoc
-                pandoc_input_format = "latex" if input_format in ["tex", "latex"] else input_format
+                if input_format in ["tex", "latex"]:
+                    pandoc_input_format = "latex"
+                elif input_format in ["xls", "xlsx"]:
+                    pandoc_input_format = "xlsx"
+                elif input_format == "ods":
+                    pandoc_input_format = "opendocument"
+                else:
+                    pandoc_input_format = input_format
                 data["extra_args"] = f"--from={pandoc_input_format}"
             
             # Ensure HTML input format is explicitly specified
@@ -346,7 +353,16 @@ async def _convert_file(
             # Gotenberg supports both files and URLs
             if file:
                 file_content = await file.read()
-                files = {"files": (file.filename, BytesIO(file_content), f"application/{input_format}")}
+                # For HTML files, use the correct endpoint and filename
+                if input_format == 'html':
+                    files = {"index.html": ("index.html", BytesIO(file_content), f"application/{input_format}")}
+                    endpoint = "forms/chromium/convert/html"
+                elif input_format in ['docx', 'pptx', 'xlsx', 'xls', 'ppt', 'odt', 'ods', 'odp', 'pages', 'numbers']:
+                    files = {"files": (file.filename, BytesIO(file_content), f"application/{input_format}")}
+                    endpoint = "forms/libreoffice/convert"
+                else:
+                    files = {"files": (file.filename, BytesIO(file_content), f"application/{input_format}")}
+                    endpoint = "forms/chromium/convert/html"
                 data = {}
             else:
                 # URL input for Gotenberg - prepare multipart form-data fields
@@ -359,12 +375,7 @@ async def _convert_file(
                     files[k] = (None, str(v))
 
             # Use the correct endpoint based on input type
-            if file:
-                if input_format in ['docx', 'pptx', 'xlsx', 'xls', 'ppt', 'odt', 'ods', 'odp', 'pages', 'numbers']:
-                    endpoint = "forms/libreoffice/convert"
-                else:
-                    endpoint = "forms/chromium/convert/html"
-            else:
+            if not file:
                 # URL conversion always uses chromium
                 endpoint = "forms/chromium/convert/url"
 
@@ -803,14 +814,8 @@ async def convert_ods_to_html(request: Request, file: UploadFile = File(...)):
 @router.post("/ods-md")
 async def convert_ods_to_md(request: Request, file: UploadFile = File(...)):
     """Convert ODS to Markdown (OpenDocument spreadsheet to Markdown)"""
-    file_content = await file.read()
-    factory = LocalConversionFactory()
-    content, media_type, output_filename = factory.convert(file_content, file.filename, "ods", "md")
-    return StreamingResponse(
-        BytesIO(content.encode('utf-8')),
-        media_type=media_type,
-        headers={"Content-Disposition": f"attachment; filename={output_filename}"}
-    )
+    service, description = get_primary_conversion("ods", "md") or (ConversionService.LOCAL, "Fallback")
+    return await _convert_file(request, file=file, input_format="ods", output_format="md", service=service)
 
 
 @router.post("/ods-pdf")
@@ -823,14 +828,8 @@ async def convert_ods_to_pdf(request: Request, file: UploadFile = File(...)):
 @router.post("/ods-txt")
 async def convert_ods_to_txt(request: Request, file: UploadFile = File(...)):
     """Convert ODS to Text (OpenDocument spreadsheet to Text)"""
-    file_content = await file.read()
-    factory = LocalConversionFactory()
-    content, media_type, output_filename = factory.convert(file_content, file.filename, "ods", "txt")
-    return StreamingResponse(
-        BytesIO(content.encode('utf-8')),
-        media_type=media_type,
-        headers={"Content-Disposition": f"attachment; filename={output_filename}"}
-    )
+    service, description = get_primary_conversion("ods", "txt") or (ConversionService.LOCAL, "Fallback")
+    return await _convert_file(request, file=file, input_format="ods", output_format="txt", service=service)
 
 
 # odt conversions
@@ -981,9 +980,42 @@ async def convert_pages_to_pdf(request: Request, file: UploadFile = File(...)):
 
 @router.post("/pages-txt")
 async def convert_pages_to_txt(request: Request, file: UploadFile = File(...)):
-    """Convert Apple Pages to TXT"""
-    service, description = get_primary_conversion("pages", "txt") or (ConversionService.LIBREOFFICE, "Fallback")
-    return await _convert_file(request, file=file, input_format="pages", output_format="txt", service=service)
+    """Convert Apple Pages to TXT (chained conversion: Pages → docx → TXT)"""
+    try:
+        # Read the uploaded file
+        file_content = await file.read()
+
+        # Define the conversion chain
+        from .utils.conversion_chaining import chain_conversions, ConversionStep
+
+        conversion_steps = [
+            ConversionStep(
+                service=ConversionService.LIBREOFFICE,
+                input_format="pages",
+                output_format="docx",
+                description="Convert Apple Pages to docx using LibreOffice"
+            ),
+            ConversionStep(
+                service=ConversionService.PANDOC,
+                input_format="docx",
+                output_format="txt",
+                description="Convert docx to TXT using Pandoc"
+            )
+        ]
+
+        # Execute the chained conversion
+        return await chain_conversions(
+            request=request,
+            initial_file_content=file_content,
+            initial_filename=file.filename,
+            conversion_steps=conversion_steps,
+            final_output_format="txt",
+            final_content_type="text/plain"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in pages_to_txt conversion: {e}")
+        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
 
 
 # pdf conversions
@@ -1104,9 +1136,42 @@ async def convert_tex_to_md(request: Request, file: UploadFile = File(...)):
 
 @router.post("/tex-pdf")
 async def convert_tex_to_pdf(request: Request, file: UploadFile = File(...)):
-    """Convert LaTeX to PDF (Academic content priority)"""
-    service, description = get_primary_conversion("tex", "pdf") or (ConversionService.PANDOC, "Fallback")
-    return await _convert_file(request, file=file, input_format="tex", output_format="pdf", service=service)
+    """Convert LaTeX to PDF (chained conversion: LaTeX → DOCX → PDF)"""
+    try:
+        # Read the uploaded file
+        file_content = await file.read()
+
+        # Define the conversion chain
+        from .utils.conversion_chaining import chain_conversions, ConversionStep
+
+        conversion_steps = [
+            ConversionStep(
+                service=ConversionService.PANDOC,
+                input_format="tex",
+                output_format="docx",
+                description="Convert LaTeX to DOCX using Pandoc"
+            ),
+            ConversionStep(
+                service=ConversionService.PANDOC,
+                input_format="docx",
+                output_format="pdf",
+                description="Convert DOCX to PDF using Pandoc"
+            )
+        ]
+
+        # Execute the chained conversion
+        return await chain_conversions(
+            request=request,
+            initial_file_content=file_content,
+            initial_filename=file.filename,
+            conversion_steps=conversion_steps,
+            final_output_format="pdf",
+            final_content_type="application/pdf"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in tex_to_pdf conversion: {e}")
+        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
 
 
 @router.post("/tex-txt")
@@ -1205,14 +1270,8 @@ async def convert_xls_to_json(request: Request, file: UploadFile = File(...)):
 @router.post("/xls-md")
 async def convert_xls_to_md(request: Request, file: UploadFile = File(...)):
     """Convert XLS to Markdown (Legacy spreadsheet to Markdown)"""
-    file_content = await file.read()
-    factory = LocalConversionFactory()
-    content, media_type, output_filename = factory.convert(file_content, file.filename, "xls", "md")
-    return StreamingResponse(
-        BytesIO(content.encode('utf-8')),
-        media_type=media_type,
-        headers={"Content-Disposition": f"attachment; filename={output_filename}"}
-    )
+    service, description = get_primary_conversion("xls", "md") or (ConversionService.LOCAL, "Fallback")
+    return await _convert_file(request, file=file, input_format="xls", output_format="md", service=service)
 
 
 @router.post("/xls-pdf")
@@ -1225,14 +1284,8 @@ async def convert_xls_to_pdf(request: Request, file: UploadFile = File(...)):
 @router.post("/xls-txt")
 async def convert_xls_to_txt(request: Request, file: UploadFile = File(...)):
     """Convert XLS to Text (Legacy spreadsheet to Text)"""
-    file_content = await file.read()
-    factory = LocalConversionFactory()
-    content, media_type, output_filename = factory.convert(file_content, file.filename, "xls", "txt")
-    return StreamingResponse(
-        BytesIO(content.encode('utf-8')),
-        media_type=media_type,
-        headers={"Content-Disposition": f"attachment; filename={output_filename}"}
-    )
+    service, description = get_primary_conversion("xls", "txt") or (ConversionService.LOCAL, "Fallback")
+    return await _convert_file(request, file=file, input_format="xls", output_format="txt", service=service)
 
 
 # xlsx conversions
@@ -1253,14 +1306,8 @@ async def convert_xlsx_to_json(request: Request, file: UploadFile = File(...)):
 @router.post("/xlsx-md")
 async def convert_xlsx_to_md(request: Request, file: UploadFile = File(...)):
     """Convert XLSX to Markdown (Spreadsheet to Markdown)"""
-    file_content = await file.read()
-    factory = LocalConversionFactory()
-    content, media_type, output_filename = factory.convert(file_content, file.filename, "xlsx", "md")
-    return StreamingResponse(
-        BytesIO(content.encode('utf-8')),
-        media_type=media_type,
-        headers={"Content-Disposition": f"attachment; filename={output_filename}"}
-    )
+    service, description = get_primary_conversion("xlsx", "md") or (ConversionService.LOCAL, "Fallback")
+    return await _convert_file(request, file=file, input_format="xlsx", output_format="md", service=service)
 
 
 @router.post("/xlsx-pdf")
@@ -1273,14 +1320,8 @@ async def convert_xlsx_to_pdf(request: Request, file: UploadFile = File(...)):
 @router.post("/xlsx-txt")
 async def convert_xlsx_to_txt(request: Request, file: UploadFile = File(...)):
     """Convert XLSX to Text (Spreadsheet to Text)"""
-    file_content = await file.read()
-    factory = LocalConversionFactory()
-    content, media_type, output_filename = factory.convert(file_content, file.filename, "xlsx", "txt")
-    return StreamingResponse(
-        BytesIO(content.encode('utf-8')),
-        media_type=media_type,
-        headers={"Content-Disposition": f"attachment; filename={output_filename}"}
-    )
+    service, description = get_primary_conversion("xlsx", "txt") or (ConversionService.LOCAL, "Fallback")
+    return await _convert_file(request, file=file, input_format="xlsx", output_format="txt", service=service)
 
 
 # Utility endpoints

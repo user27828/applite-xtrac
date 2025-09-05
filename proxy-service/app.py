@@ -154,6 +154,27 @@ app = FastAPI(lifespan=lifespan)
 # Include the conversion router
 app.include_router(convert_router)
 
+# Serve favicon.ico
+from fastapi.responses import FileResponse
+from fastapi import HTTPException
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
+
+# Mount static files directory
+static_dir = Path(__file__).parent
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+@app.get("/favicon.ico")
+@app.get("/favicon.ico/", response_class=FileResponse)
+async def favicon():
+    """Serve favicon.ico file."""
+    favicon_path = static_dir / "favicon.ico"
+    if favicon_path.exists():
+        return FileResponse(favicon_path, media_type="image/x-icon")
+    else:
+        # Return 404 if favicon doesn't exist
+        raise HTTPException(status_code=404, detail="Favicon not found")
+
 # Service URLs - with fallback mechanism for different environments
 SERVICES = get_service_urls()
 

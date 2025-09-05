@@ -15,6 +15,10 @@ from datetime import datetime
 import asyncio
 import httpx
 
+# Import validation functionality
+from convert.validate import validate_file, ValidationError
+from convert.config import CONVERSION_METHOD_TO_SERVICE_MAP
+
 
 class TestConversionEndpoints:
     """Integration tests for all conversion endpoints."""
@@ -91,7 +95,8 @@ class TestConversionEndpoints:
             "response_size": 0,
             "output_file": None,
             "response_time_ms": None,
-            "service_available": False
+            "service_available": False,
+            "fileValid": False
         }
 
         try:
@@ -180,11 +185,26 @@ class TestConversionEndpoints:
 
             # Save output file if conversion succeeded
             output_file_path = None
+            file_valid = False
             if status and response.content:
-                output_file_path = output_dir / f"{input_file_path.stem}_to_{endpoint}.{output_ext}"
+                # Map conversion method to service name for filename
+                service_name = CONVERSION_METHOD_TO_SERVICE_MAP.get(conversion_method, conversion_method.upper().replace(" ", "_"))
+                
+                # Create new filename format: {input}-{output}--{SERVICE}.{extension}
+                output_filename = f"{input_ext}-{output_ext}--{service_name}.{output_ext}"
+                output_file_path = output_dir / output_filename
+                
                 try:
                     with open(output_file_path, "wb") as f:
                         f.write(response.content)
+                    
+                    # Validate the output file
+                    try:
+                        file_valid = validate_file(str(output_file_path), output_ext)
+                    except ValidationError as e:
+                        file_valid = False
+                        result["validation_error"] = str(e)
+                        
                 except Exception as e:
                     result.update({
                         "status": False,
@@ -198,7 +218,9 @@ class TestConversionEndpoints:
                 "status": status,
                 "conversion_method": conversion_method,
                 "error_message": error_message,
-                "output_file": str(output_file_path) if output_file_path else None
+                "error_category": "success" if status else "conversion_failed",
+                "output_file": str(output_file_path) if output_file_path else None,
+                "fileValid": file_valid
             })
 
         except FileNotFoundError as e:
@@ -327,6 +349,10 @@ class TestConversionEndpoints:
         passed_count = 0
         failed_count = 0
         total_count = len(testable_conversions)
+        
+        # Capture output for text file
+        output_lines = []
+        output_lines.append(f"\n🧪 Testing {len(testable_conversions)} conversion combinations...")
 
         for conversion in testable_conversions:  # Test all conversions
             endpoint = conversion["endpoint"]
@@ -335,7 +361,9 @@ class TestConversionEndpoints:
             sample_file = conversion["sample_file"]
 
             if not sample_file:
-                print(f"⚠️  No sample file for {input_ext}")
+                line = f"⚠️  No sample file for {input_ext}"
+                print(line)
+                output_lines.append(line)
                 failed_count += 1
                 continue
 
@@ -366,23 +394,30 @@ class TestConversionEndpoints:
 
             # Map conversion method to service name
             conversion_method = result.get("conversion_method", "unknown")
-            service_map = {
-                "JSON Structure Extraction": "UNSTRUCTURED_IO",
-                "Markdown Conversion": "PANDOC",
-                "DOCX Conversion": "LIBREOFFICE",
-                "HTML Conversion": "LIBREOFFICE",
-                "PDF Generation": "GOTENBERG",
-                "Text Extraction": "UNSTRUCTURED_IO",
-                "XLSX Conversion": "LIBREOFFICE"
-            }
-            service_name = service_map.get(conversion_method, conversion_method.upper().replace(" ", "_"))
+            service_name = CONVERSION_METHOD_TO_SERVICE_MAP.get(conversion_method, conversion_method.upper().replace(" ", "_"))
 
             # Print consolidated result
-            print(f"🤔 /convert/{endpoint} ({input_ext} → {output_ext}): {status_emoji} / IN: {sample_file['filename']} {time_info} ({service_name}){error_info}")
+            valid_status = "✅ Y" if result.get("fileValid", False) else "❌ N"
+            line = f"🤔 /convert/{endpoint} ({input_ext} → {output_ext}): {status_emoji} / Valid: {valid_status} / IN: {sample_file['filename']} {time_info} ({service_name}){error_info}"
+            print(line)
+            output_lines.append(line)
 
         # Print summary
         success_rate = (passed_count / total_count * 100) if total_count > 0 else 0
-        print(f"\n📊 Summary: {total_count} conversions tested, {passed_count} passed, {failed_count} failed ({success_rate:.1f}% success rate)")
+        summary_line = f"\n📊 Summary: {total_count} conversions tested, {passed_count} passed, {failed_count} failed ({success_rate:.1f}% success rate)"
+        print(summary_line)
+        output_lines.append(summary_line)
+        
+        # Write results to text file
+        workspace_root = Path(__file__).parent.parent.parent.parent.resolve()
+        output_dir = workspace_root / ".data" / "tests" / "output-data"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        results_file = output_dir / "conversion_test_results.txt"
+        with open(results_file, 'w') as f:
+            f.write("\n".join(output_lines))
+        
+        print(f"\n💾 Results saved to: {results_file}")
 
     @pytest.mark.asyncio
     async def test_all_file_conversions_async(self, client: TestClient, testable_conversions, output_data_dir):
@@ -460,190 +495,17 @@ class TestConversionEndpoints:
 
                 # Map conversion method to service name
                 conversion_method = result.get("conversion_method", "unknown")
-                service_map = {
-                    "JSON Structure Extraction": "UNSTRUCTURED_IO",
-                    "Markdown Conversion": "PANDOC",
-                    "DOCX Conversion": "LIBREOFFICE",
-                    "HTML Conversion": "LIBREOFFICE",
-                    "PDF Generation": "GOTENBERG",
-                    "Text Extraction": "UNSTRUCTURED_IO",
-                    "XLSX Conversion": "LIBREOFFICE"
-                }
-                service_name = service_map.get(conversion_method, conversion_method.upper().replace(" ", "_"))
+                service_name = CONVERSION_METHOD_TO_SERVICE_MAP.get(conversion_method, conversion_method.upper().replace(" ", "_"))
 
                 # Print consolidated result
                 endpoint = result["endpoint"].replace("/convert/", "")
                 input_ext = result["input_extension"]
                 output_ext = result["output_extension"]
-                print(f"🤔 /convert/{endpoint} ({input_ext} → {output_ext}): {status_emoji} / IN: {result.get('input_filename', 'unknown')} {time_info} ({service_name}){error_info}")
+                valid_status = "✅ Y" if result.get("fileValid", False) else "❌ N"
+                print(f"🤔 /convert/{endpoint} ({input_ext} → {output_ext}): {status_emoji} / Valid: {valid_status} / IN: {result.get('input_filename', 'unknown')} {time_info} ({service_name}){error_info}")
 
         # Print summary
         total_count = len(valid_conversions)
         success_rate = (passed_count / total_count * 100) if total_count > 0 else 0
-        print(f"\n📊 Summary: {total_count} conversions tested, {passed_count} passed, {failed_count} failed ({success_rate:.1f}% success rate)")
-
-    async def _test_conversion_endpoint_async(
-        self,
-        semaphore: asyncio.Semaphore,
-        async_client: httpx.AsyncClient,
-        endpoint: str,
-        input_file_path: Path,
-        input_ext: str,
-        output_ext: str,
-        output_dir: Path,
-        sample_filename: str
-    ) -> Dict:
-        """Test a single conversion endpoint asynchronously with concurrency control."""
-        async with semaphore:  # Limit concurrent requests
-            result = {
-                "endpoint": f"/convert/{endpoint}",
-                "input_extension": input_ext,
-                "output_extension": output_ext,
-                "input_file": str(input_file_path),
-                "input_filename": sample_filename,
-                "status": False,
-                "status_detail": "not_started",
-                "conversion_method": "unknown",
-                "error_message": None,
-                "error_category": None,
-                "http_status": None,
-                "response_size": 0,
-                "output_file": None,
-                "response_time_ms": None,
-                "service_available": False
-            }
-
-            try:
-                # Check if input file exists
-                if not input_file_path.exists():
-                    result.update({
-                        "status": False,
-                        "status_detail": "input_file_missing",
-                        "error_message": f"Input file not found: {input_file_path}",
-                        "error_category": "file_system"
-                    })
-                    return result
-
-                # Check file size (basic validation)
-                file_size = input_file_path.stat().st_size
-                if file_size == 0:
-                    result.update({
-                        "status": False,
-                        "status_detail": "input_file_empty",
-                        "error_message": f"Input file is empty: {input_file_path}",
-                        "error_category": "file_validation"
-                    })
-                    return result
-
-                # Special handling for URL endpoints
-                if endpoint.startswith("url-"):
-                    result.update({
-                        "status": False,
-                        "status_detail": "url_endpoint_not_implemented",
-                        "error_message": "URL endpoints require special handling",
-                        "error_category": "test_implementation"
-                    })
-                    return result
-
-                # Read file content
-                with open(input_file_path, 'rb') as f:
-                    file_content = f.read()
-
-                files = {"file": (input_file_path.name, file_content, f"application/{input_ext}")}
-                data = {}
-
-                import time
-                start_time = time.time()
-
-                try:
-                    # Make the async request
-                    response = await async_client.post(
-                        f"/convert/{endpoint}",
-                        files=files,
-                        data=data
-                    )
-                except Exception as request_error:
-                    end_time = time.time()
-                    result.update({
-                        "status": False,
-                        "status_detail": "request_failed",
-                        "error_message": f"Request failed: {str(request_error)}",
-                        "error_category": "network",
-                        "response_time_ms": int((end_time - start_time) * 1000)
-                    })
-                    return result
-
-                end_time = time.time()
-                result["response_time_ms"] = int((end_time - start_time) * 1000)
-                result["http_status"] = response.status_code
-                result["response_size"] = len(response.content)
-
-                # Validate response content
-                content_valid = self._validate_response_content(response, output_ext)
-                conversion_method = self._determine_conversion_method(response, output_ext)
-
-                # Determine test status
-                if response.status_code == 200 and content_valid:
-                    status = True
-                    error_message = None
-                elif response.status_code == 200 and not content_valid:
-                    status = False
-                    error_message = f"Response received but content validation failed for {output_ext}"
-                elif response.status_code >= 500:
-                    status = False
-                    error_message = f"Server error: {response.status_code}"
-                elif response.status_code >= 400:
-                    status = False
-                    error_message = f"Client error: {response.status_code}"
-                else:
-                    status = False
-                    error_message = f"Unexpected status: {response.status_code}"
-
-                # Save output file if conversion succeeded
-                output_file_path = None
-                if status and response.content:
-                    output_file_path = output_dir / f"{input_file_path.stem}_to_{endpoint}.{output_ext}"
-                    try:
-                        with open(output_file_path, "wb") as f:
-                            f.write(response.content)
-                    except Exception as e:
-                        result.update({
-                            "status": False,
-                            "status_detail": "success_but_save_failed",
-                            "error_message": f"Conversion succeeded but failed to save output: {str(e)}",
-                            "error_category": "file_system"
-                        })
-
-                # Create result dictionary
-                result.update({
-                    "status": status,
-                    "conversion_method": conversion_method,
-                    "error_message": error_message,
-                    "output_file": str(output_file_path) if output_file_path else None
-                })
-
-            except FileNotFoundError as e:
-                result.update({
-                    "status": False,
-                    "status_detail": "file_access_error",
-                    "error_message": f"File access error: {str(e)}",
-                    "error_category": "file_system"
-                })
-
-            except PermissionError as e:
-                result.update({
-                    "status": False,
-                    "status_detail": "permission_denied",
-                    "error_message": f"Permission denied: {str(e)}",
-                    "error_category": "file_system"
-                })
-
-            except Exception as e:
-                result.update({
-                    "status": False,
-                    "status_detail": "unexpected_error",
-                    "error_message": f"Unexpected error: {str(e)}",
-                    "error_category": "unknown"
-                })
-
-            return result
+        summary_line = f"\n📊 Summary: {total_count} conversions tested, {passed_count} passed, {failed_count} failed ({success_rate:.1f}% success rate)"
+        print(summary_line)

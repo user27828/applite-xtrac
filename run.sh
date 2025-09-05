@@ -182,7 +182,47 @@ manage_service() {
             docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME restart $service || log_error "Failed to restart service $service"
             ;;
         logs)
-            timeout 30 docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME logs -f $service || log_error "Failed to get logs for service $service (timeout)"
+            # Shift past action and service to get additional arguments
+            shift 2
+            local log_args=""
+            # Process additional arguments for docker-compose logs
+            while [[ $# -gt 0 ]]; do
+                case $1 in
+                    --tail)
+                        log_args="$log_args --tail $2"
+                        shift 2
+                        ;;
+                    -f|--follow)
+                        log_args="$log_args -f"
+                        shift
+                        ;;
+                    -t|--timestamps)
+                        log_args="$log_args -t"
+                        shift
+                        ;;
+                    --since)
+                        log_args="$log_args --since $2"
+                        shift 2
+                        ;;
+                    --until)
+                        log_args="$log_args --until $2"
+                        shift 2
+                        ;;
+                    *)
+                        log_error "Unknown logs option: $1"
+                        log_info "Supported options: --tail N, -f/--follow, -t/--timestamps, --since TIME, --until TIME"
+                        exit 1
+                        ;;
+                esac
+            done
+            
+            # Default to follow if no specific options provided
+            if [ -z "$log_args" ]; then
+                log_args="-f"
+            fi
+            
+            log_info "Getting logs for service: $service with options: $log_args"
+            docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME logs $log_args $service || log_error "Failed to get logs for service $service"
             ;;
         *)
             log_error "Unknown action: $action"
@@ -365,12 +405,143 @@ do_health() {
     check_health
 }
 
+# Run tests
+run_tests() {
+    local test_type=${1:-"all"}
+    
+    case $test_type in
+        "all")
+            log_info "Running all tests..."
+            run_all_tests
+            ;;
+        "conversion")
+            log_info "Running conversion tests..."
+            run_conversion_tests
+            ;;
+        *)
+            log_error "Unknown test type: $test_type"
+            log_info "Available test types: all, conversion"
+            exit 1
+            ;;
+    esac
+}
+
+# Run all tests
+run_all_tests() {
+    local proxy_dir="proxy-service"
+    
+    if [ ! -d "$proxy_dir" ]; then
+        log_error "Proxy service directory '$proxy_dir' not found"
+        exit 1
+    fi
+    
+    cd "$proxy_dir"
+    
+    # Check if Python environment exists
+    if [ ! -d "venv" ]; then
+        log_warning "Virtual environment not found. Creating one..."
+        python3 -m venv venv
+        source venv/bin/activate
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+    else
+        source venv/bin/activate
+        # Check if pytest is available, install dev requirements if not
+        if ! python -c "import pytest" 2>/dev/null; then
+            log_info "Installing development dependencies..."
+            pip install -r requirements-dev.txt
+        fi
+    fi
+    
+    log_info "Running all tests..."
+    
+    # Run pytest with coverage
+    if command -v pytest &> /dev/null; then
+        pytest --tb=short --cov=convert --cov-report=html:htmlcov || log_error "Tests failed"
+    else
+        log_warning "pytest not found, running basic Python tests..."
+        python -m unittest discover tests/ -v || log_error "Basic tests failed"
+    fi
+    
+    log_success "All tests completed"
+}
+
+# Run conversion tests specifically
+run_conversion_tests() {
+    local proxy_dir="proxy-service"
+    
+    if [ ! -d "$proxy_dir" ]; then
+        log_error "Proxy service directory '$proxy_dir' not found"
+        exit 1
+    fi
+    
+    cd "$proxy_dir"
+    
+    # Check if Python environment exists
+    if [ ! -d "venv" ]; then
+        log_warning "Virtual environment not found. Creating one..."
+        python3 -m venv venv
+        source venv/bin/activate
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+    else
+        source venv/bin/activate
+        # Check if pytest is available, install dev requirements if not
+        if ! python -c "import pytest" 2>/dev/null; then
+            log_info "Installing development dependencies..."
+            pip install -r requirements-dev.txt
+        fi
+    fi
+    
+    log_info "Running conversion integration tests with detailed output..."
+    
+    # Run the specific test method that shows all conversion results
+    if command -v pytest &> /dev/null; then
+        pytest tests/integration/test_conversions.py::TestConversionEndpoints::test_all_file_conversions -v -s --tb=short || log_error "Conversion tests failed"
+    else
+        log_warning "pytest not found, running basic Python tests..."
+        python -m unittest tests.integration.test_conversions.TestConversionEndpoints.test_all_file_conversions -v || log_error "Basic conversion tests failed"
+    fi
+    
+    log_success "Conversion tests completed"
+}
+
+# Check and activate Python virtual environment
+check_and_activate_venv() {
+    local proxy_dir="proxy-service"
+    
+    if [ ! -d "$proxy_dir" ]; then
+        log_error "Proxy service directory '$proxy_dir' not found"
+        exit 1
+    fi
+    
+    cd "$proxy_dir"
+    
+    # Check if Python environment exists
+    if [ ! -d "venv" ]; then
+        log_warning "Virtual environment not found. Creating one..."
+        python3 -m venv venv
+        source venv/bin/activate
+        pip install -r requirements.txt
+    else
+        source venv/bin/activate
+    fi
+    
+    cd - > /dev/null
+}
+
 # Main command processing
 main() {
+    # Check and activate venv for all commands
+    check_and_activate_venv
+    
     local command=$1
     shift
     
     case "$command" in
+        "activate")
+            log_success "Virtual environment is active"
+            ;;
         "up"|"start")
             do_start false "$@"
             ;;
@@ -386,12 +557,17 @@ main() {
         "logs")
             if [ $# -eq 0 ]; then
                 log_error "No service specified for logs"
-                log_info "Usage: $0 logs <service>"
+                log_info "Usage: $0 logs <service> [tail options]"
+                log_info "Examples:"
+                log_info "  $0 logs gotenberg              # Follow logs (default)"
+                log_info "  $0 logs gotenberg --tail 50     # Show last 50 lines"
+                log_info "  $0 logs gotenberg --tail 100 -f # Show last 100 lines and follow"
                 exit 1
             fi
             
             local service=$1
-            manage_service logs $service
+            shift
+            manage_service logs $service "$@"
             ;;
         "restart")
             log_info "Restarting all services..."
@@ -403,32 +579,39 @@ main() {
         "dev:stop")
             stop_dev_mode
             ;;
+        "test")
+            run_tests "all"
+            ;;
+        "test:conversion")
+            run_tests "conversion"
+            ;;
         "update")
             update_images
             ;;
         "resources")
             show_resources
             ;;
+        "health")
+            check_health
+            ;;
         *)
             log_error "Unknown command: $command"
-            echo "Usage: $0 {up|down|stop|start|start:d|status|ps|logs|restart|dev|dev:stop|update|resources|health}"
+            echo "Usage: $0 {activate|up|down|stop|start|start:d|status|ps|logs|restart|dev|dev:stop|update|resources|health|test|test:conversion}"
             echo ""
             echo "Commands:"
-            echo "  up           Start all services"
-            echo "  up-d         Start all services in background"
-            echo "  down         Stop all services"
-            echo "  stop         Alias for 'down'"
-            echo "  start        Alias for 'up'"
-            echo "  startd      Alias for 'up-d'"
-            echo "  status       Alias for 'health'"
-            echo "  ps           Alias for 'health'"
-            echo "  logs <svc>   Show logs for a specific service"
+            echo "  activate     Check and activate Python virtual environment"
+            echo "  start|up     Start all services"
+            echo "  startd|up-d  Start all services in background"
+            echo "  stop|down    Stop all services"
+            echo "  logs <svc> [opts]   Show logs for a specific service (supports --tail, -f, -t, --since, --until)"
             echo "  restart      Restart all services"
             echo "  dev          Start development mode (containers + local proxy)"
             echo "  dev:stop     Stop development mode"
             echo "  update       Pull latest Docker images"
             echo "  resources    Show container resource usage"
-            echo "  health       Check service health"
+            echo "  status|health|ps   Check service health"
+            echo "  test         Run all tests"
+            echo "  test:conversion    Run conversion integration tests"
             exit 1
             ;;
     esac

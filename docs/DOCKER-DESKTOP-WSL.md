@@ -107,25 +107,25 @@ git clone <repository-url>
 cd applite-convert
 
 # Make scripts executable
-chmod +x docker-run.sh test-network-performance.sh
+chmod +x run.sh test-network-performance.sh
 
 # Start development mode (recommended for development)
-./docker-run.sh dev
+./run.sh dev
 
 # Or start all services in containers
-./docker-run.sh up
+./run.sh up
 ```
 
 ### Development Mode vs Production Mode
 
-**Development Mode** (`./docker-run.sh dev`):
+**Development Mode** (`./run.sh dev`):
 - Proxy service runs locally on host (port 8369)
 - Conversion services run in Docker containers
 - Hot reload enabled for proxy development
 - Faster for development workflow
 - **Recommended for development**
 
-**Production Mode** (`./docker-run.sh up`):
+**Production Mode** (`./run.sh up`):
 - All services run in Docker containers
 - Complete container isolation
 - Better for production deployment
@@ -172,19 +172,19 @@ docker-compose up
 
 ```bash
 # Development mode (recommended)
-./docker-run.sh dev
+./run.sh dev
 
 # Production mode
-./docker-run.sh up
+./run.sh up
 
 # Stop all services
-./docker-run.sh down
+./run.sh down
 
 # View logs
-./docker-run.sh logs
+./run.sh logs
 
 # Check service status
-./docker-run.sh status
+./run.sh status
 
 # Test network performance
 ./test-network-performance.sh
@@ -268,7 +268,7 @@ The project includes network optimizations for development:
 
 ```bash
 # Start development mode
-./docker-run.sh dev
+./run.sh dev
 
 # Test API endpoints
 curl http://localhost:8369/ping
@@ -278,7 +278,7 @@ curl http://localhost:8369/convert/supported
 ./test-network-performance.sh
 
 # View logs
-./docker-run.sh logs
+./run.sh logs
 ```
 
 ## 7. Best Practices
@@ -287,6 +287,6 @@ curl http://localhost:8369/convert/supported
 - **Security**: Use Docker's built-in security features rather than relying on WSL isolation
 - **Performance**: Enable Docker Desktop's WSL 2 backend for best performance
 - **Updates**: Keep Docker Desktop updated for latest WSL integration improvements
-- **Development**: Use `./docker-run.sh dev` for development with hot reload
+- **Development**: Use `./run.sh dev` for development with hot reload
 - **Monitoring**: Regularly run `./test-network-performance.sh` to monitor performance
-- **Cleanup**: Use `./docker-run.sh down` to properly stop all services
+- **Cleanup**: Use `./run.sh down` to properly stop all services
