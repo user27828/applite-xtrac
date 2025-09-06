@@ -381,6 +381,7 @@ stop_dev_mode() {
 # Helper functions for common operations
 do_start() {
     local background=${1:-false}
+    shift  # Remove the background flag from arguments
     
     check_dependencies
     validate_config
@@ -404,6 +405,15 @@ do_stop() {
 
 do_health() {
     check_health
+}
+
+do_build() {
+    check_dependencies
+    validate_config
+    
+    log_info "Building Docker images..."
+    docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME build "$@" || log_error "Failed to build Docker images"
+    log_success "Docker images built successfully"
 }
 
 # Run tests
@@ -552,6 +562,9 @@ main() {
         "down"|"stop")
             do_stop "$@"
             ;;
+        "build")
+            do_build "$@"
+            ;;
         "status"|"ps"|"health")
             do_health
             ;;
@@ -597,13 +610,14 @@ main() {
             ;;
         *)
             log_error "Unknown command: $command"
-            echo "Usage: $0 {activate|up|down|stop|start|start:d|status|ps|logs|restart|dev|dev:stop|update|resources|health|test|test:conversion}"
+            echo "Usage: $0 {activate|up|down|stop|start|start:d|status|ps|logs|restart|build|dev|dev:stop|update|resources|health|test|test:conversion}"
             echo ""
             echo "Commands:"
             echo "  activate     Check and activate Python virtual environment"
             echo "  start|up     Start all services"
             echo "  startd|up-d  Start all services in background"
             echo "  stop|down    Stop all services"
+            echo "  build        Build Docker images"
             echo "  logs <svc> [opts]   Show logs for a specific service (supports --tail, -f, -t, --since, --until)"
             echo "  restart      Restart all services"
             echo "  dev          Start development mode (containers + local proxy)"

@@ -10,9 +10,11 @@ import httpx
 import re
 from typing import Optional, Dict, Any
 from urllib.parse import urlparse
-from fastapi import HTTPException, Request, UploadFile
+from fastapi import HTTPException, Request, UploadFile, Form
 from fastapi.responses import StreamingResponse
 from io import BytesIO
+from multipart.multipart import parse_options_header
+import asyncio
 
 # Import local conversion factory
 from .._local_ import LocalConversionFactory
@@ -278,7 +280,21 @@ async def _convert_file(
                     "txt": "text/plain"
                 }
                 unstructured_output_format = mime_mapping.get(output_format, output_format)
-                data = {"output_format": unstructured_output_format}
+                
+                # Extract all user-provided parameters from the request
+                if extra_params is None:
+                    extra_params = await extract_request_params(request)
+                
+                # Default to 'auto' strategy, but allow override from extra_params
+                strategy = extra_params.get("strategy", "auto") if extra_params else "auto"
+                data = {"output_format": unstructured_output_format, "strategy": strategy}
+                
+                # Add any additional parameters from extra_params to the request data
+                if extra_params:
+                    for key, value in extra_params.items():
+                        if key not in data:  # Don't override existing parameters
+                            data[key] = value
+
             else:
                 # This should not happen anymore since we fetch URLs above
                 raise HTTPException(
@@ -317,6 +333,7 @@ async def _convert_file(
                     raise HTTPException(status_code=503, detail="Unstructured library not available for local conversion")
 
                 json_data = response.json()
+                
                 elements = []
                 for item in json_data:
                     elements.extend(dict_to_elements([item]))
@@ -325,7 +342,9 @@ async def _convert_file(
                     content = elements_to_md(elements)
                     media_type = "text/markdown"
                 else:  # txt
-                    content = "\n".join([elem.text for elem in elements if elem.text])
+                    # Filter out None values and join only non-None text elements
+                    text_elements = [elem.text for elem in elements if elem.text is not None]
+                    content = "\n".join(text_elements)
                     media_type = "text/plain"
 
                 # Generate output filename
@@ -565,3 +584,47 @@ async def _convert_file(
         # Clean up temp file wrapper if it exists
         if temp_file_wrapper:
             await temp_file_wrapper.close()
+
+
+async def extract_request_params(request: Request) -> Dict[str, Any]:
+    """
+    Extract all form parameters from a multipart/form-data request.
+    
+    This function automatically extracts all user-provided parameters from the request
+    and returns them as a dictionary that can be passed to the underlying service.
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        Dictionary of parameter names and values
+    """
+    params = {}
+    
+    # Parse the multipart form data
+    try:
+        form_data = await request.form()
+        
+        # Extract all form fields except 'file' and 'url' which are handled separately
+        for field_name, field_value in form_data.items():
+            if field_name not in ['file', 'url'] and field_value is not None:
+                # Convert field value to appropriate type
+                if isinstance(field_value, str):
+                    # Try to convert to appropriate type
+                    if field_value.lower() in ('true', 'false'):
+                        params[field_name] = field_value.lower() == 'true'
+                    elif field_value.isdigit():
+                        params[field_name] = int(field_value)
+                    elif field_value.replace('.', '').isdigit():
+                        params[field_name] = float(field_value)
+                    else:
+                        params[field_name] = field_value
+                else:
+                    params[field_name] = field_value
+                    
+    except Exception as e:
+        logger.warning(f"Failed to extract form parameters: {e}")
+        # If form parsing fails, try to get query parameters as fallback
+        params.update(dict(request.query_params))
+    
+    return params

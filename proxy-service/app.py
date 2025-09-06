@@ -444,6 +444,24 @@ async def proxy_request(service: str, path: str, request: Request):
     if path == "docs":
         query_params["dark"] = "true"
     
+    # Extract form data parameters for POST/PUT/PATCH requests
+    form_params = {}
+    if request.method in ["POST", "PUT", "PATCH"]:
+        try:
+            # Check if this is multipart form data
+            content_type = headers.get("content-type", "").lower()
+            if "multipart/form-data" in content_type:
+                form_data = await request.form()
+                for field_name, field_value in form_data.items():
+                    if field_name not in ['file', 'files']:  # Skip file fields
+                        form_params[field_name] = field_value
+                        
+                # If we have form data, we need to rebuild the body without the parameter fields
+                # For now, we'll pass parameters as query params to maintain compatibility
+                query_params.update(form_params)
+        except Exception as e:
+            logger.warning(f"Failed to extract form parameters in proxy: {e}")
+    
     client: httpx.AsyncClient = app.state.client
     # Use longer timeout client for LibreOffice conversions
     if service == "libreoffice":

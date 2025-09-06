@@ -136,6 +136,30 @@ curl http://localhost:8369/convert/supported
 curl http://localhost:8369/convert/info/docx-pdf
 ```
 
+### Parameter Passing
+
+All conversion endpoints automatically accept and pass through parameters to the underlying services. This allows you to customize the behavior of the conversion services:
+
+**Unstructured IO Parameters:**
+```bash
+# Use hi_res strategy for better accuracy
+curl -X POST "http://localhost:8369/convert/pdf-md" -F "file=@document.pdf" -F "strategy=hi_res" -o document.md
+
+# Use fast strategy for speed
+curl -X POST "http://localhost:8369/convert/pdf-md" -F "file=@document.pdf" -F "strategy=fast" -o document.md
+
+# Pass multiple parameters
+curl -X POST "http://localhost:8369/convert/pdf-json" -F "file=@document.pdf" -F "strategy=hi_res" -F "coordinates=true" -o document.json
+```
+
+**Direct Service Access:**
+You can also pass parameters directly to services through the proxy:
+
+```bash
+# Direct unstructured-io access with parameters
+curl -X POST "http://localhost:8369/unstructured-io/general/v0/general" -F "files=@document.pdf" -F "strategy=hi_res" -F "output_format=text/markdown"
+```
+
 ### Service Intelligence
 
 Each endpoint automatically selects the optimal service:
@@ -148,7 +172,6 @@ Each endpoint automatically selects the optimal service:
 
 - `GET /convert/supported` - List all available conversions
 - `GET /convert/info/{input}-{output}` - Get conversion details
-- Full list in `proxy-service/convert/README.md`
 
 ## Quick Start
 
@@ -179,9 +202,11 @@ For easier management, use the provided script:
 
 ```bash
 # Start services
+./run.sh start
 ./run.sh up
 
 # Start in background
+./run.sh startd
 ./run.sh up-d
 
 # Build services
@@ -194,6 +219,7 @@ For easier management, use the provided script:
 ./run.sh status
 
 # Stop services
+./run.sh stop
 ./run.sh down
 
 # Clean up
@@ -216,6 +242,7 @@ For easier management, use the provided script:
 - Uses the official [Unstructured API](https://github.com/Unstructured-IO/unstructured-api) for document structure extraction
 - Supports advanced document parsing and element extraction
 - Handles complex document layouts and formats
+- ⚠️Warning: Running OCR on documents rich with images will make memory usage and time to completion rise proportional to the number of pages.  For example: I ran a visually rich, ~90MB, ~1000 page PDF, which consumed a peak of 6.8GB RAM, and took ~1 hour to process. If you know that a document does not have images needing OCR, you can pass `strategy=fast` to speed up processing.
 
 **Sample Request:**
 ```bash
@@ -228,7 +255,7 @@ curl -X POST "http://localhost:8369/unstructured-io/general/v0/general" \
 ```
 
 **Features:**
-- Multiple parsing strategies (fast, hi_res, ocr_only, auto)
+- Multiple parsing strategies (`fast`, `hi_res`, `ocr_only`, `auto`)
 - Element type detection (titles, paragraphs, tables, etc.)
 - Coordinate extraction for document layout
 - Support for PDF, DOCX, and other document formats
