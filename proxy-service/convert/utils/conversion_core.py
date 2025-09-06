@@ -334,6 +334,9 @@ async def _convert_file(
 
                 json_data = response.json()
                 
+                # Fix table text_as_html issues before processing
+                json_data = fix_table_text_as_html(json_data)
+                
                 elements = []
                 for item in json_data:
                     elements.extend(dict_to_elements([item]))
@@ -628,3 +631,151 @@ async def extract_request_params(request: Request) -> Dict[str, Any]:
         params.update(dict(request.query_params))
     
     return params
+
+
+def fix_table_text_as_html(json_data: list) -> list:
+    """
+    Fix table elements where text_as_html is missing content compared to text.
+    
+    This addresses the known issue in unstructured-io where table detection
+    fails to properly populate text_as_html, particularly for header rows.
+    
+    Args:
+        json_data: List of element dictionaries from unstructured-io
+        
+    Returns:
+        Modified json_data with fixed table text_as_html fields
+    """
+    for item in json_data:
+        if item.get('type') == 'Table':
+            text = item.get('text', '').strip()
+            text_as_html = item.get('metadata', {}).get('text_as_html', '').strip()
+            
+            # Skip if text_as_html already looks complete or text is empty
+            if not text or (text_as_html and '<td>' in text_as_html and '</td>' in text_as_html and text_as_html.count('<td>') > text_as_html.count('<td></td>')):
+                continue
+                
+            # Try to reconstruct HTML table from text
+            reconstructed_html = _reconstruct_table_html(text)
+            if reconstructed_html:
+                # Ensure metadata dict exists
+                if 'metadata' not in item:
+                    item['metadata'] = {}
+                item['metadata']['text_as_html'] = reconstructed_html
+    
+    return json_data
+
+
+def _reconstruct_table_html(text: str) -> str:
+    """
+    Reconstruct HTML table markup from plain text table content.
+    
+    Handles various table formats:
+    - Tab-separated values
+    - Space-separated with consistent column structure
+    - Multi-line table data
+    
+    Args:
+        text: Plain text containing table data
+        
+    Returns:
+        HTML table markup string, or empty string if reconstruction fails
+    """
+    if not text or not text.strip():
+        return ""
+        
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    if not lines:
+        return ""
+    
+    # Try different parsing strategies
+    table_data = []
+    
+    # Strategy 1: Tab-separated values
+    if '\t' in text:
+        for line in lines:
+            if '\t' in line:
+                cells = [cell.strip() for cell in line.split('\t') if cell.strip()]
+                if cells:
+                    table_data.append(cells)
+    
+    # Strategy 2: Space-separated with consistent column count
+    if not table_data:
+        # Analyze all lines to find consistent column structure
+        parsed_lines = []
+        for line in lines:
+            # First try splitting by multiple spaces
+            cells = re.split(r'\s{2,}', line)
+            cells = [cell.strip() for cell in cells if cell.strip()]
+            
+            # If that didn't split anything (single spaces), try single space split
+            if len(cells) == 1 and ' ' in line:
+                cells = line.split()
+                
+            if cells:
+                parsed_lines.append(cells)
+        
+        # Find the most common column count (likely the table structure)
+        if parsed_lines:
+            col_counts = [len(line) for line in parsed_lines]
+            most_common_cols = max(set(col_counts), key=col_counts.count)
+            
+            # Keep only lines with the most common column count
+            table_data = [line for line in parsed_lines if len(line) == most_common_cols]
+            
+            # Special case: if we have one line with even number of cells, try 2xN layout
+            if len(table_data) == 1 and len(table_data[0]) >= 4 and len(table_data[0]) % 2 == 0:
+                cells = table_data[0]
+                mid = len(cells) // 2
+                table_data = [
+                    cells[:mid],
+                    cells[mid:]
+                ]
+    
+    # Strategy 3: Single line with alternating pattern (headers + data)
+    if not table_data and len(lines) == 1:
+        # Try to detect header-data pattern like "Header1 Data1 Data2 Header2 Data3 Data4"
+        words = re.findall(r'\S+', text)
+        if len(words) >= 4:  # Need at least 4 values for a 2x2 table
+            # For simple cases like "1 3 2 4", assume 2x2 table
+            if len(words) == 4:
+                table_data = [
+                    [words[0], words[1]],
+                    [words[2], words[3]]
+                ]
+            elif len(words) >= 6:  # Need at least 2 headers + 4 data points for a meaningful table
+                # Look for pattern where some words might be headers
+                # This is heuristic - assume first half could be headers, second half data
+                mid_point = len(words) // 2
+                headers = words[:mid_point]
+                data = words[mid_point:]
+                
+                # Try to create a square-ish table
+                cols = int(len(data) ** 0.5)  # Square root for column count
+                if cols > 1 and len(data) % cols == 0:
+                    rows = len(data) // cols
+                    table_data = []
+                    for i in range(rows):
+                        row = data[i*cols:(i+1)*cols]
+                        table_data.append(row)
+                    
+                    # Add headers as first row if they match column count
+                    if len(headers) == cols:
+                        table_data.insert(0, headers)
+    
+    # Generate HTML if we have table data
+    if table_data and len(table_data) > 1:  # Need at least header + 1 data row
+        html_parts = ['<table><tbody>']
+        
+        for row in table_data:
+            html_parts.append('<tr>')
+            for cell in row:
+                # Escape HTML entities
+                cell = cell.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                html_parts.append(f'<td>{cell}</td>')
+            html_parts.append('</tr>')
+        
+        html_parts.append('</tbody></table>')
+        return ''.join(html_parts)
+    
+    return ""
