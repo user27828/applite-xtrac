@@ -49,7 +49,7 @@ services:
   proxy:
     build: ./proxy-service
     ports:
-      - "${APPLITE_CONVERT_PORT:-8369}:8369"
+      - "${APPLITEXTRAC_PORT:-8369}:8369"
     networks:
       - app-network
 

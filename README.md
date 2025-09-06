@@ -1,4 +1,4 @@
-# AppLite Convert - Multi-Service Document Processing API
+# AppLite Xtrac - Multi-Service Document Processing API
 
 This project provides a unified API gateway for multiple document processing services using Docker and docker-compose.
 
@@ -79,7 +79,7 @@ For detailed information about URL fetching capabilities, Scrapy integration, an
 
 ### Quick Examples
 
-**Note:** Replace `8369` with your configured port if using `APPLITE_CONVERT_PORT`.
+**Note:** Replace `8369` with your configured port if using `APPLITEXTRAC_PORT`.
 
 **Convert DOCX to PDF:**
 ```bash
@@ -155,7 +155,7 @@ Each endpoint automatically selects the optimal service:
 1. Clone this repository
 2. **For Docker**: Ensure Docker and docker-compose are installed
 3. Run `docker-compose up --build`
-4. The API will be available at `http://localhost:8369` (or your configured port via `APPLITE_CONVERT_PORT`)
+4. The API will be available at `http://localhost:8369` (or your configured port via `APPLITEXTRAC_PORT`)
 
 ### Test Health Checks
 

@@ -9,9 +9,9 @@ set -euo pipefail  # Exit on error, undefined vars, and pipe failures
 COMPOSE_FILE="docker-compose.yml"
 PROJECT_NAME="applite-xtrac"
 # Set default port if not already defined
-APPLITE_XTRAC_PORT=${APPLITE_XTRAC_PORT:-8369}
+APPLITEXTRAC_PORT=${APPLITEXTRAC_PORT:-8369}
 APPLITEXTRAC_HTTP_TIMEOUT=${APPLITEXTRAC_HTTP_TIMEOUT:-0}
-REQUIRED_PORTS=(${APPLITE_XTRAC_PORT} 4000)  # Ports that need to be available
+REQUIRED_PORTS=(${APPLITEXTRAC_PORT} 4000)  # Ports that need to be available
 SERVICES=("unstructured-io" "libreoffice" "pandoc" "gotenberg" "proxy")
 
 # Colors for output
@@ -132,11 +132,11 @@ check_health() {
     log_info "Checking service health..."
     
     # Try to ping the proxy service
-    if timeout 10 curl -s -f http://localhost:${APPLITE_XTRAC_PORT}/ping >/dev/null 2>&1; then
+    if timeout 10 curl -s -f http://localhost:${APPLITEXTRAC_PORT}/ping >/dev/null 2>&1; then
         log_success "Proxy service is responding"
         
         # Check individual services via proxy
-        if timeout 10 curl -s -f http://localhost:${APPLITE_XTRAC_PORT}/ping-all >/dev/null 2>&1; then
+        if timeout 10 curl -s -f http://localhost:${APPLITEXTRAC_PORT}/ping-all >/dev/null 2>&1; then
             log_success "All services are healthy"
         else
             log_warning "Some services may be unhealthy"
@@ -242,7 +242,7 @@ dev_mode() {
     check_dependencies
     validate_config
     
-    # Check ports (exclude proxy port ${APPLITE_XTRAC_PORT} since it will run locally)
+    # Check ports (exclude proxy port ${APPLITEXTRAC_PORT} since it will run locally)
     local dev_ports=(4000)  # Only check non-proxy ports
     for port in "${dev_ports[@]}"; do
         if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1; then
@@ -303,7 +303,7 @@ start_local_proxy() {
     fi
     
     # Set environment variables for local development with network optimizations
-    export APPLITE_XTRAC_PORT  # Export the port variable
+    export APPLITEXTRAC_PORT  # Export the port variable
     export UNSTRUCTURED_IO_URL="http://localhost:8000"
     export LIBREOFFICE_URL="http://localhost:2004" 
     export PANDOC_URL="http://localhost:3030"
@@ -315,11 +315,11 @@ start_local_proxy() {
     export DISABLE_IPV6="true"            # Force IPv4 only to avoid DNS conflicts
     export DOCKER_NETWORK_MODE="bridge"   # Explicit bridge mode
     
-    log_info "Starting proxy service locally on port ${APPLITE_XTRAC_PORT:-8369}..."
+    log_info "Starting proxy service locally on port ${APPLITEXTRAC_PORT:-8369}..."
     log_info "Press Ctrl+C to stop"
     
     # Start with auto-reload for development
-    uvicorn app:app --host 0.0.0.0 --port ${APPLITE_XTRAC_PORT} --reload --reload-exclude 'venv/'
+    uvicorn app:app --host 0.0.0.0 --port ${APPLITEXTRAC_PORT} --reload --reload-exclude 'venv/'
 }
 
 # Stop development mode
@@ -332,7 +332,7 @@ stop_dev_mode() {
     
     # Kill local proxy process with graceful shutdown first, then force kill
     # Try multiple patterns to find uvicorn processes
-    local proxy_pids=$(pgrep -f "uvicorn.*app:app.*${APPLITE_XTRAC_PORT}" || pgrep -f "uvicorn.*convert.*app:app" || pgrep -f "uvicorn.*--port ${APPLITE_XTRAC_PORT}" || true)
+    local proxy_pids=$(pgrep -f "uvicorn.*app:app.*${APPLITEXTRAC_PORT}" || pgrep -f "uvicorn.*convert.*app:app" || pgrep -f "uvicorn.*--port ${APPLITEXTRAC_PORT}" || true)
     
     if [ -n "$proxy_pids" ]; then
         log_info "Found proxy service processes: $proxy_pids"
