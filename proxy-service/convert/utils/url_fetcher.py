@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # Configuration
 DEFAULT_TIMEOUT = 30
 DEFAULT_MAX_SIZE = 50 * 1024 * 1024  # 50MB
-TEMP_DIR = "/tmp/applite-convert"
+TEMP_DIR = "/tmp/applite-xtrac"
 
 # Ensure temp directory exists
 os.makedirs(TEMP_DIR, exist_ok=True)

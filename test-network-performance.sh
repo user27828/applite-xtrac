@@ -95,7 +95,7 @@ test_docker_network() {
     log_info "Testing Docker network connectivity..."
 
     # Check if containers are running
-    local containers=("applite-convert-unstructured-io-1" "applite-convert-libreoffice-1" "applite-convert-pandoc-1" "applite-convert-gotenberg-1")
+    local containers=("applite-xtrac-unstructured-io-1" "applite-xtrac-libreoffice-1" "applite-xtrac-pandoc-1" "applite-xtrac-gotenberg-1")
 
     for container in "${containers[@]}"; do
         if docker ps --format "table {{.Names}}" | grep -q "^${container}$"; then
@@ -107,7 +107,7 @@ test_docker_network() {
 
     # Test direct container connectivity from host
     log_info "Testing direct container connectivity..."
-    if docker run --rm --network applite-convert_app-network alpine wget -q --timeout=5 -O /dev/null http://applite-convert-unstructured-io-1:8000 2>/dev/null; then
+    if docker run --rm --network applite-xtrac_app-network alpine wget -q --timeout=5 -O /dev/null http://applite-xtrac-unstructured-io-1:8000 2>/dev/null; then
         log_success "Container-to-container networking is working"
     else
         log_warning "Container-to-container networking may have issues"

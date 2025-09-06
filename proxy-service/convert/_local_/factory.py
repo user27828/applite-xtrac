@@ -1,5 +1,5 @@
 """
-Local conversion factory for applite-convert.
+Local conversion factory for applite-xtrac.
 
 This module provides a factory pattern for local document conversions
 that don't require external container services.

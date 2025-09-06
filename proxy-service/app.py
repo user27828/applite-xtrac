@@ -8,6 +8,7 @@ import logging
 import asyncio
 from urllib.parse import urlparse
 import re
+import os
 
 # Import unstructured libraries for JSON to markdown/text conversion
 try:
@@ -100,43 +101,38 @@ async def lifespan(app: FastAPI):
     # Transport with Docker networking optimizations
     transport = httpx.AsyncHTTPTransport(limits=limits)
 
-    # Optimized timeouts for dev mode (faster than production)
-    dev_timeout = httpx.Timeout(
-        connect=5.0,    # connection timeout
-        read=1800.0,      # read timeout
-        write=300.0,     # write timeout
-        pool=5.0        # pool timeout
+    # Get timeout from environment variable or set default (None = no timeout)
+    http_timeout_str = os.getenv('APPLITEXTRAC_HTTP_TIMEOUT', '')
+    if not http_timeout_str.strip():
+        http_timeout = None  # No timeout
+        os.environ['APPLITEXTRAC_HTTP_TIMEOUT'] = ''
+    else:
+        http_timeout = float(http_timeout_str)
+    
+    # Use the configured timeout for all clients
+    default_timeout = httpx.Timeout(
+        connect=5.0,
+        read=http_timeout,
+        write=300.0,
+        pool=5.0
     )
 
     app.state.client = httpx.AsyncClient(
-        timeout=dev_timeout,
+        timeout=default_timeout,
         transport=transport,
         # Disable automatic redirects to reduce latency
         follow_redirects=False
     )
 
-    # LibreOffice needs longer timeouts due to document processing
-    libreoffice_timeout = httpx.Timeout(
-        connect=5.0,
-        read=1800.0, 
-        write=300.0,
-        pool=5.0
-    )
+    # All clients use the same timeout configuration
     app.state.libreoffice_client = httpx.AsyncClient(
-        timeout=libreoffice_timeout,
+        timeout=default_timeout,
         transport=transport,
         follow_redirects=False 
     )
 
-    # Gotenberg client with optimized settings
-    gotenberg_timeout = httpx.Timeout(
-        connect=5.0,
-        read=1800.0,      # Medium timeout for PDF processing
-        write=300.0,
-        pool=5.0
-    )
     app.state.gotenberg_client = httpx.AsyncClient(
-        timeout=gotenberg_timeout,
+        timeout=default_timeout,
         transport=httpx.AsyncHTTPTransport(limits=limits),
         follow_redirects=False 
     )

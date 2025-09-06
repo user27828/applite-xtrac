@@ -23,7 +23,7 @@ The URL fetching system bridges the gap between services that support direct URL
 - **User-agent customization** for better compatibility
 
 ### 📁 **Temporary File Management**
-- **Automatic temp file creation** in `/tmp/applite-convert`
+- **Automatic temp file creation** in `/tmp/applite-xtrac`
 - **Smart filename generation** based on URL and detected content type
 - **Resource cleanup** with context managers and error recovery
 - **Metadata tracking** for debugging and monitoring
@@ -103,10 +103,10 @@ curl -X POST "http://localhost:8369/convert/url-txt" \
 URL_FETCH_TIMEOUT=30          # Request timeout in seconds
 URL_FETCH_MAX_SIZE=52428800   # Max file size (50MB)
 URL_FETCH_RETRIES=3           # Number of retry attempts
-URL_FETCH_USER_AGENT="AppLite-Convert/1.0"  # Custom user agent
+URL_FETCH_USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"  # Custom user agent
 
 # Temporary file management
-TEMP_DIR="/tmp/applite-convert"  # Temp file directory
+TEMP_DIR="/tmp/applite-xtrac"  # Temp file directory
 CLEANUP_TEMP_FILES=true         # Auto-cleanup temp files
 ```
 

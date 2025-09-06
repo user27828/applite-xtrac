@@ -1,6 +1,6 @@
 # Proxy Service Test Suite
 
-This directory contains comprehensive tests for the proxy-service component of the applite-convert project.
+This directory contains comprehensive tests for the proxy-service component of the applite-xtrac project.
 
 ## 📁 Test Structure
 

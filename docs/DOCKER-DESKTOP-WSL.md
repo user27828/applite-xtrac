@@ -104,7 +104,7 @@ sudo sh get-docker.sh
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd applite-convert
+cd applite-xtrac
 
 # Make scripts executable
 chmod +x run.sh test-network-performance.sh

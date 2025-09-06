@@ -44,7 +44,7 @@ print("Hello, World!")
 
 ---
 
-*This is a test document for the applite-convert project.*
+*This is a test document for the applite-xtrac project.*
 """,
 
     "sample.html": """<!DOCTYPE html>
@@ -110,7 +110,7 @@ print("Hello, World!")
 
     <hr>
     <footer>
-        <p><em>This is a test document for the applite-convert project.</em></p>
+        <p><em>This is a test document for the applite-xtrac project.</em></p>
     </footer>
 </body>
 </html>""",
@@ -140,7 +140,7 @@ Links:
 https://example.com
 
 ---
-This is a test document for the applite-convert project.""",
+This is a test document for the applite-xtrac project.""",
 
     "sample.latex": """\\documentclass{article}
 
@@ -191,7 +191,7 @@ def hello_world():
 
 \\section{Conclusion}
 
-This is a test document for the applite-convert project.
+This is a test document for the applite-xtrac project.
 
 \\end{document}""",
 
@@ -237,7 +237,7 @@ Here is some sample text content.
 
 \\section{Conclusion}
 
-This is a test document for the applite-convert project.
+This is a test document for the applite-xtrac project.
 
 \\end{document}"""
 }

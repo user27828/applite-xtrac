@@ -1,4 +1,4 @@
-# AppLite-Convert: Docker Compose configuration (compatible with both Docker and Podman)
+# AppLite-Xtrac: Docker Compose configuration (compatible with both Docker and Podman)
 # Use with: docker-compose up --build
 # Or with Podman: podman-compose up --build
 

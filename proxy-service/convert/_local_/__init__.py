@@ -1,5 +1,5 @@
 """
-Local conversion module for applite-convert.
+Local conversion module for applite-xtrac.
 
 This module contains local conversion implementations that don't require
 external container services.
