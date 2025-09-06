@@ -172,7 +172,9 @@ async def chain_conversions(
                         
                         # Convert to markdown or text
                         if step.output_format == "md":
-                            content = elements_to_md(elements)
+                            # Filter out elements with None text to prevent "sequence item X: expected str instance, NoneType found" error
+                            filtered_elements = [elem for elem in elements if elem.text is not None]
+                            content = elements_to_md(filtered_elements)
                             media_type = "text/markdown"
                         else:  # txt
                             content = elements_to_text(elements)

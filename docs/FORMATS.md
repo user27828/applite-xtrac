@@ -88,7 +88,7 @@ This document provides a comprehensive overview of supported file formats across
 | .org | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ |
 | .pages | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
 | .parquet | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ |
-| .pdf | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
+| .pdf | ❌ | ✅ | ✅* | ✅ | ❌ | ✅ | ✅ |
 | .png | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* |
 | .ppt | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
 | .pptx | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |

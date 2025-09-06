@@ -1,0 +1,125 @@
+# AppLite Xtrac AI Coding Assistant Instructions
+
+## 🏗️ Architecture Overview
+
+This is a **multi-service document processing API** that acts as a unified gateway for 4 different document processing services via a FastAPI proxy. The system prioritizes **resume/CV/cover letter processing** but supports comprehensive document conversion.
+
+### Core Services Architecture
+```
+External Request → Proxy Service (port 8369) → Internal Services
+                     ├── /unstructured-io/* → Port 8000 (structure extraction)
+                     ├── /libreoffice/* → Port 2004 (office conversions)  
+                     ├── /pandoc/* → Port 3000 (markup conversions)
+                     ├── /gotenberg/* → Port 4000 (HTML→PDF, high quality)
+                     └── /convert/* → Smart routing to best service
+```
+
+**Key principle**: Only port 8369 is exposed externally; all services communicate via `app-network` bridge on isolated subnet `172.20.0.0/16`.
+
+## 🚀 Essential Workflows
+
+### Starting/Managing Services
+```bash
+./run.sh up          # Start all services  
+./run.sh up-d        # Start in background
+./run.sh logs        # View logs
+./run.sh status      # Check service health
+./run.sh clean       # Full cleanup
+```
+
+**Critical**: Use `./run.sh` commands instead of raw docker-compose. The script handles port conflicts, service dependencies, and comprehensive health checks.
+
+### Testing & Development
+```bash
+# From proxy-service/ directory
+python test_runner.py all        # Run all tests
+python test_runner.py unit       # Unit tests only
+python test_runner.py integration # Integration tests
+python test_runner.py conversion  # Conversion-specific tests
+```
+
+**Testing pattern**: Tests are organized by markers (`@pytest.mark.unit`, `@pytest.mark.conversion`) and use `conftest.py` fixtures for consistent service mocking.
+
+## 🎯 Conversion Intelligence System
+
+### Smart Routing Logic (`/convert/*` endpoints)
+The conversion system in `proxy-service/convert/router.py` implements **service intelligence**:
+
+- **PDF output** → Gotenberg (highest quality for documents)
+- **JSON structure** → Unstructured IO (best semantic extraction) 
+- **DOCX output** → LibreOffice or Pandoc (format-optimized)
+- **URL inputs** → Gotenberg for PDF, Unstructured IO for text/JSON
+
+### Configuration Pattern
+Service routing defined in `convert/config.py` via `CONVERSION_MATRIX`:
+```python
+"docx": {
+    "pdf": [(ConversionService.GOTENBERG, ConversionPriority.PRIMARY)],
+    "json": [(ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY)]
+}
+```
+
+## 🔧 Development Patterns
+
+### Error Handling Convention
+Use `create_error_response()` from `app.py` for consistent error formatting:
+```python
+return create_error_response(404, "SERVICE_UNAVAILABLE", service="pandoc")
+```
+
+### Proxy Header Filtering
+**Critical**: Remove hop-by-hop headers via `HOP_BY_HOP` set in `app.py` when forwarding requests between services.
+
+### URL Fetching Integration
+The system includes Scrapy-based URL fetching (see `docs/README_URL_FETCHING.md`). URL conversions automatically handle:
+- Content extraction → Unstructured IO
+- PDF generation → Gotenberg
+- Custom headers and authentication
+
+### Local vs Docker Service URLs
+Services auto-detect environment via `convert/config.py`:
+```python
+SERVICE_URL_CONFIGS = {
+    "pandoc": {
+        "docker": "http://pandoc:3000",    # Container name
+        "local": "http://localhost:3030"   # Port mapping
+    }
+}
+```
+
+## 📝 Code Conventions
+
+### File Organization
+- `proxy-service/app.py` → Main FastAPI app with health checks and service proxying
+- `proxy-service/convert/` → High-level conversion logic and routing
+- `proxy-service/convert/_local_/` → Local conversion implementations
+- `proxy-service/convert/validate/` → Format validation and testing
+- `tests/` → Pytest-based testing with comprehensive fixtures
+
+### Import Pattern for Optional Dependencies
+```python
+try:
+    from unstructured.staging.base import elements_to_md
+    UNSTRUCTURED_AVAILABLE = True
+except ImportError:
+    UNSTRUCTURED_AVAILABLE = False
+```
+
+### Environment Configuration
+- `APPLITEXTRAC_PORT` → External proxy port (default: 8369)
+- `APPLITEXTRAC_HTTP_TIMEOUT` → Request timeout (default: 0/unlimited)
+
+### Adding New conversion pairs
+- Prefer the best service for the input and output format, search the web to learn this.
+- Prefer a single service versus chaining
+- If no service support the input-output pair, determine if chaining one service to another will accomplish the goal.
+- If chaining is necessary, and both chained services support it, use `docx` as the intermediary format.
+
+## 🚨 Critical Considerations
+
+1. **Memory usage**: Unstructured IO with `hi_res` strategy can consume 6GB+ RAM for image-heavy PDFs
+2. **Service dependencies**: Proxy waits for all services to be healthy before accepting requests  
+3. **Network isolation**: Never expose internal service ports externally
+4. **Format priorities**: See `docs/FORMATS.md` for comprehensive conversion matrix and service capabilities
+
+When modifying conversion logic, always test with the validation fixtures in `tests/validate_fixtures.py` and update `CONVERSION_MATRIX` accordingly.

@@ -334,21 +334,10 @@ async def _convert_file(
 
                 json_data = response.json()
                 
-                # Fix table text_as_html issues before processing
-                json_data = fix_table_text_as_html(json_data)
-                
-                elements = []
-                for item in json_data:
-                    elements.extend(dict_to_elements([item]))
-
-                if output_format == "md":
-                    content = elements_to_md(elements)
-                    media_type = "text/markdown"
-                else:  # txt
-                    # Filter out None values and join only non-None text elements
-                    text_elements = [elem.text for elem in elements if elem.text is not None]
-                    content = "\n".join(text_elements)
-                    media_type = "text/plain"
+                # Use consolidated unstructured processing utility
+                from .unstructured_utils import process_unstructured_json_to_content
+                content = process_unstructured_json_to_content(json_data, output_format, fix_tables=True)
+                media_type = "text/markdown" if output_format == "md" else "text/plain"
 
                 # Generate output filename
                 if file:

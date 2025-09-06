@@ -348,14 +348,10 @@ async def unstructured_to_markdown(request: Request, file: UploadFile = File(...
 
         # Parse JSON response into elements using local unstructured library
         json_data = response.json()
-        elements = []
-        for item in json_data:
-            # Convert each JSON item to element using unstructured's dict parsing
-            from unstructured.staging.base import dict_to_elements
-            elements.extend(dict_to_elements([item]))
-
-        # Convert elements to markdown
-        markdown_content = elements_to_md(elements)
+        
+        # Use consolidated unstructured processing utility
+        from convert.utils.unstructured_utils import process_unstructured_json_to_content
+        markdown_content = process_unstructured_json_to_content(json_data, "md", fix_tables=True)
 
         # Generate output filename
         base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
@@ -400,14 +396,10 @@ async def unstructured_to_text(request: Request, file: UploadFile = File(...)):
 
         # Parse JSON response into elements using local unstructured library
         json_data = response.json()
-        elements = []
-        for item in json_data:
-            # Convert each JSON item to element using unstructured's dict parsing
-            from unstructured.staging.base import dict_to_elements
-            elements.extend(dict_to_elements([item]))
-
-        # Convert elements to plain text
-        text_content = "\n\n".join(e.text for e in elements if hasattr(e, 'text') and e.text)
+        
+        # Use consolidated unstructured processing utility
+        from convert.utils.unstructured_utils import process_unstructured_json_to_content
+        text_content = process_unstructured_json_to_content(json_data, "txt")
 
         # Generate output filename
         base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
@@ -664,14 +656,10 @@ async def libreoffice_to_markdown(request: Request, file: UploadFile = File(...)
 
         # Parse JSON response into elements using local unstructured library
         json_data = unstructured_response.json()
-        elements = []
-        for item in json_data:
-            # Convert each JSON item to element using unstructured's dict parsing
-            from unstructured.staging.base import dict_to_elements
-            elements.extend(dict_to_elements([item]))
-
-        # Convert elements to markdown
-        markdown_content = elements_to_md(elements)
+        
+        # Use consolidated unstructured processing utility
+        from convert.utils.unstructured_utils import process_unstructured_json_to_content
+        markdown_content = process_unstructured_json_to_content(json_data, "md", fix_tables=True)
 
         # Generate output filename
         base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename

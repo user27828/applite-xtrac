@@ -242,7 +242,7 @@ For easier management, use the provided script:
 - Uses the official [Unstructured API](https://github.com/Unstructured-IO/unstructured-api) for document structure extraction
 - Supports advanced document parsing and element extraction
 - Handles complex document layouts and formats
-- ⚠️Warning: Running OCR on documents rich with images will make memory usage and time to completion rise proportional to the number of pages.  For example: I ran a visually rich, ~90MB, ~1000 page PDF, which consumed a peak of 6.8GB RAM, and took ~1 hour to process. If you know that a document does not have images needing OCR, you can pass `strategy=fast` to speed up processing.
+- ⚠️Warning: Running OCR on documents rich with images will make memory usage and time to completion rise proportional to the number of pages.  For example: I ran a visually rich, ~90MB, ~1000 page PDF, which consumed a peak of 6.8GB RAM, and took ~1 hour to process (2022 era system). If you know that a document does not have images needing OCR, you can pass `strategy=fast` to speed up processing.
 
 **Sample Request:**
 ```bash
@@ -698,15 +698,20 @@ If you encounter persistent issues where code changes don't take effect after re
 - Changes to Python files appear to be ignored
 - Configuration updates don't take effect
 - Router endpoints return old error messages
+- **New files not appearing in containers** (untracked files issue)
 
 **Root Cause:**
 Docker/Podman uses layer caching during builds. The `COPY . /app/` step may use a cached layer even when source files have changed, especially if only small changes are made to Python files.
+
 
 **Immediate Verification:**
 ```bash
 # Check if container has your changes
 docker exec appliteconvert_proxy_1 cat /app/convert/config.py | grep "your_change"
 docker exec appliteconvert_proxy_1 cat /app/convert/router.py | grep "your_endpoint"
+
+# Check if new files exist in container
+docker exec appliteconvert_proxy_1 ls -la /app/path/to/new/file.py
 ```
 
 **Solutions:**
@@ -755,76 +760,20 @@ docker exec appliteconvert_proxy_1 find /app -name "__pycache__" -type d -exec r
 docker-compose restart proxy
 ```
 
+5. **Fix untracked files issue:**
+```bash
+# Add new files to git before building
+git add new_file.py
+git commit -m "Add new utility file"
+
+# Then rebuild
+./run.sh build
+./run.sh restart
+```
+
 **Prevention:**
 - Use `--no-cache` flag when rebuilding after significant code changes
 - Add version tags or timestamps to force cache invalidation
 - Test API endpoints after container rebuilds to verify changes took effect
 - When in doubt, use `docker rmi` to remove old images before rebuilding
-
-### Service-Specific Endpoint Issues
-
-If conversions fail with "404 page not found" or "422 Unprocessable Entity" errors:
-
-**LibreOffice Service:**
-- **Correct endpoint:** `/libreoffice/request` (not `/convert`)
-- **Parameters:** `file` (multipart), `convert-to` (form field)
-- **Example:**
-```bash
-curl -X POST "http://localhost:8369/libreoffice/request" \
-  -F "file=@document.pages" \
-  -F "convert-to=pdf" \
-  -o output.pdf
-```
-
-**Pandoc Service:**
-- **Endpoint:** `/pandoc/convert`
-- **Parameters:** `file` (multipart), `output_format` (form field), `extra_args` (optional)
-- **Note:** Pandoc doesn't support proprietary formats like `.pages`
-
-**Gotenberg Service:**
-- **Endpoint:** `/gotenberg/forms/libreoffice/convert` or `/gotenberg/forms/chromium/convert/html`
-- **Parameters:** `files` (multipart), format-specific options
-
-**Unstructured IO Service:**
-- **Endpoint:** `/unstructured-io/general/v0/general`
-- **Parameters:** `files` (multipart), `output_format` (form field)
-
-**Verification:**
-```bash
-# Test direct service endpoints
-curl http://localhost:8369/libreoffice/ping
-curl http://localhost:8369/pandoc/ping
-curl http://localhost:8369/gotenberg/
-curl http://localhost:8369/unstructured-io/general/v0/general -F "files=@test.txt" -F "output_format=json"
-```
-
-## Testing
-
-The project includes comprehensive tests for validation and conversion functionality.
-
-### Running Tests
-
-Use the helper script to run tests:
-
-```bash
-# Run all tests
-./run.sh test
-
-# Run conversion tests only
-./run.sh test:conversion
-```
-
-### Test Coverage
-
-- **File Validation**: Validates output files for correctness and format compliance
-- **Conversion Tests**: Tests all supported conversion pairs with sample files
-- **Integration Tests**: End-to-end testing of the conversion pipeline
-- **Health Checks**: Validates service availability and responsiveness
-
-### Test Output
-
-Conversion tests provide detailed output including:
-- Conversion status and timing
-- File validation results (`/ Valid: ✅ Y /` or `/ Valid: ❌ N /`)
-- Service identification (GOTENBERG, LIBREOFFICE, etc.)
-- Error details for failed conversions
+- **Always commit new files to git before rebuilding Docker images**
