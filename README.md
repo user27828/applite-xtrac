@@ -152,10 +152,38 @@ Each endpoint automatically selects the optimal service:
 
 ## Quick Start
 
-1. Clone this repository
-2. **For Docker**: Ensure Docker and docker-compose are installed
-3. Run `docker-compose up --build`
-4. The API will be available at `http://localhost:8369` (or your configured port via `APPLITE_CONVERT_PORT`)
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/user27828/applite-xtrac.git
+   cd applite-xtrac
+   ```
+
+2. **Git Remote Configuration** (if needed):
+   
+   If you need to update the git remote origin after a repository name change or fork:
+   ```bash
+   # Check current remote configuration
+   git remote -v
+   
+   # Update origin URL (replace with your actual repository URL)
+   git remote set-url origin https://github.com/your-username/your-repo-name.git
+   
+   # Verify the change
+   git remote -v
+   ```
+   
+   For forked repositories, you may also want to add the upstream remote:
+   ```bash
+   # Add upstream remote (pointing to the original repository)
+   git remote add upstream https://github.com/user27828/applite-xtrac.git
+   
+   # Verify both remotes are configured
+   git remote -v
+   ```
+
+3. **For Docker**: Ensure Docker and docker-compose are installed
+4. Run `docker-compose up --build`
+5. The API will be available at `http://localhost:8369` (or your configured port via `APPLITE_CONVERT_PORT`)
 
 ### Test Health Checks
 
@@ -485,6 +513,7 @@ podman-compose up --build
 ### Quick Reference
 
 **Common Issues & Solutions:**
+- [Git remote configuration](#git-remote-configuration-issues) - Repository URL updates and fork setup
 - [Build cache problems](#docker-build-cache-issues) - Code changes not taking effect
 - [Service connectivity](#docker-specific-troubleshooting) - Services not starting or unreachable  
 - [Endpoint errors](#service-specific-endpoint-issues) - 404/422 errors from services
@@ -501,6 +530,69 @@ podman-compose up --build
 6. **Requirements corruption**: See [Requirements.txt Corruption](#requirements-txt-corruption)
 7. **Package size issues**: See [Unstructured Package Optimization](#unstructured-package-optimization)
 8. **Service endpoint errors**: See [Service-Specific Endpoint Issues](#service-specific-endpoint-issues)
+
+### Git Remote Configuration Issues
+
+If you need to update your git remote configuration after cloning, renaming, or forking the repository:
+
+**Check Current Configuration:**
+```bash
+# Display current remote URLs
+git remote -v
+
+# Show detailed remote information
+git remote show origin
+```
+
+**Update Remote URL After Repository Rename:**
+```bash
+# Update the origin URL to the new repository name
+git remote set-url origin https://github.com/user27828/applite-xtrac.git
+
+# Or if you have your own fork/renamed version
+git remote set-url origin https://github.com/your-username/your-repo-name.git
+
+# Verify the change
+git remote -v
+```
+
+**Fork Setup (Recommended for Contributors):**
+```bash
+# If you forked the repository, set your fork as origin
+git remote set-url origin https://github.com/your-username/applite-xtrac.git
+
+# Add the original repository as upstream
+git remote add upstream https://github.com/user27828/applite-xtrac.git
+
+# Verify both remotes
+git remote -v
+# Should show:
+# origin    https://github.com/your-username/applite-xtrac.git (fetch)
+# origin    https://github.com/your-username/applite-xtrac.git (push)
+# upstream  https://github.com/user27828/applite-xtrac.git (fetch)
+# upstream  https://github.com/user27828/applite-xtrac.git (push)
+```
+
+**Sync Fork with Upstream:**
+```bash
+# Fetch upstream changes
+git fetch upstream
+
+# Switch to main/master branch
+git checkout master  # or main
+
+# Merge upstream changes
+git merge upstream/master  # or upstream/main
+
+# Push updates to your fork
+git push origin master  # or main
+```
+
+**Common Remote Issues:**
+- **Authentication errors**: Ensure you have proper GitHub access (SSH keys or personal access tokens)
+- **Wrong repository URL**: Double-check the repository name and owner in the URL
+- **Permission denied**: Make sure you have push access to the repository
+- **Remote already exists**: Use `git remote set-url` instead of `git remote add` if the remote already exists
 
 ### Docker-Specific Troubleshooting
 
