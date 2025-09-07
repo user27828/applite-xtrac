@@ -25,7 +25,7 @@ class FileValidator:
 
     def _load_validators(self):
         """Load all available format validators."""
-        from .formats import html, pdf, docx, md, txt, json_validator, tex, xlsx, pptx
+        from .formats import html, pdf, docx, md, txt, json_validator, tex, xlsx, pptx, odt, ods, odp
 
         self._validators = {
             'html': html.validate_html,
@@ -37,6 +37,9 @@ class FileValidator:
             'json': json_validator.validate_json,
             'tex': tex.validate_tex,
             'xlsx': xlsx.validate_xlsx,
+            'odt': odt.validate_odt,
+            'ods': ods.validate_ods,
+            'odp': odp.validate_odp,
         }
 
     def validate_file(
@@ -50,7 +53,7 @@ class FileValidator:
 
         Args:
             file_path: Path to the file to validate
-            expected_format: Expected file format (html, pdf, docx, md, txt, json, tex)
+            expected_format: Expected file format (html, pdf, docx, pptx, md, txt, json, tex, xlsx, odt, ods, odp)
             **options: Additional validation options
                 - full: bool (for HTML validation - whether to expect full document)
 

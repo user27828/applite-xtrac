@@ -81,7 +81,7 @@ This document provides a comprehensive overview of supported file formats across
 | .html | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
 | .jpg | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* |
 | .key | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ |
-| .latex | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ |
+| .latex | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ |
 | .md | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ |
 | .msg | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* |
 | .numbers | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ |

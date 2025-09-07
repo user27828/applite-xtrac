@@ -297,6 +297,34 @@ CONVERSION_MATRIX = {
         (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Pages to TXT via LibreOffice")
     ],
 
+    ("key", "pdf"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Keynote to PDF via LibreOffice")
+    ],
+
+    ("key", "odp"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Keynote to ODP via LibreOffice")
+    ],
+
+    ("key", "pptx"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Keynote to PPTX via LibreOffice")
+    ],
+
+    ("key", "md"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Keynote to PPTX via LibreOffice"),
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "PPTX to Markdown (chained: KEY → PPTX → MD)")
+    ],
+
+    ("key", "txt"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Keynote to PPTX via LibreOffice"),
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "PPTX to Text (chained: KEY → PPTX → TXT)")
+    ],
+
+    ("key", "html"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Apple Keynote to PPTX via LibreOffice"),
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "PPTX to JSON via unstructured-io"),
+        (ConversionService.LOCAL, ConversionPriority.PRIMARY, "JSON to HTML (chained: KEY → PPTX → JSON → HTML)")
+    ],
+
     ("pdf", "docx"): [
         (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "PDF text extraction to HTML"),
         (ConversionService.PANDOC, ConversionPriority.PRIMARY, "HTML to DOCX (chained: PDF → HTML → DOCX)"),

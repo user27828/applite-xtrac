@@ -727,6 +727,189 @@ async def convert_pages_to_txt(request: Request, file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
 
 
+# key conversions
+@router.post("/key-odp")
+async def convert_key_to_odp(request: Request, file: UploadFile = File(...)):
+    """Convert Apple Keynote to ODP"""
+    service, description = get_primary_conversion("key", "odp") or (ConversionService.LIBREOFFICE, "Fallback")
+    return await _convert_file(request, file=file, input_format="key", output_format="odp", service=service)
+
+
+@router.post("/key-pdf")
+async def convert_key_to_pdf(request: Request, file: UploadFile = File(...)):
+    """Convert Apple Keynote to PDF"""
+    service, description = get_primary_conversion("key", "pdf") or (ConversionService.LIBREOFFICE, "Fallback")
+    return await _convert_file(request, file=file, input_format="key", output_format="pdf", service=service)
+
+
+@router.post("/key-pptx")
+async def convert_key_to_pptx(request: Request, file: UploadFile = File(...)):
+    """Convert Apple Keynote to PPTX"""
+    service, description = get_primary_conversion("key", "pptx") or (ConversionService.LIBREOFFICE, "Fallback")
+    return await _convert_file(request, file=file, input_format="key", output_format="pptx", service=service)
+
+
+@router.post("/key-md")
+async def convert_key_to_md(request: Request, file: UploadFile = File(...)):
+    """Convert Apple Keynote to Markdown (chained: KEY → PPTX → Markdown)"""
+    try:
+        # Read the uploaded file
+        file_content = await file.read()
+
+        # Define the conversion chain
+        from .utils.conversion_chaining import chain_conversions, ConversionStep
+
+        conversion_steps = [
+            ConversionStep(
+                service=ConversionService.LIBREOFFICE,
+                input_format="key",
+                output_format="pptx",
+                description="Convert Apple Keynote to PPTX using LibreOffice"
+            ),
+            ConversionStep(
+                service=ConversionService.UNSTRUCTURED_IO,
+                input_format="pptx",
+                output_format="md",
+                description="Convert PPTX to Markdown using unstructured-io"
+            )
+        ]
+
+        # Execute the chained conversion
+        return await chain_conversions(
+            request=request,
+            initial_file_content=file_content,
+            initial_filename=file.filename,
+            conversion_steps=conversion_steps,
+            final_output_format="md",
+            final_content_type="text/markdown"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in key_to_md conversion: {e}")
+        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+
+
+@router.post("/key-txt")
+async def convert_key_to_txt(request: Request, file: UploadFile = File(...)):
+    """Convert Apple Keynote to plain text (chained: KEY → PPTX → Text)"""
+    try:
+        # Read the uploaded file
+        file_content = await file.read()
+
+        # Define the conversion chain
+        from .utils.conversion_chaining import chain_conversions, ConversionStep
+
+        conversion_steps = [
+            ConversionStep(
+                service=ConversionService.LIBREOFFICE,
+                input_format="key",
+                output_format="pptx",
+                description="Convert Apple Keynote to PPTX using LibreOffice"
+            ),
+            ConversionStep(
+                service=ConversionService.UNSTRUCTURED_IO,
+                input_format="pptx",
+                output_format="txt",
+                description="Extract text from PPTX using unstructured-io"
+            )
+        ]
+
+        # Execute the chained conversion
+        return await chain_conversions(
+            request=request,
+            initial_file_content=file_content,
+            initial_filename=file.filename,
+            conversion_steps=conversion_steps,
+            final_output_format="txt",
+            final_content_type="text/plain"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in key_to_txt conversion: {e}")
+        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+
+
+@router.post("/key-html")
+async def convert_key_to_html(request: Request, file: UploadFile = File(...)):
+    """Convert Apple Keynote to HTML (KEY → PPTX → JSON → HTML)"""
+    try:
+        from .utils.conversion_core import _convert_file
+        from .utils.unstructured_utils import process_unstructured_json_to_content
+        import json
+        from fastapi.responses import Response
+        import tempfile
+        import os
+
+        # Step 1: Convert KEY to PPTX using LibreOffice
+        pptx_response = await _convert_file(
+            request=request,
+            file=file,
+            input_format="key",
+            output_format="pptx",
+            service=ConversionService.LIBREOFFICE
+        )
+
+        # Extract PPTX content from the response
+        pptx_content = b""
+        async for chunk in pptx_response.body_iterator:
+            pptx_content += chunk
+
+        # Step 2: Convert PPTX to JSON using unstructured-io
+        from io import BytesIO
+        from fastapi import UploadFile as FastAPIUploadFile
+
+        # Create a temporary file for the PPTX content
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pptx') as temp_file:
+            temp_file.write(pptx_content)
+            temp_file_path = temp_file.name
+
+        try:
+            # Create a new UploadFile-like object for the PPTX content
+            class TempUploadFile:
+                def __init__(self, content: bytes, filename: str):
+                    self.filename = filename
+                    self.content = content
+
+                async def read(self):
+                    return self.content
+
+            temp_upload = TempUploadFile(pptx_content, "converted.pptx")
+
+            # Convert PPTX to JSON
+            json_response = await _convert_file(
+                request=request,
+                file=temp_upload,
+                input_format="pptx",
+                output_format="json",
+                service=ConversionService.UNSTRUCTURED_IO
+            )
+
+            # Extract JSON content
+            json_content = b""
+            async for chunk in json_response.body_iterator:
+                json_content += chunk
+
+            json_data = json.loads(json_content.decode('utf-8'))
+
+            # Step 3: Convert JSON to HTML locally
+            html_content = process_unstructured_json_to_content(json_data, "html")
+
+            # Return HTML response
+            return Response(
+                content=html_content,
+                media_type="text/html",
+                headers={"Content-Disposition": f"attachment; filename={file.filename.rsplit('.', 1)[0]}.html"}
+            )
+
+        finally:
+            # Clean up temporary file
+            os.unlink(temp_file_path)
+
+    except Exception as e:
+        logger.error(f"Error in key_to_html conversion: {e}")
+        raise HTTPException(status_code=500, detail=f"Conversion failed: {str(e)}")
+
+
 # pdf conversions
 @router.post("/pdf-json") 
 async def convert_pdf_to_json(request: Request, file: UploadFile = File(...)):
@@ -1029,6 +1212,8 @@ async def convert_odp_to_html(request: Request, file: UploadFile = File(...)):
         from .utils.unstructured_utils import process_unstructured_json_to_content
         import json
         from fastapi.responses import Response
+        import tempfile
+        import os
 
         # Step 1: Convert ODP to PPTX using LibreOffice
         pptx_response = await _convert_file(
@@ -1047,8 +1232,6 @@ async def convert_odp_to_html(request: Request, file: UploadFile = File(...)):
         # Step 2: Convert PPTX to JSON using unstructured-io
         from io import BytesIO
         from fastapi import UploadFile as FastAPIUploadFile
-        import tempfile
-        import os
 
         # Create a temporary file for the PPTX content
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pptx') as temp_file:

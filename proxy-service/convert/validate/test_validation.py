@@ -18,7 +18,7 @@ def test_validation():
     """Test file validation for all supported formats."""
 
     # Base path for test files
-    base_path = Path(__file__).parent.parent.parent.parent / ".data" / "tests" / "sample-files"
+    base_path = Path(__file__).parent.parent.parent / "tests" / "fixtures"
 
     test_cases = [
         ("sample.html", "html", {}),  # Test default behavior (no options)
@@ -30,6 +30,10 @@ def test_validation():
         ("sample.txt", "txt", {}),
         ("sample.tex", "tex", {}),
         ("sample.xlsx", "xlsx", {}),
+        ("sample.pptx", "pptx", {}),
+        ("sample.odt", "odt", {}),
+        ("sample.ods", "ods", {}),
+        ("sample.odp", "odp", {}),
     ]
 
     print("Testing File Validation System")
