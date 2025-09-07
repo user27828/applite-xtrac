@@ -22,7 +22,7 @@ except ImportError:
 from convert.router import router as convert_router
 
 # Import service URL configuration
-from convert.config import get_service_urls
+from convert.utils.conversion_lookup import get_service_urls
 
 
 # Set up logging

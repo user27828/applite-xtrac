@@ -269,3 +269,56 @@ async def chain_conversions(
     )
 
 
+def get_conversion_steps(input_format: str, output_format: str) -> List[List]:
+    """
+    Get the conversion steps for a format pair.
+
+    For simple conversions, returns a single step.
+    For chained conversions, returns all steps.
+
+    Args:
+        input_format: Input file format
+        output_format: Output file format
+
+    Returns:
+        List of steps, where each step is [service, input_format, output_format, description]
+    """
+    from .conversion_lookup import get_conversion_methods
+    from ..config import ConversionService
+
+    methods = get_conversion_methods(input_format, output_format)
+    if not methods:
+        return []
+
+    # Check if this is already in the chained format
+    first_method = methods[0]
+    if isinstance(first_method, list) and len(first_method) == 4:
+        # Already in chained format
+        return methods
+    else:
+        # Simple conversion: convert to chained format
+        return [[service, input_format, output_format, description] for service, description in methods]
+
+
+def is_chained_conversion(input_format: str, output_format: str) -> bool:
+    """
+    Check if a conversion is chained (has multiple steps).
+
+    Args:
+        input_format: Input file format
+        output_format: Output file format
+
+    Returns:
+        True if the conversion has multiple steps, False otherwise
+    """
+    from .conversion_lookup import get_conversion_methods
+
+    methods = get_conversion_methods(input_format, output_format)
+    if not methods:
+        return False
+
+    # Check if this is a chained conversion (list of lists with 4 elements)
+    first_method = methods[0]
+    return isinstance(first_method, list) and len(first_method) == 4 and len(methods) > 1
+
+

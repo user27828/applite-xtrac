@@ -15,6 +15,7 @@ or LLM pipelines.
 - **LibreOffice Unoserver** (`/libreoffice`): Document conversion using LibreOffice headless server
 - **Pandoc API** (`/pandoc`): Document format conversion with PDF support via FastAPI service
 - **Gotenberg** (`/gotenberg`): High-fidelity HTML to PDF conversion, including support for URLs and office documents
+- **\<Local Proxy\>**: In addition to handling proxying for the other services, this container has some smaller or manually-defined conversion services.
 
 ## Architecture
 
@@ -688,92 +689,71 @@ This document includes:
 - Identified gaps and limitations
 - Future enhancement opportunities
 
-### Docker Build Cache Issues
+### Code Organization
 
-If you encounter persistent issues where code changes don't take effect after rebuilding containers:
+The codebase is organized into the following key modules:
 
-**Symptoms:**
-- API responses show old data despite code changes
-- Container logs show old code execution
-- Changes to Python files appear to be ignored
-- Configuration updates don't take effect
-- Router endpoints return old error messages
-- **New files not appearing in containers** (untracked files issue)
+**Core Configuration (`convert/config.py`)**:
+- `CONVERSION_MATRIX`: Defines all supported conversion pairs and their service routing
+- `SERVICE_URL_CONFIGS`: Service endpoint configurations for Docker vs local development
+- `SPECIAL_HANDLERS`: Registry for custom conversion logic
+- `ConversionService`: Enum defining available conversion services
 
-**Root Cause:**
-Docker/Podman uses layer caching during builds. The `COPY . /app/` step may use a cached layer even when source files have changed, especially if only small changes are made to Python files.
+**Utility Modules (`convert/utils/`)**:
+- `conversion_lookup.py`: Functions for looking up conversion methods and service URLs
+- `conversion_chaining.py`: Logic for multi-step chained conversions
+- `conversion_core.py`: Core conversion execution and service client management
+- `special_handlers.py`: Custom conversion handlers for special cases
+- `unstructured_utils.py`: Unstructured IO specific utilities
+- `url_fetcher.py` & `url_helpers.py`: URL fetching and processing utilities
 
+**Router (`convert/router.py`)**:
+- FastAPI route handlers for all `/convert/*` endpoints
+- Automatic service routing based on input/output format pairs
+- Special case handling for complex conversions
 
-**Immediate Verification:**
-```bash
-# Check if container has your changes
-docker exec appliteconvert_proxy_1 cat /app/convert/config.py | grep "your_change"
-docker exec appliteconvert_proxy_1 cat /app/convert/router.py | grep "your_endpoint"
+### Special Case Handling
 
-# Check if new files exist in container
-docker exec appliteconvert_proxy_1 ls -la /app/path/to/new/file.py
+The system includes advanced special case handling for complex conversions:
+
+**Presentation Formats (KEY/ODP → HTML)**:
+- Automatic intermediate conversion (KEY/ODP → PPTX → JSON → HTML)
+- Consolidated logic in `utils/special_handlers.py`
+- Eliminates code duplication between different presentation formats
+- Supports both Apple Keynote (.key) and OpenDocument Presentation (.odp) formats
+
+**Handler Registry System**:
+- Extensible `SPECIAL_HANDLERS` registry in `config.py`
+- Easy to add new special conversion logic
+- Clean separation of standard vs special conversions
+- Automatic delegation based on conversion matrix configuration
+
+## Recent Updates
+
+### Codebase Refactoring (Latest)
+The codebase has been recently refactored to improve maintainability and organization:
+
+**✅ Completed Improvements:**
+- **Modular Architecture**: Moved utility functions from `config.py` to dedicated modules
+- **Better Separation of Concerns**: Configuration, utilities, and business logic are now properly separated
+- **Enhanced Maintainability**: Easier to locate and modify specific functionality
+- **Improved Testing**: All 100+ conversion tests pass with the new structure
+
+**New Module Structure:**
+```
+convert/
+├── config.py                    # Core configuration only
+├── router.py                    # Route handlers
+└── utils/
+    ├── conversion_lookup.py     # Lookup functions
+    ├── conversion_chaining.py   # Chaining logic
+    ├── conversion_core.py       # Core execution
+    ├── special_handlers.py      # Custom handlers
+    └── ... (other utilities)
 ```
 
-**Solutions:**
-
-1. **Force complete rebuild:**
-```bash
-# Remove existing image completely
-docker rmi appliteconvert_proxy:latest
-
-# Rebuild with no cache and pull latest base image
-docker-compose build --no-cache --pull proxy
-
-# Restart container
-docker-compose up -d proxy
-```
-
-2. **Manual file update (temporary workaround):**
-```bash
-# Copy updated files directly into running container
-docker cp proxy-service/convert/config.py appliteconvert_proxy_1:/app/convert/config.py
-docker cp proxy-service/convert/router.py appliteconvert_proxy_1:/app/convert/router.py
-```
-
-3. **Add timestamp for cache busting:**
-```dockerfile
-# In Dockerfile, modify COPY command:
-COPY . /app/
-# To:
-ARG BUILD_DATE
-RUN echo "Build date: $BUILD_DATE"
-COPY . /app/
-```
-
-Then rebuild with:
-```bash
-docker-compose build --build-arg BUILD_DATE=$(date +%s) proxy
-```
-
-4. **Clear Python cache:**
-```bash
-# Clear Python bytecode cache
-docker exec appliteconvert_proxy_1 find /app -name "*.pyc" -delete
-docker exec appliteconvert_proxy_1 find /app -name "__pycache__" -type d -exec rm -rf {} +
-
-# Restart container
-docker-compose restart proxy
-```
-
-5. **Fix untracked files issue:**
-```bash
-# Add new files to git before building
-git add new_file.py
-git commit -m "Add new utility file"
-
-# Then rebuild
-./run.sh build
-./run.sh restart
-```
-
-**Prevention:**
-- Use `--no-cache` flag when rebuilding after significant code changes
-- Add version tags or timestamps to force cache invalidation
-- Test API endpoints after container rebuilds to verify changes took effect
-- When in doubt, use `docker rmi` to remove old images before rebuilding
-- **Always commit new files to git before rebuilding Docker images**
+**Migration Details:**
+- Functions moved: `get_conversion_methods()`, `get_primary_conversion()`, `get_supported_conversions()`, `get_service_urls()`, `get_conversion_steps()`, `is_chained_conversion()`, `process_presentation_to_html()`
+- All imports updated throughout the codebase
+- Backward compatibility maintained
+- Comprehensive testing validates all functionality

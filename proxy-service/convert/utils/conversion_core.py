@@ -51,12 +51,14 @@ except ImportError:
     UNSTRUCTURED_AVAILABLE = False
 
 from ..config import (
-    get_primary_conversion,
     ConversionService,
-    get_supported_conversions,
-    get_service_urls,
     PANDOC_FORMAT_MAP,
     UNSTRUCTURED_IO_MIME_MAPPING
+)
+from .conversion_lookup import (
+    get_primary_conversion,
+    get_supported_conversions,
+    get_service_urls
 )
 from .url_helpers import (
     handle_url_conversion_request,

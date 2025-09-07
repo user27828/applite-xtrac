@@ -49,10 +49,16 @@ except ImportError:
     UNSTRUCTURED_AVAILABLE = False
 
 from .config import (
+    ConversionService
+)
+from .utils.conversion_lookup import (
     get_primary_conversion,
-    ConversionService, 
     get_supported_conversions,
     get_service_urls
+)
+from .utils.conversion_chaining import (
+    get_conversion_steps,
+    is_chained_conversion
 )
 from .utils.url_helpers import (
     handle_url_conversion_request,
@@ -69,6 +75,8 @@ from .utils.conversion_core import (
     DYNAMIC_SERVICE_URLS,
     get_dynamic_service_urls
 )
+from .utils.conversion_chaining import chain_conversions, ConversionStep
+from .utils.special_handlers import process_presentation_to_html
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -77,46 +85,135 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/convert", tags=["conversions"])
 
 
+async def _convert_file_generic(request: Request, file: UploadFile, input_format: str, output_format: str):
+    """
+    Generic conversion function that handles both simple and chained conversions.
+    
+    Args:
+        request: FastAPI request object
+        file: Uploaded file
+        input_format: Input format
+        output_format: Output format
+        
+    Returns:
+        StreamingResponse with converted content
+    """
+    if is_chained_conversion(input_format, output_format):
+        # Handle chained conversion
+        try:
+            file_content = await file.read()
+            
+            # Get conversion steps from config
+            steps_data = get_conversion_steps(input_format, output_format)
+            
+            # Convert to ConversionStep objects
+            conversion_steps = []
+            for step_data in steps_data:
+                if len(step_data) == 4:
+                    service, step_input, step_output, description = step_data
+                    # Handle extra params for specific cases
+                    extra_params = {}
+                    if service == ConversionService.PANDOC and step_input in ["tex", "latex"]:
+                        extra_params = {"extra_args": "--from=latex"}
+                    elif service == ConversionService.PANDOC and step_input == "docx" and step_output == "md":
+                        extra_params = {"extra_args": "--from=docx"}
+                    
+                    conversion_steps.append(ConversionStep(
+                        service=service,
+                        input_format=step_input,
+                        output_format=step_output,
+                        extra_params=extra_params,
+                        description=description
+                    ))
+                elif len(step_data) == 5:
+                    # Special case with additional configuration
+                    service, step_input, step_output, description, special_config = step_data
+                    
+                    # Check if this step has a special handler
+                    if special_config.get("special_handler"):
+                        # Handle special case
+                        handler_name = special_config["special_handler"]
+                        from .config import SPECIAL_HANDLERS
+                        
+                        if handler_name in SPECIAL_HANDLERS:
+                            # Import and call the special handler
+                            if handler_name == "presentation_to_html":
+                                # For special handlers, we need to execute the chain up to this point
+                                # and then call the special handler
+                                if len(conversion_steps) > 0:
+                                    # Execute the chain up to the special step
+                                    intermediate_result = await chain_conversions(
+                                        request=request,
+                                        initial_file_content=file_content,
+                                        initial_filename=file.filename,
+                                        conversion_steps=conversion_steps,
+                                        final_output_format=step_input,  # Intermediate format
+                                        final_content_type="application/octet-stream"
+                                    )
+                                    
+                                    # Extract content from intermediate result
+                                    intermediate_content = b""
+                                    async for chunk in intermediate_result.body_iterator:
+                                        intermediate_content += chunk
+                                    
+                                    # Call special handler with intermediate content
+                                    return await process_presentation_to_html(
+                                        request, intermediate_content, step_input, step_output, special_config
+                                    )
+                                else:
+                                    # First step is special - call handler directly
+                                    return await process_presentation_to_html(
+                                        request, file_content, input_format, output_format, special_config
+                                    )
+                        else:
+                            logger.error(f"Unknown special handler: {handler_name}")
+                            raise HTTPException(status_code=500, detail=f"Unknown special handler: {handler_name}")
+                    else:
+                        # Regular step with extra config but no special handler
+                        conversion_steps.append(ConversionStep(
+                            service=service,
+                            input_format=step_input,
+                            output_format=step_output,
+                            extra_params=special_config,
+                            description=description
+                        ))
+            
+            # Determine content type
+            content_type_map = {
+                "md": "text/markdown",
+                "html": "text/html",
+                "json": "application/json",
+                "txt": "text/plain",
+                "pdf": "application/pdf",
+                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            }
+            final_content_type = content_type_map.get(output_format, "application/octet-stream")
+            
+            # Execute chained conversion
+            return await chain_conversions(
+                request=request,
+                initial_file_content=file_content,
+                initial_filename=file.filename,
+                conversion_steps=conversion_steps,
+                final_output_format=output_format,
+                final_content_type=final_content_type
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in chained conversion {input_format}→{output_format}: {e}")
+            raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+    
+    else:
+        # Handle simple conversion
+        service, description = get_primary_conversion(input_format, output_format) or (ConversionService.UNSTRUCTURED_IO, "Fallback")
+        return await _convert_file(request, file=file, input_format=input_format, output_format=output_format, service=service)
+
+
 # doc conversions
 @router.post("/doc-md")
 async def convert_doc_to_md(request: Request, file: UploadFile = File(...)):
     """Convert DOC to Markdown (chained conversion: DOC → DOCX → Markdown)"""
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Define the conversion chain
-        from .utils.conversion_chaining import chain_conversions, ConversionStep
-
-        conversion_steps = [
-            ConversionStep(
-                service=ConversionService.LIBREOFFICE,
-                input_format="doc",
-                output_format="docx",
-                description="Convert legacy DOC to DOCX using LibreOffice"
-            ),
-            ConversionStep(
-                service=ConversionService.PANDOC,
-                input_format="docx",
-                output_format="md",
-                extra_params={"extra_args": "--from=docx"},
-                description="Convert DOCX to Markdown using Pandoc"
-            )
-        ]
-
-        # Execute the chained conversion
-        return await chain_conversions(
-            request=request,
-            initial_file_content=file_content,
-            initial_filename=file.filename,
-            conversion_steps=conversion_steps,
-            final_output_format="md",
-            final_content_type="text/markdown"
-        )
-
-    except Exception as e:
-        logger.error(f"Error in doc_to_md conversion: {e}")
-        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+    return await _convert_file_generic(request, file, "doc", "md")
 
 
 # docx conversions
@@ -237,42 +334,7 @@ async def convert_latex_to_html(request: Request, file: UploadFile = File(...)):
 @router.post("/latex-json")
 async def convert_latex_to_json(request: Request, file: UploadFile = File(...)):
     """Convert LaTeX to JSON (chained conversion: LaTeX → DOCX → JSON - alias for tex-json)"""
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Define the conversion chain
-        from .utils.conversion_chaining import chain_conversions, ConversionStep
-
-        conversion_steps = [
-            ConversionStep(
-                service=ConversionService.PANDOC,
-                input_format="tex",
-                output_format="docx",
-                extra_params={"extra_args": "--from=latex"},
-                description="Convert LaTeX to DOCX using Pandoc"
-            ),
-            ConversionStep(
-                service=ConversionService.UNSTRUCTURED_IO,
-                input_format="docx",
-                output_format="json",
-                description="Convert DOCX to JSON using Unstructured IO"
-            )
-        ]
-
-        # Execute the chained conversion
-        return await chain_conversions(
-            request=request,
-            initial_file_content=file_content,
-            initial_filename=file.filename,
-            conversion_steps=conversion_steps,
-            final_output_format="json",
-            final_content_type="application/json"
-        )
-
-    except Exception as e:
-        logger.error(f"Error in latex_to_json conversion: {e}")
-        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+    return await _convert_file_generic(request, file, "tex", "json")
 
 
 @router.post("/latex-md")
@@ -292,41 +354,7 @@ async def convert_latex_to_txt(request: Request, file: UploadFile = File(...)):
 @router.post("/latex-pdf")
 async def convert_latex_to_pdf(request: Request, file: UploadFile = File(...)):
     """Convert LaTeX to PDF (chained conversion: LaTeX → DOCX → PDF)"""
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Define the conversion chain
-        from .utils.conversion_chaining import chain_conversions, ConversionStep
-
-        conversion_steps = [
-            ConversionStep(
-                service=ConversionService.PANDOC,
-                input_format="tex",
-                output_format="docx",
-                description="Convert LaTeX to DOCX using Pandoc"
-            ),
-            ConversionStep(
-                service=ConversionService.PANDOC,
-                input_format="docx",
-                output_format="pdf",
-                description="Convert DOCX to PDF using Pandoc"
-            )
-        ]
-
-        # Execute the chained conversion
-        return await chain_conversions(
-            request=request,
-            initial_file_content=file_content,
-            initial_filename=file.filename,
-            conversion_steps=conversion_steps,
-            final_output_format="pdf",
-            final_content_type="application/pdf"
-        )
-
-    except Exception as e:
-        logger.error(f"Error in latex_to_pdf conversion: {e}")
-        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+    return await _convert_file_generic(request, file, "tex", "pdf")
 
 
 # md conversions
@@ -421,81 +449,13 @@ async def convert_numbers_to_html(request: Request, file: UploadFile = File(...)
 @router.post("/numbers-json")
 async def convert_numbers_to_json(request: Request, file: UploadFile = File(...)):
     """Convert Apple Numbers to JSON structure (chained conversion: Numbers → XLSX → JSON)"""
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Define the conversion chain
-        from .utils.conversion_chaining import chain_conversions, ConversionStep
-
-        conversion_steps = [
-            ConversionStep(
-                service=ConversionService.LIBREOFFICE,
-                input_format="numbers",
-                output_format="xlsx",
-                description="Convert Apple Numbers to XLSX using LibreOffice"
-            ),
-            ConversionStep(
-                service=ConversionService.UNSTRUCTURED_IO,
-                input_format="xlsx",
-                output_format="json",
-                description="Convert XLSX to JSON using unstructured-io"
-            )
-        ]
-
-        # Execute the chained conversion
-        return await chain_conversions(
-            request=request,
-            initial_file_content=file_content,
-            initial_filename=file.filename,
-            conversion_steps=conversion_steps,
-            final_output_format="json",
-            final_content_type="application/json"
-        )
-
-    except Exception as e:
-        logger.error(f"Error in numbers_to_json conversion: {e}")
-        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+    return await _convert_file_generic(request, file, "numbers", "json")
 
 
 @router.post("/numbers-md")
 async def convert_numbers_to_md(request: Request, file: UploadFile = File(...)):
     """Convert Apple Numbers to Markdown (chained conversion: Numbers → XLSX → Markdown)"""
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Define the conversion chain
-        from .utils.conversion_chaining import chain_conversions, ConversionStep
-
-        conversion_steps = [
-            ConversionStep(
-                service=ConversionService.LIBREOFFICE,
-                input_format="numbers",
-                output_format="xlsx",
-                description="Convert Apple Numbers to XLSX using LibreOffice"
-            ),
-            ConversionStep(
-                service=ConversionService.UNSTRUCTURED_IO,
-                input_format="xlsx",
-                output_format="md",
-                description="Convert XLSX to Markdown using unstructured-io"
-            )
-        ]
-
-        # Execute the chained conversion
-        return await chain_conversions(
-            request=request,
-            initial_file_content=file_content,
-            initial_filename=file.filename,
-            conversion_steps=conversion_steps,
-            final_output_format="md",
-            final_content_type="text/markdown"
-        )
-
-    except Exception as e:
-        logger.error(f"Error in numbers_to_md conversion: {e}")
-        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+    return await _convert_file_generic(request, file, "numbers", "md")
 
 
 @router.post("/numbers-txt")
@@ -602,82 +562,13 @@ async def convert_pages_to_html(request: Request, file: UploadFile = File(...)):
 @router.post("/pages-json")
 async def convert_pages_to_json(request: Request, file: UploadFile = File(...)):
     """Convert Apple Pages to JSON (chained conversion: Pages → DOCX → JSON)"""
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Define the conversion chain
-        from .utils.conversion_chaining import chain_conversions, ConversionStep
-
-        conversion_steps = [
-            ConversionStep(
-                service=ConversionService.LIBREOFFICE,
-                input_format="pages",
-                output_format="docx",
-                description="Convert Apple Pages to DOCX using LibreOffice"
-            ),
-            ConversionStep(
-                service=ConversionService.UNSTRUCTURED_IO,
-                input_format="docx",
-                output_format="json",
-                description="Convert DOCX to JSON using Unstructured IO"
-            )
-        ]
-
-        # Execute the chained conversion
-        return await chain_conversions(
-            request=request,
-            initial_file_content=file_content,
-            initial_filename=file.filename,
-            conversion_steps=conversion_steps,
-            final_output_format="json",
-            final_content_type="application/json"
-        )
-
-    except Exception as e:
-        logger.error(f"Error in pages_to_json conversion: {e}")
-        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+    return await _convert_file_generic(request, file, "pages", "json")
 
 
 @router.post("/pages-md")
 async def convert_pages_to_md(request: Request, file: UploadFile = File(...)):
     """Convert Apple Pages to Markdown (chained conversion: Pages → DOCX → Markdown)"""
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Define the conversion chain
-        from .utils.conversion_chaining import chain_conversions, ConversionStep
-
-        conversion_steps = [
-            ConversionStep(
-                service=ConversionService.LIBREOFFICE,
-                input_format="pages",
-                output_format="docx",
-                description="Convert Apple Pages to DOCX using LibreOffice"
-            ),
-            ConversionStep(
-                service=ConversionService.PANDOC,
-                input_format="docx",
-                output_format="md",
-                extra_params={"extra_args": "--from=docx"},
-                description="Convert DOCX to Markdown using Pandoc"
-            )
-        ]
-
-        # Execute the chained conversion
-        return await chain_conversions(
-            request=request,
-            initial_file_content=file_content,
-            initial_filename=file.filename,
-            conversion_steps=conversion_steps,
-            final_output_format="md",
-            final_content_type="text/markdown"
-        )
-
-    except Exception as e:
-        logger.error(f"Error in pages_to_md conversion: {e}")
-        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+    return await _convert_file_generic(request, file, "pages", "md")
 
 
 @router.post("/pages-pdf")
@@ -690,41 +581,7 @@ async def convert_pages_to_pdf(request: Request, file: UploadFile = File(...)):
 @router.post("/pages-txt")
 async def convert_pages_to_txt(request: Request, file: UploadFile = File(...)):
     """Convert Apple Pages to TXT (chained conversion: Pages → docx → TXT)"""
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Define the conversion chain
-        from .utils.conversion_chaining import chain_conversions, ConversionStep
-
-        conversion_steps = [
-            ConversionStep(
-                service=ConversionService.LIBREOFFICE,
-                input_format="pages",
-                output_format="docx",
-                description="Convert Apple Pages to docx using LibreOffice"
-            ),
-            ConversionStep(
-                service=ConversionService.PANDOC,
-                input_format="docx",
-                output_format="txt",
-                description="Convert docx to TXT using Pandoc"
-            )
-        ]
-
-        # Execute the chained conversion
-        return await chain_conversions(
-            request=request,
-            initial_file_content=file_content,
-            initial_filename=file.filename,
-            conversion_steps=conversion_steps,
-            final_output_format="txt",
-            final_content_type="text/plain"
-        )
-
-    except Exception as e:
-        logger.error(f"Error in pages_to_txt conversion: {e}")
-        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+    return await _convert_file_generic(request, file, "pages", "txt")
 
 
 # key conversions
@@ -752,162 +609,19 @@ async def convert_key_to_pptx(request: Request, file: UploadFile = File(...)):
 @router.post("/key-md")
 async def convert_key_to_md(request: Request, file: UploadFile = File(...)):
     """Convert Apple Keynote to Markdown (chained: KEY → PPTX → Markdown)"""
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Define the conversion chain
-        from .utils.conversion_chaining import chain_conversions, ConversionStep
-
-        conversion_steps = [
-            ConversionStep(
-                service=ConversionService.LIBREOFFICE,
-                input_format="key",
-                output_format="pptx",
-                description="Convert Apple Keynote to PPTX using LibreOffice"
-            ),
-            ConversionStep(
-                service=ConversionService.UNSTRUCTURED_IO,
-                input_format="pptx",
-                output_format="md",
-                description="Convert PPTX to Markdown using unstructured-io"
-            )
-        ]
-
-        # Execute the chained conversion
-        return await chain_conversions(
-            request=request,
-            initial_file_content=file_content,
-            initial_filename=file.filename,
-            conversion_steps=conversion_steps,
-            final_output_format="md",
-            final_content_type="text/markdown"
-        )
-
-    except Exception as e:
-        logger.error(f"Error in key_to_md conversion: {e}")
-        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+    return await _convert_file_generic(request, file, "key", "md")
 
 
 @router.post("/key-txt")
 async def convert_key_to_txt(request: Request, file: UploadFile = File(...)):
     """Convert Apple Keynote to plain text (chained: KEY → PPTX → Text)"""
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Define the conversion chain
-        from .utils.conversion_chaining import chain_conversions, ConversionStep
-
-        conversion_steps = [
-            ConversionStep(
-                service=ConversionService.LIBREOFFICE,
-                input_format="key",
-                output_format="pptx",
-                description="Convert Apple Keynote to PPTX using LibreOffice"
-            ),
-            ConversionStep(
-                service=ConversionService.UNSTRUCTURED_IO,
-                input_format="pptx",
-                output_format="txt",
-                description="Extract text from PPTX using unstructured-io"
-            )
-        ]
-
-        # Execute the chained conversion
-        return await chain_conversions(
-            request=request,
-            initial_file_content=file_content,
-            initial_filename=file.filename,
-            conversion_steps=conversion_steps,
-            final_output_format="txt",
-            final_content_type="text/plain"
-        )
-
-    except Exception as e:
-        logger.error(f"Error in key_to_txt conversion: {e}")
-        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+    return await _convert_file_generic(request, file, "key", "txt")
 
 
 @router.post("/key-html")
 async def convert_key_to_html(request: Request, file: UploadFile = File(...)):
     """Convert Apple Keynote to HTML (KEY → PPTX → JSON → HTML)"""
-    try:
-        from .utils.conversion_core import _convert_file
-        from .utils.unstructured_utils import process_unstructured_json_to_content
-        import json
-        from fastapi.responses import Response
-        import tempfile
-        import os
-
-        # Step 1: Convert KEY to PPTX using LibreOffice
-        pptx_response = await _convert_file(
-            request=request,
-            file=file,
-            input_format="key",
-            output_format="pptx",
-            service=ConversionService.LIBREOFFICE
-        )
-
-        # Extract PPTX content from the response
-        pptx_content = b""
-        async for chunk in pptx_response.body_iterator:
-            pptx_content += chunk
-
-        # Step 2: Convert PPTX to JSON using unstructured-io
-        from io import BytesIO
-        from fastapi import UploadFile as FastAPIUploadFile
-
-        # Create a temporary file for the PPTX content
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pptx') as temp_file:
-            temp_file.write(pptx_content)
-            temp_file_path = temp_file.name
-
-        try:
-            # Create a new UploadFile-like object for the PPTX content
-            class TempUploadFile:
-                def __init__(self, content: bytes, filename: str):
-                    self.filename = filename
-                    self.content = content
-
-                async def read(self):
-                    return self.content
-
-            temp_upload = TempUploadFile(pptx_content, "converted.pptx")
-
-            # Convert PPTX to JSON
-            json_response = await _convert_file(
-                request=request,
-                file=temp_upload,
-                input_format="pptx",
-                output_format="json",
-                service=ConversionService.UNSTRUCTURED_IO
-            )
-
-            # Extract JSON content
-            json_content = b""
-            async for chunk in json_response.body_iterator:
-                json_content += chunk
-
-            json_data = json.loads(json_content.decode('utf-8'))
-
-            # Step 3: Convert JSON to HTML locally
-            html_content = process_unstructured_json_to_content(json_data, "html")
-
-            # Return HTML response
-            return Response(
-                content=html_content,
-                media_type="text/html",
-                headers={"Content-Disposition": f"attachment; filename={file.filename.rsplit('.', 1)[0]}.html"}
-            )
-
-        finally:
-            # Clean up temporary file
-            os.unlink(temp_file_path)
-
-    except Exception as e:
-        logger.error(f"Error in key_to_html conversion: {e}")
-        raise HTTPException(status_code=500, detail=f"Conversion failed: {str(e)}")
+    return await _convert_file_generic(request, file, "key", "html")
 
 
 # pdf conversions
@@ -935,73 +649,13 @@ async def convert_pdf_to_txt(request: Request, file: UploadFile = File(...)):
 @router.post("/pdf-docx")
 async def convert_pdf_to_docx(request: Request, file: UploadFile = File(...)):
     """Convert PDF to DOCX (chained conversion: PDF → JSON → DOCX)"""
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Define the conversion chain
-        from .utils.conversion_chaining import chain_conversions, ConversionStep
-
-        conversion_steps = [
-            ConversionStep(
-                service=ConversionService.UNSTRUCTURED_IO,
-                input_format="pdf",
-                output_format="html",
-                description="Extract text structure from PDF as HTML using Unstructured IO"
-            ),
-            ConversionStep(
-                service=ConversionService.PANDOC,
-                input_format="html",
-                output_format="docx",
-                description="Convert HTML to DOCX using Pandoc"
-            )
-        ]
-
-        return await chain_conversions(
-            request=request,
-            initial_file_content=file_content,
-            initial_filename=file.filename or "document.pdf",
-            conversion_steps=conversion_steps,
-            final_output_format="docx",
-            final_content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
-
-    except Exception as e:
-        logger.error(f"Error in pdf_to_docx conversion: {e}")
-        raise HTTPException(status_code=500, detail=f"PDF to DOCX conversion failed: {str(e)}")
+    return await _convert_file_generic(request, file, "pdf", "docx")
 
 
 @router.post("/pdf-html")
 async def convert_pdf_to_html(request: Request, file: UploadFile = File(...)):
-    """Convert PDF to HTML (chained conversion: PDF → JSON → HTML)"""
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Define the conversion chain
-        from .utils.conversion_chaining import chain_conversions, ConversionStep
-
-        conversion_steps = [
-            ConversionStep(
-                service=ConversionService.UNSTRUCTURED_IO,
-                input_format="pdf",
-                output_format="html",
-                description="Extract text structure from PDF as HTML using Unstructured IO"
-            )
-        ]
-
-        return await chain_conversions(
-            request=request,
-            initial_file_content=file_content,
-            initial_filename=file.filename or "document.pdf",
-            conversion_steps=conversion_steps,
-            final_output_format="html",
-            final_content_type="text/html"
-        )
-
-    except Exception as e:
-        logger.error(f"Error in pdf_to_html conversion: {e}")
-        raise HTTPException(status_code=500, detail=f"PDF to HTML conversion failed: {str(e)}")
+    """Convert PDF to HTML (PDF to HTML structure extraction)"""
+    return await _convert_file_generic(request, file, "pdf", "html")
 
 
 # ppt conversions
@@ -1087,202 +741,25 @@ async def convert_odp_to_pdf(request: Request, file: UploadFile = File(...)):
 @router.post("/odp-json")
 async def convert_odp_to_json(request: Request, file: UploadFile = File(...)):
     """Convert ODP to JSON structure (chained: ODP → PPTX → JSON)"""
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Define the conversion chain
-        from .utils.conversion_chaining import chain_conversions, ConversionStep
-
-        conversion_steps = [
-            ConversionStep(
-                service=ConversionService.LIBREOFFICE,
-                input_format="odp",
-                output_format="pptx",
-                description="Convert ODP to PPTX using LibreOffice"
-            ),
-            ConversionStep(
-                service=ConversionService.UNSTRUCTURED_IO,
-                input_format="pptx",
-                output_format="json",
-                description="Extract structure from PPTX using unstructured-io"
-            )
-        ]
-
-        # Execute the chained conversion
-        return await chain_conversions(
-            request=request,
-            initial_file_content=file_content,
-            initial_filename=file.filename,
-            conversion_steps=conversion_steps,
-            final_output_format="json",
-            final_content_type="application/json"
-        )
-
-    except Exception as e:
-        logger.error(f"Error in odp_to_json conversion: {e}")
-        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+    return await _convert_file_generic(request, file, "odp", "json")
 
 
 @router.post("/odp-md")
 async def convert_odp_to_md(request: Request, file: UploadFile = File(...)):
     """Convert ODP to Markdown (chained: ODP → PPTX → Markdown)"""
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Define the conversion chain
-        from .utils.conversion_chaining import chain_conversions, ConversionStep
-
-        conversion_steps = [
-            ConversionStep(
-                service=ConversionService.LIBREOFFICE,
-                input_format="odp",
-                output_format="pptx",
-                description="Convert ODP to PPTX using LibreOffice"
-            ),
-            ConversionStep(
-                service=ConversionService.UNSTRUCTURED_IO,
-                input_format="pptx",
-                output_format="md",
-                description="Convert PPTX to Markdown using unstructured-io"
-            )
-        ]
-
-        # Execute the chained conversion
-        return await chain_conversions(
-            request=request,
-            initial_file_content=file_content,
-            initial_filename=file.filename,
-            conversion_steps=conversion_steps,
-            final_output_format="md",
-            final_content_type="text/markdown"
-        )
-
-    except Exception as e:
-        logger.error(f"Error in odp_to_md conversion: {e}")
-        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+    return await _convert_file_generic(request, file, "odp", "md")
 
 
 @router.post("/odp-txt")
 async def convert_odp_to_txt(request: Request, file: UploadFile = File(...)):
     """Convert ODP to plain text (chained: ODP → PPTX → Text)"""
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Define the conversion chain
-        from .utils.conversion_chaining import chain_conversions, ConversionStep
-
-        conversion_steps = [
-            ConversionStep(
-                service=ConversionService.LIBREOFFICE,
-                input_format="odp",
-                output_format="pptx",
-                description="Convert ODP to PPTX using LibreOffice"
-            ),
-            ConversionStep(
-                service=ConversionService.UNSTRUCTURED_IO,
-                input_format="pptx",
-                output_format="txt",
-                description="Extract text from PPTX using unstructured-io"
-            )
-        ]
-
-        # Execute the chained conversion
-        return await chain_conversions(
-            request=request,
-            initial_file_content=file_content,
-            initial_filename=file.filename,
-            conversion_steps=conversion_steps,
-            final_output_format="txt",
-            final_content_type="text/plain"
-        )
-
-    except Exception as e:
-        logger.error(f"Error in odp_to_txt conversion: {e}")
-        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+    return await _convert_file_generic(request, file, "odp", "txt")
 
 
 @router.post("/odp-html")
 async def convert_odp_to_html(request: Request, file: UploadFile = File(...)):
     """Convert ODP to HTML (ODP → PPTX → JSON → HTML)"""
-    try:
-        from .utils.conversion_core import _convert_file
-        from .utils.unstructured_utils import process_unstructured_json_to_content
-        import json
-        from fastapi.responses import Response
-        import tempfile
-        import os
-
-        # Step 1: Convert ODP to PPTX using LibreOffice
-        pptx_response = await _convert_file(
-            request=request,
-            file=file,
-            input_format="odp",
-            output_format="pptx",
-            service=ConversionService.LIBREOFFICE
-        )
-
-        # Extract PPTX content from the response
-        pptx_content = b""
-        async for chunk in pptx_response.body_iterator:
-            pptx_content += chunk
-
-        # Step 2: Convert PPTX to JSON using unstructured-io
-        from io import BytesIO
-        from fastapi import UploadFile as FastAPIUploadFile
-
-        # Create a temporary file for the PPTX content
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pptx') as temp_file:
-            temp_file.write(pptx_content)
-            temp_file_path = temp_file.name
-
-        try:
-            # Create a new UploadFile-like object for the PPTX content
-            class TempUploadFile:
-                def __init__(self, content: bytes, filename: str):
-                    self.filename = filename
-                    self.content = content
-
-                async def read(self):
-                    return self.content
-
-            temp_upload = TempUploadFile(pptx_content, "converted.pptx")
-
-            # Convert PPTX to JSON
-            json_response = await _convert_file(
-                request=request,
-                file=temp_upload,
-                input_format="pptx",
-                output_format="json",
-                service=ConversionService.UNSTRUCTURED_IO
-            )
-
-            # Extract JSON content
-            json_content = b""
-            async for chunk in json_response.body_iterator:
-                json_content += chunk
-
-            json_data = json.loads(json_content.decode('utf-8'))
-
-            # Step 3: Convert JSON to HTML locally
-            html_content = process_unstructured_json_to_content(json_data, "html")
-
-            # Return HTML response
-            return Response(
-                content=html_content,
-                media_type="text/html",
-                headers={"Content-Disposition": f"attachment; filename={file.filename.rsplit('.', 1)[0]}.html"}
-            )
-
-        finally:
-            # Clean up temporary file
-            os.unlink(temp_file_path)
-
-    except Exception as e:
-        logger.error(f"Error in odp_to_html conversion: {e}")
-        raise HTTPException(status_code=500, detail=f"Conversion failed: {str(e)}")
+    return await _convert_file_generic(request, file, "odp", "html")
 
 
 @router.post("/odp-pptx")
@@ -1353,42 +830,7 @@ async def convert_tex_to_html(request: Request, file: UploadFile = File(...)):
 @router.post("/tex-json")
 async def convert_tex_to_json(request: Request, file: UploadFile = File(...)):
     """Convert LaTeX to JSON (chained conversion: LaTeX → DOCX → JSON)"""
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Define the conversion chain
-        from .utils.conversion_chaining import chain_conversions, ConversionStep
-
-        conversion_steps = [
-            ConversionStep(
-                service=ConversionService.PANDOC,
-                input_format="tex",
-                output_format="docx",
-                extra_params={"extra_args": "--from=latex"},
-                description="Convert LaTeX to DOCX using Pandoc"
-            ),
-            ConversionStep(
-                service=ConversionService.UNSTRUCTURED_IO,
-                input_format="docx",
-                output_format="json",
-                description="Convert DOCX to JSON using Unstructured IO"
-            )
-        ]
-
-        # Execute the chained conversion
-        return await chain_conversions(
-            request=request,
-            initial_file_content=file_content,
-            initial_filename=file.filename,
-            conversion_steps=conversion_steps,
-            final_output_format="json",
-            final_content_type="application/json"
-        )
-
-    except Exception as e:
-        logger.error(f"Error in tex_to_json conversion: {e}")
-        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+    return await _convert_file_generic(request, file, "tex", "json")
 
 
 @router.post("/tex-md")
@@ -1408,41 +850,7 @@ async def convert_tex_to_txt(request: Request, file: UploadFile = File(...)):
 @router.post("/tex-pdf")
 async def convert_tex_to_pdf(request: Request, file: UploadFile = File(...)):
     """Convert LaTeX to PDF (chained conversion: LaTeX → DOCX → PDF)"""
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Define the conversion chain
-        from .utils.conversion_chaining import chain_conversions, ConversionStep
-
-        conversion_steps = [
-            ConversionStep(
-                service=ConversionService.PANDOC,
-                input_format="tex",
-                output_format="docx",
-                description="Convert LaTeX to DOCX using Pandoc"
-            ),
-            ConversionStep(
-                service=ConversionService.PANDOC,
-                input_format="docx",
-                output_format="pdf",
-                description="Convert DOCX to PDF using Pandoc"
-            )
-        ]
-
-        # Execute the chained conversion
-        return await chain_conversions(
-            request=request,
-            initial_file_content=file_content,
-            initial_filename=file.filename,
-            conversion_steps=conversion_steps,
-            final_output_format="pdf",
-            final_content_type="application/pdf"
-        )
-
-    except Exception as e:
-        logger.error(f"Error in tex_to_pdf conversion: {e}")
-        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+    return await _convert_file_generic(request, file, "tex", "pdf")
 
 
 # txt conversions

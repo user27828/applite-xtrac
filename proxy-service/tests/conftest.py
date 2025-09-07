@@ -175,7 +175,7 @@ def conversion_test_results():
 # Dynamically generated from config.py to ensure all supported formats are tested
 def _generate_conversion_endpoints():
     """Generate CONVERSION_ENDPOINTS dynamically from config.py"""
-    from convert.config import get_supported_conversions
+    from convert.utils.conversion_lookup import get_supported_conversions
     
     # Get all supported conversions from config
     supported = get_supported_conversions()

@@ -51,13 +51,16 @@ The conversion system in `proxy-service/convert/router.py` implements **service 
 - **URL inputs** → Gotenberg for PDF, Unstructured IO for text/JSON
 
 ### Configuration Pattern
-Service routing defined in `convert/config.py` via `CONVERSION_MATRIX`:
-```python
-"docx": {
-    "pdf": [(ConversionService.GOTENBERG, ConversionPriority.PRIMARY)],
-    "json": [(ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY)]
-}
-```
+Service routing defined in `convert/config.py` via `CONVERSION_MATRIX` with utility functions in `convert/utils/`:
+
+**Core Configuration** (`config.py`):
+- `CONVERSION_MATRIX`: Main conversion routing table
+- `SPECIAL_HANDLERS`: Registry for custom handlers
+
+**Utility Functions** (`utils/`):
+- `conversion_lookup.py`: `get_conversion_methods()`, `get_service_urls()`
+- `conversion_chaining.py`: `get_conversion_steps()`, `is_chained_conversion()`
+- `special_handlers.py`: Custom conversion logic
 
 ## 🔧 Development Patterns
 
@@ -77,7 +80,7 @@ The system includes Scrapy-based URL fetching (see `docs/README_URL_FETCHING.md`
 - Custom headers and authentication
 
 ### Local vs Docker Service URLs
-Services auto-detect environment via `convert/config.py`:
+Services auto-detect environment via `convert/config.py` and `convert/utils/conversion_lookup.py`:
 ```python
 SERVICE_URL_CONFIGS = {
     "pandoc": {
@@ -92,6 +95,15 @@ SERVICE_URL_CONFIGS = {
 ### File Organization
 - `proxy-service/app.py` → Main FastAPI app with health checks and service proxying
 - `proxy-service/convert/` → High-level conversion logic and routing
+  - `config.py` → Core configuration (CONVERSION_MATRIX, SPECIAL_HANDLERS)
+  - `utils/` → Utility modules for conversion logic
+    - `conversion_lookup.py` → Lookup functions for conversions and services
+    - `conversion_chaining.py` → Multi-step conversion chaining
+    - `conversion_core.py` → Core conversion execution
+    - `special_handlers.py` → Custom conversion handlers
+    - `unstructured_utils.py` → Unstructured IO utilities
+    - `url_fetcher.py` & `url_helpers.py` → URL processing
+  - `router.py` → FastAPI route handlers
 - `proxy-service/convert/_local_/` → Local conversion implementations
 - `proxy-service/convert/validate/` → Format validation and testing
 - `tests/` → Pytest-based testing with comprehensive fixtures

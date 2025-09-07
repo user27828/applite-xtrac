@@ -162,15 +162,15 @@ All conversion endpoints return:
 
 ## Configuration
 
-The conversion logic is defined in `config.py` and can be easily extended:
+The conversion logic is defined in `config.py` and organized across several utility modules:
 
-```python
-# Add new conversion pair
-CONVERSION_MATRIX[("newformat", "output")] = [
-    (ConversionService.SERVICE_NAME, ConversionPriority.PRIMARY, "Description"),
-]
-```
+**Core Configuration (`config.py`)**:
+- `CONVERSION_MATRIX`: Defines all supported conversion pairs and their service routing
+- `SPECIAL_HANDLERS`: Registry for custom conversion logic
 
-## Testing
+**Utility Modules**:
+- `utils/conversion_lookup.py`: Functions for looking up conversion methods and service URLs
+- `utils/conversion_chaining.py`: Logic for multi-step chained conversions  
+- `utils/special_handlers.py`: Custom conversion handlers for special cases
 
-Test the endpoints with the provided examples or use the `/convert/supported` endpoint to see all available conversions.
+The conversion system can be easily extended by:
