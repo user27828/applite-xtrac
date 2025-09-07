@@ -458,7 +458,7 @@ run_all_tests() {
     else
         source venv/bin/activate
         # Check if pytest is available, install dev requirements if not
-        if ! python -c "import pytest" 2>/dev/null; then
+        if ! ./venv/bin/python -c "import pytest" 2>/dev/null; then
             log_info "Installing development dependencies..."
             pip install -r requirements-dev.txt
         fi
@@ -467,11 +467,11 @@ run_all_tests() {
     log_info "Running all tests..."
     
     # Run pytest with coverage
-    if command -v pytest &> /dev/null; then
-        pytest --tb=short --cov=convert --cov-report=html:htmlcov || log_error "Tests failed"
+    if ./venv/bin/python -c "import pytest" 2>/dev/null; then
+        ./venv/bin/python -m pytest --tb=short --cov=convert --cov-report=html:htmlcov || log_error "Tests failed"
     else
-        log_warning "pytest not found, running basic Python tests..."
-        python -m unittest discover tests/ -v || log_error "Basic tests failed"
+        log_warning "pytest not found in virtual environment, running basic Python tests..."
+        ./venv/bin/python -m unittest discover tests/ -v || log_error "Basic tests failed"
     fi
     
     log_success "All tests completed"
@@ -498,7 +498,7 @@ run_conversion_tests() {
     else
         source venv/bin/activate
         # Check if pytest is available, install dev requirements if not
-        if ! python -c "import pytest" 2>/dev/null; then
+        if ! ./venv/bin/python -c "import pytest" 2>/dev/null; then
             log_info "Installing development dependencies..."
             pip install -r requirements-dev.txt
         fi
@@ -507,11 +507,11 @@ run_conversion_tests() {
     log_info "Running conversion integration tests with detailed output..."
     
     # Run the specific test method that shows all conversion results
-    if command -v pytest &> /dev/null; then
-        pytest tests/integration/test_conversions.py::TestConversionEndpoints::test_all_file_conversions -v -s --tb=short || log_error "Conversion tests failed"
+    if ./venv/bin/python -c "import pytest" 2>/dev/null; then
+        ./venv/bin/python -m pytest tests/integration/test_conversions.py::TestConversionEndpoints::test_all_file_conversions -v -s --tb=short || log_error "Conversion tests failed"
     else
-        log_warning "pytest not found, running basic Python tests..."
-        python -m unittest tests.integration.test_conversions.TestConversionEndpoints.test_all_file_conversions -v || log_error "Basic conversion tests failed"
+        log_warning "pytest not found in virtual environment, running basic Python tests..."
+        ./venv/bin/python -m unittest tests.integration.test_conversions.TestConversionEndpoints.test_all_file_conversions -v || log_error "Basic conversion tests failed"
     fi
     
     log_success "Conversion tests completed"
@@ -585,7 +585,13 @@ main() {
             ;;
         "restart")
             log_info "Restarting all services..."
-            docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME restart || log_warning "Failed to restart services"
+            do_stop "$@"
+            do_start false "$@"
+            ;;
+        "restartd")
+            log_info "Restarting all services daemons..."
+            do_stop "$@"
+            do_start true "$@"
             ;;
         "dev")
             dev_mode

@@ -38,10 +38,12 @@ This document provides a comprehensive overview of supported file formats across
     - [JSON Structure Extraction](#json-structure-extraction)
     - [URL-Based Conversions](#url-based-conversions)
     - [DOCX Output Conversions](#docx-output-conversions)
+    - [PPTX Output Conversions](#pptx-output-conversions)
     - [Markdown Output Conversions](#markdown-output-conversions)
     - [HTML Output Conversions](#html-output-conversions)
     - [LaTeX Output Conversions](#latex-output-conversions)
     - [Plain Text Output Conversions](#plain-text-output-conversions)
+  - [XLSX Output Conversions](#xlsx-output-conversions)
   - [💡 Usage Examples](#-usage-examples)
     - [Convert a DOCX Resume to PDF](#convert-a-docx-resume-to-pdf)
     - [Extract PDF Structure](#extract-pdf-structure)
@@ -82,7 +84,8 @@ This document provides a comprehensive overview of supported file formats across
 | .latex | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ |
 | .md | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ |
 | .msg | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* |
-| .odp | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ |
+| .numbers | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ |
+| .odp | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ |
 | .ods | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
 | .odt | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | .org | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ |
@@ -132,6 +135,7 @@ This document provides a comprehensive overview of supported file formats across
 | Excel 97-2003 | .xls | ❌ | ✅ | ❌ | ✅ | Legacy format - Gotenberg supports via LibreOffice |
 | Excel 2007+ | .xlsx | ✅ | ✅ | ❌ | ✅ | Modern Excel - Gotenberg supports via LibreOffice |
 | OpenDocument Spreadsheet | .ods | ❌ | ✅ | ❌ | ❌ | Open standard |
+| Apple Numbers | .numbers | ❌ | ✅ | ❌ | ❌ | macOS spreadsheet - dedicated conversion endpoints available |
 | CSV | .csv | ✅* | ✅* | ✅* | ❌ | Universal data format |
 | TSV | .tsv | ✅* | ✅* | ✅* | ❌ | Tab-separated values |
 | dBase | .dbf | ❌ | ✅* | ❌ | ❌ | Database format |
@@ -143,7 +147,7 @@ This document provides a comprehensive overview of supported file formats across
 |--------|-----------|----------------|-------------|--------|-----------|-------|
 | PowerPoint 97-2003 | .ppt | ✅ | ✅ | ❌ | ✅ | Legacy format - Gotenberg supports via LibreOffice |
 | PowerPoint 2007+ | .pptx | ✅ | ✅ | ❌ | ✅ | Modern PowerPoint - Gotenberg supports via LibreOffice |
-| OpenDocument Presentation | .odp | ❌ | ✅* | ❌ | ❌ | Open standard |
+| OpenDocument Presentation | .odp | ❌ | ✅ | ❌ | ❌ | Open standard - dedicated conversion endpoints available |
 | Apple Keynote | .key | ❌ | ✅* | ❌ | ❌ | macOS format |
 
 ### E-books and Publishing
@@ -196,6 +200,7 @@ This document provides a comprehensive overview of supported file formats across
 | LaTeX | ❌ | ❌ | ✅ | ❌ |
 | Plain Text | ❌ | ✅ | ✅ | ❌ |
 | JSON | ✅ | ❌ | ❌ | ❌ |
+| XLSX | ❌ | ❌ | ❌ | ✅ |
 
 ### Specialized Output Formats
 | Format | Service | Notes |
@@ -236,31 +241,37 @@ This document provides a comprehensive overview of supported file formats across
    - **Gap**: Conversions may lose formatting or fail entirely
    - **Impact**: Archival documents may not convert properly
 
-5. **Specialized Application Formats**
+5. **Presentation to Document Conversion**
+   - **Problem**: PPT and PPTX files cannot be directly converted to DOCX format
+   - **Gap**: No service currently supports presentation-to-document format conversion
+   - **Impact**: PowerPoint presentations cannot be converted to Word documents
+   - **Workaround**: Convert to PDF, HTML, or extract text content instead
+
+6. **Specialized Application Formats**
    - **Problem**: Formats like .pub, .cdr, .qxd have limited conversion options
    - **Gap**: Complex layouts and graphics may not convert well
    - **Impact**: Professional publishing documents may lose quality
 
 ### Service-Specific Limitations
-6. **Unstructured IO Limitations**
+7. **Unstructured IO Limitations**
    - Only outputs JSON structure extraction
    - Cannot convert between document formats
    - Limited to text and metadata extraction
 
-7. **LibreOffice Limitations**
+8. **LibreOffice Limitations**
    - Best for office document formats
    - Limited support for modern markup formats (Markdown, AsciiDoc, etc.)
    - Some legacy formats may have conversion issues
 
-8. **Pandoc Limitations**
+9. **Pandoc Limitations**
    - Requires text-based input formats
    - Cannot process binary office documents directly (needs LibreOffice preprocessing)
    - Limited support for complex layouts and embedded objects
 
-9. **Gotenberg Limitations**
-   - Primarily focused on PDF generation
-   - Limited support for converting between office document formats
-   - Asynchronous processing may require additional handling in automation scripts
+10. **Gotenberg Limitations**
+    - Primarily focused on PDF generation
+    - Limited support for converting between office document formats
+    - Asynchronous processing may require additional handling in automation scripts
 
 ## Recommended Conversion Workflows
 
@@ -316,6 +327,7 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 - `tex`, `latex` - Academic content
 - `txt` - Plain text
 - `pages` - Apple Pages documents
+- `numbers` - Apple Numbers spreadsheets
 - `url` - Web URLs
 
 ### Priority Output Formats
@@ -323,6 +335,7 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 - `docx` - Modern Word format
 - `html` - Web format
 - `md` - Markdown
+- `xlsx` - Modern Excel format
 - `txt` - Plain text
 - `json` - Structured data
 
@@ -345,7 +358,8 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 | `xlsx-pdf` | Gotenberg | XLSX to PDF |
 | `xls-pdf` | LibreOffice | XLS to PDF |
 | `ods-pdf` | LibreOffice | ODS to PDF |
-| `odp-pdf` | LibreOffice* | ODP to PDF |
+| `numbers-pdf` | LibreOffice | Numbers to PDF |
+| `odp-pdf` | LibreOffice | ODP to PDF |
 | `epub-pdf` | LibreOffice | EPUB to PDF |
 
 ### JSON Structure Extraction
@@ -361,8 +375,12 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 | `epub-json` | Unstructured IO | EPUB structure extraction |
 | `rtf-json` | Unstructured IO | RTF structure extraction |
 | `txt-json` | Unstructured IO | Text structure extraction |
+| `numbers-json` | Unstructured IO | Numbers structure extraction |
+| `latex-json` | Unstructured IO | LaTeX structure extraction |
+| `tex-json` | Unstructured IO | LaTeX structure extraction |
 | `eml-json` | Unstructured IO* | Email structure extraction |
 | `msg-json` | Unstructured IO* | Outlook message extraction |
+| `odp-json` | Unstructured IO | ODP structure extraction (chained: ODP → PPTX → JSON) |
 
 ### URL-Based Conversions
 
@@ -385,6 +403,14 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 | `txt-docx` | LibreOffice | Text to DOCX |
 | `odt-docx` | LibreOffice | ODT to DOCX |
 | `pages-docx` | LibreOffice | Apple Pages to DOCX |
+| `latex-docx` | Pandoc | LaTeX to DOCX |
+| `tex-docx` | Pandoc | LaTeX to DOCX |
+
+### PPTX Output Conversions
+
+| Input → PPTX | Primary Service | Description |
+|--------------|----------------|-------------|
+| `odp-pptx` | LibreOffice | ODP to PPTX |
 
 ### Markdown Output Conversions
 
@@ -399,6 +425,8 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 | `txt-md` | Pandoc | Text to Markdown |
 | `epub-md` | Pandoc | EPUB to Markdown |
 | `pages-md` | LibreOffice | Apple Pages to Markdown |
+| `numbers-md` | Unstructured IO | Numbers to Markdown |
+| `odp-md` | Unstructured IO | ODP to Markdown (chained: ODP → PPTX → Markdown) |
 
 ### HTML Output Conversions
 
@@ -415,6 +443,10 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 | `pages-html` | LibreOffice | Apple Pages to HTML |
 | `xlsx-html` | LibreOffice | XLSX to HTML |
 | `xls-html` | LibreOffice | XLS to HTML |
+| `numbers-html` | LibreOffice | Numbers to HTML |
+| `ppt-html` | LibreOffice | PPT to HTML |
+| `pptx-html` | LibreOffice | PPTX to HTML |
+| `odp-html` | LibreOffice | ODP to HTML (chained: ODP → PPTX → HTML) |
 
 ### LaTeX Output Conversions
 
@@ -435,6 +467,14 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 | `md-txt` | Pandoc | Markdown to Text |
 | `rtf-txt` | LibreOffice | RTF to Text |
 | `pages-txt` | LibreOffice | Apple Pages to Text |
+| `numbers-txt` | Unstructured IO | Numbers to Text |
+| `odp-txt` | Unstructured IO | ODP to Text (chained: ODP → PPTX → Text) |
+
+## XLSX Output Conversions
+
+| Input → XLSX | Primary Service | Description |
+|--------------|----------------|-------------|
+| `numbers-xlsx` | LibreOffice | Numbers to XLSX |
 
 ## 💡 Usage Examples
 
@@ -485,3 +525,12 @@ Each endpoint automatically selects the optimal service:
 - **Markdown/LaTeX**: Pandoc (native support)
 - **Legacy Formats**: LibreOffice (broadest compatibility)
 - **URL to HTML**: Local service (direct content fetching)
+
+---
+
+> **⚠️ Note on Functionally Useless Conversions**: Some conversions may produce output that is functionally identical to the input. For example:
+> - `txt-md`: Plain text to Markdown often results in identical output since plain text lacks Markdown-specific formatting
+> - `txt-tex`: Plain text to LaTeX often results in identical output since plain text lacks LaTeX-specific markup
+> - `md-txt`: Markdown to plain text may strip all formatting, resulting in identical content
+> 
+> These conversions are still available for completeness but may not provide meaningful transformation. Always verify the output quality for your specific use case.

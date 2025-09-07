@@ -141,6 +141,27 @@ async def convert_docx_to_pdf(request: Request, file: UploadFile = File(...)):
     return await _convert_file(request, file=file, input_format="docx", output_format="pdf", service=service)
 
 
+@router.post("/docx-html")
+async def convert_docx_to_html(request: Request, file: UploadFile = File(...)):
+    """Convert DOCX to HTML (Document to web format)"""
+    service, description = get_primary_conversion("docx", "html") or (ConversionService.LIBREOFFICE, "Fallback")
+    return await _convert_file(request, file=file, input_format="docx", output_format="html", service=service)
+
+
+@router.post("/docx-tex")
+async def convert_docx_to_tex(request: Request, file: UploadFile = File(...)):
+    """Convert DOCX to LaTeX (Document to academic format)"""
+    service, description = get_primary_conversion("docx", "tex") or (ConversionService.PANDOC, "Fallback")
+    return await _convert_file(request, file=file, input_format="docx", output_format="tex", service=service)
+
+
+@router.post("/docx-txt")
+async def convert_docx_to_txt(request: Request, file: UploadFile = File(...)):
+    """Convert DOCX to plain text (Content extraction)"""
+    service, description = get_primary_conversion("docx", "txt") or (ConversionService.PANDOC, "Fallback")
+    return await _convert_file(request, file=file, input_format="docx", output_format="txt", service=service)
+
+
 # html conversions
 @router.post("/html-docx")
 async def convert_html_to_docx(request: Request, file: UploadFile = File(...)):
@@ -182,6 +203,20 @@ async def convert_html_to_pdf(request: Request, file: UploadFile = File(...)):
     """Convert HTML to PDF (Web content priority - high fidelity via Gotenberg)"""
     service, description = get_primary_conversion("html", "pdf") or (ConversionService.PANDOC, "Fallback")
     return await _convert_file(request, file=file, input_format="html", output_format="pdf", service=service)
+
+
+@router.post("/html-tex")
+async def convert_html_to_tex(request: Request, file: UploadFile = File(...)):
+    """Convert HTML to LaTeX (Web content to academic format)"""
+    service, description = get_primary_conversion("html", "tex") or (ConversionService.PANDOC, "Fallback")
+    return await _convert_file(request, file=file, input_format="html", output_format="tex", service=service)
+
+
+@router.post("/html-txt")
+async def convert_html_to_txt(request: Request, file: UploadFile = File(...)):
+    """Convert HTML to plain text (Web content extraction)"""
+    service, description = get_primary_conversion("html", "txt") or (ConversionService.PANDOC, "Fallback")
+    return await _convert_file(request, file=file, input_format="html", output_format="txt", service=service)
 
 
 # latex conversions
@@ -254,6 +289,46 @@ async def convert_latex_to_txt(request: Request, file: UploadFile = File(...)):
     return await _convert_file(request, file=file, input_format="tex", output_format="txt", service=service)
 
 
+@router.post("/latex-pdf")
+async def convert_latex_to_pdf(request: Request, file: UploadFile = File(...)):
+    """Convert LaTeX to PDF (chained conversion: LaTeX → DOCX → PDF)"""
+    try:
+        # Read the uploaded file
+        file_content = await file.read()
+
+        # Define the conversion chain
+        from .utils.conversion_chaining import chain_conversions, ConversionStep
+
+        conversion_steps = [
+            ConversionStep(
+                service=ConversionService.PANDOC,
+                input_format="tex",
+                output_format="docx",
+                description="Convert LaTeX to DOCX using Pandoc"
+            ),
+            ConversionStep(
+                service=ConversionService.PANDOC,
+                input_format="docx",
+                output_format="pdf",
+                description="Convert DOCX to PDF using Pandoc"
+            )
+        ]
+
+        # Execute the chained conversion
+        return await chain_conversions(
+            request=request,
+            initial_file_content=file_content,
+            initial_filename=file.filename,
+            conversion_steps=conversion_steps,
+            final_output_format="pdf",
+            final_content_type="application/pdf"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in latex_to_pdf conversion: {e}")
+        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+
+
 # md conversions
 @router.post("/md-docx")
 async def convert_md_to_docx(request: Request, file: UploadFile = File(...)):
@@ -274,6 +349,65 @@ async def convert_md_to_pdf(request: Request, file: UploadFile = File(...)):
     """Convert Markdown to PDF (Text content priority)"""
     service, description = get_primary_conversion("md", "pdf") or (ConversionService.PANDOC, "Fallback")
     return await _convert_file(request, file=file, input_format="md", output_format="pdf", service=service)
+
+
+@router.post("/md-html")
+async def convert_md_to_html(request: Request, file: UploadFile = File(...)):
+    """Convert Markdown to HTML (Text to web format)"""
+    service, description = get_primary_conversion("md", "html") or (ConversionService.PANDOC, "Fallback")
+    return await _convert_file(request, file=file, input_format="md", output_format="html", service=service)
+
+
+@router.post("/md-tex")
+async def convert_md_to_tex(request: Request, file: UploadFile = File(...)):
+    """Convert Markdown to LaTeX (Text to academic format)"""
+    service, description = get_primary_conversion("md", "tex") or (ConversionService.PANDOC, "Fallback")
+    return await _convert_file(request, file=file, input_format="md", output_format="tex", service=service)
+
+
+@router.post("/md-txt")
+async def convert_md_to_txt(request: Request, file: UploadFile = File(...)):
+    """Convert Markdown to plain text (Content extraction)"""
+    service, description = get_primary_conversion("md", "txt") or (ConversionService.PANDOC, "Fallback")
+    return await _convert_file(request, file=file, input_format="md", output_format="txt", service=service)
+
+
+# eml conversions
+@router.post("/eml-json")
+async def convert_eml_to_json(request: Request, file: UploadFile = File(...)):
+    """Convert EML to JSON structure (Email analysis)"""
+    service, description = get_primary_conversion("eml", "json") or (ConversionService.UNSTRUCTURED_IO, "Fallback")
+    return await _convert_file(request, file=file, input_format="eml", output_format="json", service=service)
+
+
+# epub conversions
+@router.post("/epub-json")
+async def convert_epub_to_json(request: Request, file: UploadFile = File(...)):
+    """Convert EPUB to JSON structure (Ebook analysis)"""
+    service, description = get_primary_conversion("epub", "json") or (ConversionService.UNSTRUCTURED_IO, "Fallback")
+    return await _convert_file(request, file=file, input_format="epub", output_format="json", service=service)
+
+
+@router.post("/epub-md")
+async def convert_epub_to_md(request: Request, file: UploadFile = File(...)):
+    """Convert EPUB to Markdown (Ebook content extraction)"""
+    service, description = get_primary_conversion("epub", "md") or (ConversionService.PANDOC, "Fallback")
+    return await _convert_file(request, file=file, input_format="epub", output_format="md", service=service)
+
+
+@router.post("/epub-pdf")
+async def convert_epub_to_pdf(request: Request, file: UploadFile = File(...)):
+    """Convert EPUB to PDF (Ebook to document format)"""
+    service, description = get_primary_conversion("epub", "pdf") or (ConversionService.LIBREOFFICE, "Fallback")
+    return await _convert_file(request, file=file, input_format="epub", output_format="pdf", service=service)
+
+
+# msg conversions
+@router.post("/msg-json")
+async def convert_msg_to_json(request: Request, file: UploadFile = File(...)):
+    """Convert MSG to JSON structure (Email analysis)"""
+    service, description = get_primary_conversion("msg", "json") or (ConversionService.UNSTRUCTURED_IO, "Fallback")
+    return await _convert_file(request, file=file, input_format="msg", output_format="json", service=service)
 
 
 # numbers conversions
@@ -615,12 +749,112 @@ async def convert_pdf_to_txt(request: Request, file: UploadFile = File(...)):
     return await _convert_file(request, file=file, input_format="pdf", output_format="txt", service=service)
 
 
+@router.post("/pdf-docx")
+async def convert_pdf_to_docx(request: Request, file: UploadFile = File(...)):
+    """Convert PDF to DOCX (chained conversion: PDF → JSON → DOCX)"""
+    try:
+        # Read the uploaded file
+        file_content = await file.read()
+
+        # Define the conversion chain
+        from .utils.conversion_chaining import chain_conversions, ConversionStep
+
+        conversion_steps = [
+            ConversionStep(
+                service=ConversionService.UNSTRUCTURED_IO,
+                input_format="pdf",
+                output_format="html",
+                description="Extract text structure from PDF as HTML using Unstructured IO"
+            ),
+            ConversionStep(
+                service=ConversionService.PANDOC,
+                input_format="html",
+                output_format="docx",
+                description="Convert HTML to DOCX using Pandoc"
+            )
+        ]
+
+        return await chain_conversions(
+            request=request,
+            initial_file_content=file_content,
+            initial_filename=file.filename or "document.pdf",
+            conversion_steps=conversion_steps,
+            final_output_format="docx",
+            final_content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in pdf_to_docx conversion: {e}")
+        raise HTTPException(status_code=500, detail=f"PDF to DOCX conversion failed: {str(e)}")
+
+
+@router.post("/pdf-html")
+async def convert_pdf_to_html(request: Request, file: UploadFile = File(...)):
+    """Convert PDF to HTML (chained conversion: PDF → JSON → HTML)"""
+    try:
+        # Read the uploaded file
+        file_content = await file.read()
+
+        # Define the conversion chain
+        from .utils.conversion_chaining import chain_conversions, ConversionStep
+
+        conversion_steps = [
+            ConversionStep(
+                service=ConversionService.UNSTRUCTURED_IO,
+                input_format="pdf",
+                output_format="html",
+                description="Extract text structure from PDF as HTML using Unstructured IO"
+            )
+        ]
+
+        return await chain_conversions(
+            request=request,
+            initial_file_content=file_content,
+            initial_filename=file.filename or "document.pdf",
+            conversion_steps=conversion_steps,
+            final_output_format="html",
+            final_content_type="text/html"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in pdf_to_html conversion: {e}")
+        raise HTTPException(status_code=500, detail=f"PDF to HTML conversion failed: {str(e)}")
+
+
 # ppt conversions
 @router.post("/ppt-pdf")
 async def convert_ppt_to_pdf(request: Request, file: UploadFile = File(...)):
     """Convert PPT to PDF (Legacy presentation priority)"""
     service, description = get_primary_conversion("ppt", "pdf") or (ConversionService.LIBREOFFICE, "Fallback")
     return await _convert_file(request, file=file, input_format="ppt", output_format="pdf", service=service)
+
+
+@router.post("/ppt-json")
+async def convert_ppt_to_json(request: Request, file: UploadFile = File(...)):
+    """Convert PPT to JSON structure (Legacy presentation analysis)"""
+    service, description = get_primary_conversion("ppt", "json") or (ConversionService.UNSTRUCTURED_IO, "Fallback")
+    return await _convert_file(request, file=file, input_format="ppt", output_format="json", service=service)
+
+
+@router.post("/ppt-md")
+async def convert_ppt_to_md(request: Request, file: UploadFile = File(...)):
+    """Convert PPT to Markdown (Legacy presentation content extraction)"""
+    service, description = get_primary_conversion("ppt", "md") or (ConversionService.UNSTRUCTURED_IO, "Fallback")
+    return await _convert_file(request, file=file, input_format="ppt", output_format="md", service=service)
+
+
+@router.post("/ppt-txt")
+async def convert_ppt_to_txt(request: Request, file: UploadFile = File(...)):
+    """Convert PPT to plain text (Legacy presentation text extraction)"""
+    service, description = get_primary_conversion("ppt", "txt") or (ConversionService.UNSTRUCTURED_IO, "Fallback")
+    return await _convert_file(request, file=file, input_format="ppt", output_format="txt", service=service)
+
+
+@router.post("/ppt-html")
+async def convert_ppt_to_html(request: Request, file: UploadFile = File(...)):
+    """Convert PPT to HTML (Legacy presentation to web format)"""
+    service, description = get_primary_conversion("ppt", "html") 
+    return await _convert_file(request, file=file, input_format="ppt", output_format="html", service=service)
 
 
 # pptx conversions
@@ -638,6 +872,243 @@ async def convert_pptx_to_pdf(request: Request, file: UploadFile = File(...)):
     return await _convert_file(request, file=file, input_format="pptx", output_format="pdf", service=service)
 
 
+@router.post("/pptx-md")
+async def convert_pptx_to_md(request: Request, file: UploadFile = File(...)):
+    """Convert PPTX to Markdown (Presentation content extraction)"""
+    service, description = get_primary_conversion("pptx", "md") or (ConversionService.UNSTRUCTURED_IO, "Fallback")
+    return await _convert_file(request, file=file, input_format="pptx", output_format="md", service=service)
+
+
+@router.post("/pptx-txt")
+async def convert_pptx_to_txt(request: Request, file: UploadFile = File(...)):
+    """Convert PPTX to plain text (Presentation text extraction)"""
+    service, description = get_primary_conversion("pptx", "txt") or (ConversionService.UNSTRUCTURED_IO, "Fallback")
+    return await _convert_file(request, file=file, input_format="pptx", output_format="txt", service=service)
+
+
+@router.post("/pptx-html")
+async def convert_pptx_to_html(request: Request, file: UploadFile = File(...)):
+    """Convert PPTX to HTML (Presentation to web format)"""
+    service, description = get_primary_conversion("pptx", "html") 
+    return await _convert_file(request, file=file, input_format="pptx", output_format="html", service=service)
+
+
+# odp conversions
+@router.post("/odp-pdf")
+async def convert_odp_to_pdf(request: Request, file: UploadFile = File(...)):
+    """Convert ODP to PDF (OpenDocument presentation priority)"""
+    service, description = get_primary_conversion("odp", "pdf") or (ConversionService.LIBREOFFICE, "Fallback")
+    return await _convert_file(request, file=file, input_format="odp", output_format="pdf", service=service)
+
+
+@router.post("/odp-json")
+async def convert_odp_to_json(request: Request, file: UploadFile = File(...)):
+    """Convert ODP to JSON structure (chained: ODP → PPTX → JSON)"""
+    try:
+        # Read the uploaded file
+        file_content = await file.read()
+
+        # Define the conversion chain
+        from .utils.conversion_chaining import chain_conversions, ConversionStep
+
+        conversion_steps = [
+            ConversionStep(
+                service=ConversionService.LIBREOFFICE,
+                input_format="odp",
+                output_format="pptx",
+                description="Convert ODP to PPTX using LibreOffice"
+            ),
+            ConversionStep(
+                service=ConversionService.UNSTRUCTURED_IO,
+                input_format="pptx",
+                output_format="json",
+                description="Extract structure from PPTX using unstructured-io"
+            )
+        ]
+
+        # Execute the chained conversion
+        return await chain_conversions(
+            request=request,
+            initial_file_content=file_content,
+            initial_filename=file.filename,
+            conversion_steps=conversion_steps,
+            final_output_format="json",
+            final_content_type="application/json"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in odp_to_json conversion: {e}")
+        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+
+
+@router.post("/odp-md")
+async def convert_odp_to_md(request: Request, file: UploadFile = File(...)):
+    """Convert ODP to Markdown (chained: ODP → PPTX → Markdown)"""
+    try:
+        # Read the uploaded file
+        file_content = await file.read()
+
+        # Define the conversion chain
+        from .utils.conversion_chaining import chain_conversions, ConversionStep
+
+        conversion_steps = [
+            ConversionStep(
+                service=ConversionService.LIBREOFFICE,
+                input_format="odp",
+                output_format="pptx",
+                description="Convert ODP to PPTX using LibreOffice"
+            ),
+            ConversionStep(
+                service=ConversionService.UNSTRUCTURED_IO,
+                input_format="pptx",
+                output_format="md",
+                description="Convert PPTX to Markdown using unstructured-io"
+            )
+        ]
+
+        # Execute the chained conversion
+        return await chain_conversions(
+            request=request,
+            initial_file_content=file_content,
+            initial_filename=file.filename,
+            conversion_steps=conversion_steps,
+            final_output_format="md",
+            final_content_type="text/markdown"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in odp_to_md conversion: {e}")
+        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+
+
+@router.post("/odp-txt")
+async def convert_odp_to_txt(request: Request, file: UploadFile = File(...)):
+    """Convert ODP to plain text (chained: ODP → PPTX → Text)"""
+    try:
+        # Read the uploaded file
+        file_content = await file.read()
+
+        # Define the conversion chain
+        from .utils.conversion_chaining import chain_conversions, ConversionStep
+
+        conversion_steps = [
+            ConversionStep(
+                service=ConversionService.LIBREOFFICE,
+                input_format="odp",
+                output_format="pptx",
+                description="Convert ODP to PPTX using LibreOffice"
+            ),
+            ConversionStep(
+                service=ConversionService.UNSTRUCTURED_IO,
+                input_format="pptx",
+                output_format="txt",
+                description="Extract text from PPTX using unstructured-io"
+            )
+        ]
+
+        # Execute the chained conversion
+        return await chain_conversions(
+            request=request,
+            initial_file_content=file_content,
+            initial_filename=file.filename,
+            conversion_steps=conversion_steps,
+            final_output_format="txt",
+            final_content_type="text/plain"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in odp_to_txt conversion: {e}")
+        raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+
+
+@router.post("/odp-html")
+async def convert_odp_to_html(request: Request, file: UploadFile = File(...)):
+    """Convert ODP to HTML (ODP → PPTX → JSON → HTML)"""
+    try:
+        from .utils.conversion_core import _convert_file
+        from .utils.unstructured_utils import process_unstructured_json_to_content
+        import json
+        from fastapi.responses import Response
+
+        # Step 1: Convert ODP to PPTX using LibreOffice
+        pptx_response = await _convert_file(
+            request=request,
+            file=file,
+            input_format="odp",
+            output_format="pptx",
+            service=ConversionService.LIBREOFFICE
+        )
+
+        # Extract PPTX content from the response
+        pptx_content = b""
+        async for chunk in pptx_response.body_iterator:
+            pptx_content += chunk
+
+        # Step 2: Convert PPTX to JSON using unstructured-io
+        from io import BytesIO
+        from fastapi import UploadFile as FastAPIUploadFile
+        import tempfile
+        import os
+
+        # Create a temporary file for the PPTX content
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pptx') as temp_file:
+            temp_file.write(pptx_content)
+            temp_file_path = temp_file.name
+
+        try:
+            # Create a new UploadFile-like object for the PPTX content
+            class TempUploadFile:
+                def __init__(self, content: bytes, filename: str):
+                    self.filename = filename
+                    self.content = content
+
+                async def read(self):
+                    return self.content
+
+            temp_upload = TempUploadFile(pptx_content, "converted.pptx")
+
+            # Convert PPTX to JSON
+            json_response = await _convert_file(
+                request=request,
+                file=temp_upload,
+                input_format="pptx",
+                output_format="json",
+                service=ConversionService.UNSTRUCTURED_IO
+            )
+
+            # Extract JSON content
+            json_content = b""
+            async for chunk in json_response.body_iterator:
+                json_content += chunk
+
+            json_data = json.loads(json_content.decode('utf-8'))
+
+            # Step 3: Convert JSON to HTML locally
+            html_content = process_unstructured_json_to_content(json_data, "html")
+
+            # Return HTML response
+            return Response(
+                content=html_content,
+                media_type="text/html",
+                headers={"Content-Disposition": f"attachment; filename={file.filename.rsplit('.', 1)[0]}.html"}
+            )
+
+        finally:
+            # Clean up temporary file
+            os.unlink(temp_file_path)
+
+    except Exception as e:
+        logger.error(f"Error in odp_to_html conversion: {e}")
+        raise HTTPException(status_code=500, detail=f"Conversion failed: {str(e)}")
+
+
+@router.post("/odp-pptx")
+async def convert_odp_to_pptx(request: Request, file: UploadFile = File(...)):
+    """Convert ODP to PPTX (OpenDocument presentation to PowerPoint)"""
+    service, description = get_primary_conversion("odp", "pptx") or (ConversionService.LIBREOFFICE, "Fallback")
+    return await _convert_file(request, file=file, input_format="odp", output_format="pptx", service=service)
+
+
 # rtf conversions
 @router.post("/rtf-docx")
 async def convert_rtf_to_docx(request: Request, file: UploadFile = File(...)):
@@ -651,6 +1122,34 @@ async def convert_rtf_to_pdf(request: Request, file: UploadFile = File(...)):
     """Convert RTF to PDF (Legacy text format priority)"""
     service, description = get_primary_conversion("rtf", "pdf") or (ConversionService.LIBREOFFICE, "Fallback")
     return await _convert_file(request, file=file, input_format="rtf", output_format="pdf", service=service)
+
+
+@router.post("/rtf-html")
+async def convert_rtf_to_html(request: Request, file: UploadFile = File(...)):
+    """Convert RTF to HTML (Legacy text to web format)"""
+    service, description = get_primary_conversion("rtf", "html") or (ConversionService.LIBREOFFICE, "Fallback")
+    return await _convert_file(request, file=file, input_format="rtf", output_format="html", service=service)
+
+
+@router.post("/rtf-json")
+async def convert_rtf_to_json(request: Request, file: UploadFile = File(...)):
+    """Convert RTF to JSON structure (Legacy text analysis)"""
+    service, description = get_primary_conversion("rtf", "json") or (ConversionService.UNSTRUCTURED_IO, "Fallback")
+    return await _convert_file(request, file=file, input_format="rtf", output_format="json", service=service)
+
+
+@router.post("/rtf-md")
+async def convert_rtf_to_md(request: Request, file: UploadFile = File(...)):
+    """Convert RTF to Markdown (Legacy text to markup)"""
+    service, description = get_primary_conversion("rtf", "md") or (ConversionService.PANDOC, "Fallback")
+    return await _convert_file(request, file=file, input_format="rtf", output_format="md", service=service)
+
+
+@router.post("/rtf-txt")
+async def convert_rtf_to_txt(request: Request, file: UploadFile = File(...)):
+    """Convert RTF to plain text (Legacy text extraction)"""
+    service, description = get_primary_conversion("rtf", "txt") or (ConversionService.PANDOC, "Fallback")
+    return await _convert_file(request, file=file, input_format="rtf", output_format="txt", service=service)
 
 
 # tex conversions
@@ -716,6 +1215,13 @@ async def convert_tex_to_md(request: Request, file: UploadFile = File(...)):
     return await _convert_file(request, file=file, input_format="tex", output_format="md", service=service)
 
 
+@router.post("/tex-txt")
+async def convert_tex_to_txt(request: Request, file: UploadFile = File(...)):
+    """Convert LaTeX to Text (Academic content to plain text)"""
+    service, description = get_primary_conversion("tex", "txt") or (ConversionService.UNSTRUCTURED_IO, "Fallback")
+    return await _convert_file(request, file=file, input_format="tex", output_format="txt", service=service)
+
+
 @router.post("/tex-pdf")
 async def convert_tex_to_pdf(request: Request, file: UploadFile = File(...)):
     """Convert LaTeX to PDF (chained conversion: LaTeX → DOCX → PDF)"""
@@ -756,13 +1262,6 @@ async def convert_tex_to_pdf(request: Request, file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
 
 
-@router.post("/tex-txt")
-async def convert_tex_to_txt(request: Request, file: UploadFile = File(...)):
-    """Convert LaTeX to Text (Academic content to plain text)"""
-    service, description = get_primary_conversion("tex", "txt") or (ConversionService.PANDOC, "Fallback")
-    return await _convert_file(request, file=file, input_format="tex", output_format="txt", service=service)
-
-
 # txt conversions
 @router.post("/txt-docx")
 async def convert_txt_to_docx(request: Request, file: UploadFile = File(...)):
@@ -776,6 +1275,34 @@ async def convert_txt_to_pdf(request: Request, file: UploadFile = File(...)):
     """Convert Text to PDF (Simple content priority)"""
     service, description = get_primary_conversion("txt", "pdf") or (ConversionService.LIBREOFFICE, "Fallback")
     return await _convert_file(request, file=file, input_format="txt", output_format="pdf", service=service)
+
+
+@router.post("/txt-html")
+async def convert_txt_to_html(request: Request, file: UploadFile = File(...)):
+    """Convert Text to HTML (Plain text to web format)"""
+    service, description = get_primary_conversion("txt", "html") or (ConversionService.PANDOC, "Fallback")
+    return await _convert_file(request, file=file, input_format="txt", output_format="html", service=service)
+
+
+@router.post("/txt-json")
+async def convert_txt_to_json(request: Request, file: UploadFile = File(...)):
+    """Convert Text to JSON structure (Text analysis)"""
+    service, description = get_primary_conversion("txt", "json") or (ConversionService.UNSTRUCTURED_IO, "Fallback")
+    return await _convert_file(request, file=file, input_format="txt", output_format="json", service=service)
+
+
+@router.post("/txt-md")
+async def convert_txt_to_md(request: Request, file: UploadFile = File(...)):
+    """Convert Text to Markdown (Plain text to markup)"""
+    service, description = get_primary_conversion("txt", "md") or (ConversionService.PANDOC, "Fallback")
+    return await _convert_file(request, file=file, input_format="txt", output_format="md", service=service)
+
+
+@router.post("/txt-tex")
+async def convert_txt_to_tex(request: Request, file: UploadFile = File(...)):
+    """Convert Text to LaTeX (Plain text to academic format)"""
+    service, description = get_primary_conversion("txt", "tex") or (ConversionService.PANDOC, "Fallback")
+    return await _convert_file(request, file=file, input_format="txt", output_format="tex", service=service)
 
 
 # url conversions

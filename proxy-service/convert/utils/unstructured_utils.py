@@ -9,6 +9,9 @@ from typing import List, Union, Optional
 from fastapi import HTTPException
 import logging
 
+# Import httpx for async HTTP requests
+import httpx
+
 # Import unstructured libraries
 try:
     from unstructured.staging.base import elements_to_md, elements_to_text, dict_to_elements
@@ -79,6 +82,19 @@ def process_unstructured_json_to_content(
                     detail="Unstructured elements_to_text not available"
                 )
             content = elements_to_text(filtered_elements)
+        elif output_format == "html":
+            # For HTML, extract text_as_html from table elements and combine with regular text
+            content_parts = []
+            for elem in filtered_elements:
+                if hasattr(elem, 'text_as_html') and elem.text_as_html:
+                    content_parts.append(elem.text_as_html)
+                elif elem.text:
+                    # Wrap regular text in paragraph tags
+                    content_parts.append(f"<p>{elem.text}</p>")
+            
+            content = "\n".join(content_parts)
+            # Wrap in basic HTML structure
+            content = f"<!DOCTYPE html>\n<html>\n<head>\n<title>Converted Document</title>\n</head>\n<body>\n{content}\n</body>\n</html>"
         else:
             raise HTTPException(
                 status_code=400,
@@ -130,4 +146,67 @@ def json_to_elements(json_data: List[dict], fix_tables: bool = True) -> List:
         raise HTTPException(
             status_code=500,
             detail=f"Element conversion failed: {str(e)}"
+        )
+
+
+async def convert_file_with_unstructured_io(
+    client: "httpx.AsyncClient",
+    service_url: str,
+    file_content: bytes,
+    filename: str,
+    content_type: str,
+    output_format: str,
+    fix_tables: bool = True
+) -> str:
+    """
+    Centralized function to convert a file using unstructured-io service.
+
+    This function handles the complete flow:
+    1. Call unstructured-io service with the file
+    2. Get JSON response
+    3. Convert to requested output format
+
+    Args:
+        client: HTTP client for making requests
+        service_url: URL of the unstructured-io service
+        file_content: Raw file content bytes
+        filename: Original filename
+        content_type: MIME type of the file
+        output_format: Desired output format ("md", "txt", "html")
+        fix_tables: Whether to apply table fixes (default: True)
+
+    Returns:
+        Content string in the requested format
+
+    Raises:
+        HTTPException: If conversion fails
+    """
+    try:
+        # Prepare request to unstructured-io service
+        files = {"files": (filename, file_content, content_type)}
+        data = {}
+
+        response = await client.post(
+            f"{service_url}/general/v0/general",
+            files=files,
+            data=data
+        )
+
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"Unstructured-IO service error: {response.text}"
+            )
+
+        # Parse JSON response
+        json_data = response.json()
+
+        # Convert to requested format
+        return process_unstructured_json_to_content(json_data, output_format, fix_tables)
+
+    except Exception as e:
+        logger.exception(f"Error in unstructured-io conversion to {output_format}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unstructured-IO conversion failed: {str(e)}"
         )

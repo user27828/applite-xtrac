@@ -207,6 +207,26 @@ CONVERSION_MATRIX = {
         (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Native OpenDocument presentation support"),
     ],
 
+    ("odp", "json"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Convert ODP to PPTX first, then extract structure"),
+    ],
+
+    ("odp", "md"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Convert ODP to PPTX first, then extract content"),
+    ],
+
+    ("odp", "txt"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Convert ODP to PPTX first, then extract text"),
+    ],
+
+    ("odp", "html"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Convert ODP to PPTX first, then convert to HTML"),
+    ],
+
+    ("odp", "pptx"): [
+        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "OpenDocument presentation to PowerPoint"),
+    ],
+
     ("ods", "html"): [
         (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "OpenDocument spreadsheet to HTML"),
     ],
@@ -278,11 +298,12 @@ CONVERSION_MATRIX = {
     ],
 
     ("pdf", "docx"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "PDF to Word (OCR-like)"),
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "PDF text extraction to HTML"),
+        (ConversionService.PANDOC, ConversionPriority.PRIMARY, "HTML to DOCX (chained: PDF → HTML → DOCX)"),
     ],
 
     ("pdf", "html"): [
-        (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "PDF to HTML"),
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "PDF to HTML structure extraction"),
     ],
 
     ("pdf", "json"): [
@@ -302,18 +323,44 @@ CONVERSION_MATRIX = {
         (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Legacy presentation structure extraction"),
     ],
 
+    ("ppt", "md"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Legacy presentation to Markdown"),
+    ],
+
     ("ppt", "pdf"): [
         (ConversionService.LIBREOFFICE, ConversionPriority.PRIMARY, "Legacy presentation format support"),
         (ConversionService.GOTENBERG, ConversionPriority.SECONDARY, "May work via LibreOffice"),
+    ],
+
+    ("ppt", "txt"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Legacy presentation text extraction"),
+        (ConversionService.LIBREOFFICE, ConversionPriority.SECONDARY, "Legacy presentation to Text"),
+    ],
+
+    ("ppt", "html"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Legacy presentation to HTML"),
     ],
 
     ("pptx", "json"): [
         (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Presentation structure extraction"),
     ],
 
+    ("pptx", "md"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Presentation to Markdown"),
+    ],
+
     ("pptx", "pdf"): [
         (ConversionService.GOTENBERG, ConversionPriority.PRIMARY, "High-quality presentation to PDF"),
         (ConversionService.LIBREOFFICE, ConversionPriority.SECONDARY, "Excellent presentation support"),
+    ],
+
+    ("pptx", "txt"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Presentation text extraction"),
+        (ConversionService.LIBREOFFICE, ConversionPriority.SECONDARY, "Presentation to Text"),
+    ],
+
+    ("pptx", "html"): [
+        (ConversionService.UNSTRUCTURED_IO, ConversionPriority.PRIMARY, "Presentation to HTML"),
     ],
 
     ("rtf", "docx"): [
@@ -456,6 +503,97 @@ CONVERSION_MATRIX = {
     ("xlsx", "txt"): [
         (ConversionService.LOCAL, ConversionPriority.PRIMARY, "Excel to Text via local processing"),
     ],
+}
+
+
+# Pandoc format mappings for extensions to pandoc format names
+PANDOC_FORMAT_MAP = {
+    # Input formats
+    "md": "markdown",
+    "tex": "latex",
+    "latex": "latex",
+    "txt": "markdown",  # Changed from "plain" to "markdown" since Pandoc doesn't recognize "plain"
+    "html": "html",
+    "docx": "docx",
+    "odt": "odt",
+    "rtf": "rtf",
+    "epub": "epub",
+    "json": "json",
+    "biblatex": "biblatex",
+    "bibtex": "bibtex",
+    "commonmark": "commonmark",
+    "gfm": "gfm",
+    "org": "org",
+    "rst": "rst",
+    "textile": "textile",
+    "vimwiki": "vimwiki",
+    "mediawiki": "mediawiki",
+    "dokuwiki": "dokuwiki",
+    "tikiwiki": "tikiwiki",
+    "twiki": "twiki",
+    "creole": "creole",
+    "jira": "jira",
+    "muse": "muse",
+    "t2t": "t2t",
+    "ipynb": "ipynb",
+    "csv": "csv",
+    "tsv": "tsv",
+    "docbook": "docbook",
+    "jats": "jats",
+    "man": "man",
+    "fb2": "fb2",
+    "opml": "opml",
+    "ris": "ris",
+    "endnotexml": "endnotexml",
+    "csljson": "csljson",
+    "native": "native",
+    # Output formats
+    "pdf": "pdf",
+    "docx": "docx",
+    "html": "html",
+    "markdown": "markdown",
+    "latex": "latex",
+    "plain": "plain",
+    "asciidoc": "asciidoc",
+    "beamer": "beamer",
+    "context": "context",
+    "docbook4": "docbook4",
+    "docbook5": "docbook5",
+    "dzslides": "dzslides",
+    "epub2": "epub2",
+    "epub3": "epub3",
+    "haddock": "haddock",
+    "icml": "icml",
+    "jats_archiving": "jats_archiving",
+    "jats_articleauthoring": "jats_articleauthoring",
+    "jats_publishing": "jats_publishing",
+    "markua": "markua",
+    "ms": "ms",
+    "opendocument": "opendocument",
+    "pptx": "pptx",
+    "revealjs": "revealjs",
+    "s5": "s5",
+    "slideous": "slideous",
+    "slidy": "slidy",
+    "tei": "tei",
+    "texinfo": "texinfo",
+    "xwiki": "xwiki",
+    "zimwiki": "zimwiki",
+    "typst": "typst",
+    "chunkedhtml": "chunkedhtml",
+    "commonmark_x": "commonmark_x",
+    "markdown_github": "markdown_github",
+    "markdown_mmd": "markdown_mmd",
+    "markdown_phpextra": "markdown_phpextra",
+    "markdown_strict": "markdown_strict",
+}
+
+
+# MIME type mappings for Unstructured IO output formats
+UNSTRUCTURED_IO_MIME_MAPPING = {
+    "json": "application/json",
+    "md": "text/markdown", 
+    "txt": "text/plain"
 }
 
 

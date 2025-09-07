@@ -8,12 +8,12 @@ and utility functions that were moved from router.py to keep the router clean.
 import logging
 import httpx
 import re
+import mimetypes
 from typing import Optional, Dict, Any
 from urllib.parse import urlparse
 from fastapi import HTTPException, Request, UploadFile, Form
 from fastapi.responses import StreamingResponse
 from io import BytesIO
-from multipart.multipart import parse_options_header
 import asyncio
 
 # Import local conversion factory
@@ -54,7 +54,9 @@ from ..config import (
     get_primary_conversion,
     ConversionService,
     get_supported_conversions,
-    get_service_urls
+    get_service_urls,
+    PANDOC_FORMAT_MAP,
+    UNSTRUCTURED_IO_MIME_MAPPING
 )
 from .url_helpers import (
     handle_url_conversion_request,
@@ -67,6 +69,32 @@ from .url_fetcher import fetch_url_content
 
 # Set up logging
 logger = logging.getLogger(__name__)
+
+def get_mime_type(extension: str) -> str:
+    """
+    Get MIME type for a file extension using Python's mimetypes module.
+    
+    Args:
+        extension: File extension without the dot (e.g., 'pdf', 'docx')
+        
+    Returns:
+        MIME type string, or default fallback if not found
+    """
+    if not extension:
+        return "application/octet-stream"
+    
+    # Use mimetypes.guess_type for standard MIME type detection
+    mime_type, _ = mimetypes.guess_type(f"file.{extension}")
+    
+    if mime_type:
+        # Handle special case for tex files - mimetypes returns text/x-tex
+        # but we want application/x-tex for consistency
+        if extension == "tex" and mime_type == "text/x-tex":
+            return "application/x-tex"
+        return mime_type
+    
+    # Fallback for unknown extensions
+    return f"application/{extension}"
 
 # Service URL mappings (should match main app)
 SERVICE_URLS = {
@@ -91,88 +119,6 @@ def get_dynamic_service_urls():
 
 # Use dynamic URLs
 DYNAMIC_SERVICE_URLS = get_dynamic_service_urls()
-
-# Pandoc format mappings for extensions to pandoc format names
-PANDOC_FORMAT_MAP = {
-    # Input formats
-    "md": "markdown",
-    "tex": "latex",
-    "txt": "plain",
-    "html": "html",
-    "docx": "docx",
-    "odt": "odt",
-    "rtf": "rtf",
-    "epub": "epub",
-    "json": "json",
-    "biblatex": "biblatex",
-    "bibtex": "bibtex",
-    "commonmark": "commonmark",
-    "gfm": "gfm",
-    "org": "org",
-    "rst": "rst",
-    "textile": "textile",
-    "vimwiki": "vimwiki",
-    "mediawiki": "mediawiki",
-    "dokuwiki": "dokuwiki",
-    "tikiwiki": "tikiwiki",
-    "twiki": "twiki",
-    "creole": "creole",
-    "jira": "jira",
-    "muse": "muse",
-    "t2t": "t2t",
-    "ipynb": "ipynb",
-    "csv": "csv",
-    "tsv": "tsv",
-    "docbook": "docbook",
-    "jats": "jats",
-    "man": "man",
-    "fb2": "fb2",
-    "opml": "opml",
-    "ris": "ris",
-    "endnotexml": "endnotexml",
-    "csljson": "csljson",
-    "native": "native",
-    # Output formats
-    "pdf": "pdf",
-    "docx": "docx",
-    "html": "html",
-    "markdown": "markdown",
-    "latex": "latex",
-    "plain": "plain",
-    "asciidoc": "asciidoc",
-    "beamer": "beamer",
-    "context": "context",
-    "docbook4": "docbook4",
-    "docbook5": "docbook5",
-    "dzslides": "dzslides",
-    "epub2": "epub2",
-    "epub3": "epub3",
-    "haddock": "haddock",
-    "icml": "icml",
-    "jats_archiving": "jats_archiving",
-    "jats_articleauthoring": "jats_articleauthoring",
-    "jats_publishing": "jats_publishing",
-    "markua": "markua",
-    "ms": "ms",
-    "opendocument": "opendocument",
-    "pptx": "pptx",
-    "revealjs": "revealjs",
-    "s5": "s5",
-    "slideous": "slideous",
-    "slidy": "slidy",
-    "tei": "tei",
-    "texinfo": "texinfo",
-    "xwiki": "xwiki",
-    "zimwiki": "zimwiki",
-    "typst": "typst",
-    "chunkedhtml": "chunkedhtml",
-    "commonmark_x": "commonmark_x",
-    "markdown_github": "markdown_github",
-    "markdown_mmd": "markdown_mmd",
-    "markdown_phpextra": "markdown_phpextra",
-    "markdown_strict": "markdown_strict",
-}
-
 
 def validate_url(url: str) -> bool:
     """Validate that the URL is properly formatted and uses http/https."""
@@ -272,14 +218,12 @@ async def _convert_file(
             if file:
                 # Read file content
                 file_content = await file.read()
-                files = {"files": (file.filename, BytesIO(file_content), f"application/{input_format}")}
+                
+                # Get MIME type for input file using standard library
+                mime_type = get_mime_type(input_format)
+                files = {"files": (file.filename, BytesIO(file_content), mime_type)}
                 # Map output_format to MIME types for Unstructured-IO
-                mime_mapping = {
-                    "json": "application/json",
-                    "md": "text/markdown", 
-                    "txt": "text/plain"
-                }
-                unstructured_output_format = mime_mapping.get(output_format, output_format)
+                unstructured_output_format = UNSTRUCTURED_IO_MIME_MAPPING.get(output_format, output_format)
                 
                 # Extract all user-provided parameters from the request
                 if extra_params is None:
@@ -302,8 +246,8 @@ async def _convert_file(
                     detail="URL input should have been converted to file input"
                 )
 
-            # For markdown and text outputs, we need to get JSON and convert locally
-            if output_format in ["md", "txt"]:
+            # For markdown, text, and HTML outputs, we need to get JSON and convert locally
+            if output_format in ["md", "txt", "html"]:
                 # Always get JSON from Unstructured-IO
                 request_data = data.copy()
                 if "output_format" in request_data:
@@ -337,7 +281,7 @@ async def _convert_file(
                 # Use consolidated unstructured processing utility
                 from .unstructured_utils import process_unstructured_json_to_content
                 content = process_unstructured_json_to_content(json_data, output_format, fix_tables=True)
-                media_type = "text/markdown" if output_format == "md" else "text/plain"
+                media_type = "text/markdown" if output_format == "md" else "text/html" if output_format == "html" else "text/plain"
 
                 # Generate output filename
                 if file:
@@ -375,7 +319,9 @@ async def _convert_file(
                 raise HTTPException(status_code=400, detail="LibreOffice only supports file input")
             
             file_content = await file.read()
-            files = {"file": (file.filename, BytesIO(file_content), f"application/{input_format}")}
+            # Get MIME type for input file using standard library
+            mime_type = get_mime_type(input_format)
+            files = {"file": (file.filename, BytesIO(file_content), mime_type)}
             data = {"convert-to": output_format}
 
             response = await client.post(
@@ -530,17 +476,7 @@ async def _convert_file(
             )
 
         # Determine content type based on output format
-        content_types = {
-            "pdf": "application/pdf",
-            "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "html": "text/html",
-            "md": "text/markdown",
-            "txt": "text/plain",
-            "tex": "application/x-tex",
-            "json": "application/json"
-        }
-
-        content_type = content_types.get(output_format, "application/octet-stream")
+        content_type = get_mime_type(output_format)
 
         # Generate output filename
         if file:

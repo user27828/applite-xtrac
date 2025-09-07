@@ -11,7 +11,7 @@ from io import BytesIO
 from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from ..config import ConversionService
+from ..config import ConversionService, UNSTRUCTURED_IO_MIME_MAPPING
 from .conversion_core import _get_service_client, DYNAMIC_SERVICE_URLS
 
 # Try to import unstructured functions for local markdown/text conversion
@@ -130,6 +130,8 @@ async def chain_conversions(
                 if step.input_format != "md":  # pandoc defaults to markdown
                     # Map tex/latex to latex for Pandoc
                     pandoc_input_format = "latex" if step.input_format in ["tex", "latex"] else step.input_format
+                    if pandoc_input_format == "txt":
+                        pandoc_input_format = "markdown"  # Pandoc doesn't recognize "plain" format
                     data["extra_args"] = f"--from={pandoc_input_format}"
 
                 # Add any additional parameters
@@ -145,9 +147,9 @@ async def chain_conversions(
                 # Unstructured IO conversion
                 files = {"files": (current_filename, BytesIO(current_content), f"application/{step.input_format}")}
                 
-                # Special handling for markdown/text outputs from unstructured-io
-                if step.output_format in ["md", "txt"]:
-                    # For markdown/text, get JSON from unstructured-io and convert locally
+                # Special handling for markdown/text/html outputs from unstructured-io
+                if step.output_format in ["md", "txt", "html"]:
+                    # For markdown/text/html, get JSON from unstructured-io and convert locally
                     data = {}  # No output_format specified to get JSON
                     
                     response = await client.post(
@@ -157,28 +159,31 @@ async def chain_conversions(
                     )
                     
                     if response.status_code == 200:
-                        # Convert JSON response to elements and then to markdown/text
+                        # Convert JSON response to elements and then to markdown/text/html
                         json_data = response.json()
                         
                         # Check if unstructured library is available
                         if not UNSTRUCTURED_AVAILABLE:
                             raise HTTPException(
                                 status_code=503, 
-                                detail="Unstructured library not available for local markdown/text conversion"
+                                detail="Unstructured library not available for local markdown/text/html conversion"
                             )
                         
-                        # Convert JSON to elements - json_data is already a list of element dicts
-                        elements = dict_to_elements(json_data)
+                        # Import the utility function for HTML conversion
+                        from .unstructured_utils import process_unstructured_json_to_content
                         
-                        # Convert to markdown or text
+                        # Convert JSON to requested format
                         if step.output_format == "md":
                             # Filter out elements with None text to prevent "sequence item X: expected str instance, NoneType found" error
-                            filtered_elements = [elem for elem in elements if elem.text is not None]
+                            filtered_elements = [elem for elem in dict_to_elements(json_data) if elem.text is not None]
                             content = elements_to_md(filtered_elements)
                             media_type = "text/markdown"
-                        else:  # txt
-                            content = elements_to_text(elements)
+                        elif step.output_format == "txt":
+                            content = elements_to_text(dict_to_elements(json_data))
                             media_type = "text/plain"
+                        else:  # html
+                            content = process_unstructured_json_to_content(json_data, "html")
+                            media_type = "text/html"
                         
                         # Generate output filename
                         base_name = current_filename.rsplit(".", 1)[0] if "." in current_filename else current_filename
@@ -197,12 +202,7 @@ async def chain_conversions(
                 else:
                     # Regular unstructured-io conversion
                     # Map output_format to MIME types for Unstructured-IO (same as _convert_file)
-                    mime_mapping = {
-                        "json": "application/json",
-                        "md": "text/markdown", 
-                        "txt": "text/plain"
-                    }
-                    unstructured_output_format = mime_mapping.get(step.output_format, step.output_format)
+                    unstructured_output_format = UNSTRUCTURED_IO_MIME_MAPPING.get(step.output_format, step.output_format)
                     data = {"output_format": unstructured_output_format}
                     data.update(step.extra_params)
 
@@ -240,7 +240,7 @@ async def chain_conversions(
                 logger.error(f"Step {step_idx + 1} failed: {step.service.value} returned {response.status_code}: {response.text}")
                 raise HTTPException(
                     status_code=response.status_code,
-                    detail=f"Conversion step {step_idx + 1} failed ({step.service.value}): {response.text}"
+                    detail=f"Conversion step {step_idx + 1} failed ({step.service.value} {step.input_format}→{step.output_format}): {response.text}"
                 )
 
             # Update content for next step
@@ -253,7 +253,7 @@ async def chain_conversions(
             logger.error(f"Error in conversion step {step_idx + 1} ({step.service.value}): {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Conversion step {step_idx + 1} failed: {str(e)}"
+                detail=f"Conversion step {step_idx + 1} failed ({step.service.value} {step.input_format}→{step.output_format}): {str(e)}"
             )
 
     # Generate final output filename

@@ -172,25 +172,22 @@ def conversion_test_results():
 
 
 # Conversion endpoint mappings for testing
-CONVERSION_ENDPOINTS = {
-    "doc": ["md"],
-    "docx": ["json", "md", "pdf"],
-    "html": ["docx", "json", "md", "pdf"],
-    "latex": ["docx", "html", "json", "md", "txt"],
-    "md": ["docx", "json", "pdf"],
-    "numbers": ["html", "json", "md", "txt", "xlsx"],
-    "ods": ["html", "md", "pdf", "txt"],
-    "odt": ["docx", "html", "json", "md", "pdf", "txt"],
-    "pages": ["docx", "html", "json", "md", "pdf", "txt"],
-    "pdf": ["json", "md"],
-    "ppt": ["pdf"],
-    "pptx": ["json", "pdf"],
-    "rtf": ["docx", "pdf"],
-    "tex": ["docx", "html", "json", "md", "pdf", "txt"],
-    "txt": ["docx", "pdf"],
-    "xls": ["html", "json", "md", "pdf", "txt"],
-    "xlsx": ["html", "json", "md", "pdf", "txt"],
-}
+# Dynamically generated from config.py to ensure all supported formats are tested
+def _generate_conversion_endpoints():
+    """Generate CONVERSION_ENDPOINTS dynamically from config.py"""
+    from convert.config import get_supported_conversions
+    
+    # Get all supported conversions from config
+    supported = get_supported_conversions()
+    
+    # Convert to the format expected by tests
+    endpoints = {}
+    for input_fmt, output_fmts in supported.items():
+        endpoints[input_fmt] = output_fmts
+    
+    return endpoints
+
+CONVERSION_ENDPOINTS = _generate_conversion_endpoints()
 
 URL_CONVERSION_ENDPOINTS = {
     "url": ["html", "json", "md", "pdf", "txt"]

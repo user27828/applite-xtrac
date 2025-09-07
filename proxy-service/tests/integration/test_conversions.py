@@ -272,6 +272,9 @@ class TestConversionEndpoints:
         elif expected_output_ext == "md":
             if "text/markdown" not in content_type and "text/plain" not in content_type:
                 return False
+        elif expected_output_ext == "pptx":
+            if "application/vnd.openxmlformats-officedocument.presentationml.presentation" not in content_type:
+                return False
 
         # Basic content validation
         if expected_output_ext == "json":
@@ -291,6 +294,9 @@ class TestConversionEndpoints:
         elif expected_output_ext == "md":
             # Markdown files should contain some text
             return len(response.text.strip()) > 0
+        elif expected_output_ext in ["docx", "pptx", "xlsx", "odt", "ods", "odp"]:
+            # Office documents are ZIP files with XML content
+            return response.content.startswith(b"PK\x03\x04")
 
         # For other formats, just check that we have content
         return len(response.content) > 0

@@ -25,12 +25,13 @@ class FileValidator:
 
     def _load_validators(self):
         """Load all available format validators."""
-        from .formats import html, pdf, docx, md, txt, json_validator, tex, xlsx
+        from .formats import html, pdf, docx, md, txt, json_validator, tex, xlsx, pptx
 
         self._validators = {
             'html': html.validate_html,
             'pdf': pdf.validate_pdf,
             'docx': docx.validate_docx,
+            'pptx': pptx.validate_pptx,
             'md': md.validate_markdown,
             'txt': txt.validate_text,
             'json': json_validator.validate_json,

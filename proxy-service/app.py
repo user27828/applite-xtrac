@@ -329,29 +329,20 @@ async def unstructured_to_markdown(request: Request, file: UploadFile = File(...
         # Read the uploaded file
         file_content = await file.read()
 
-        # Call Unstructured-IO service to get JSON
+        # Use centralized unstructured conversion function
+        from convert.utils.unstructured_utils import convert_file_with_unstructured_io
         client: httpx.AsyncClient = request.app.state.client
         service_url = SERVICES["unstructured-io"]
-
-        files = {"files": (file.filename, BytesIO(file_content), file.content_type or "application/octet-stream")}
-        # Remove output_format as the service returns JSON by default
-        data = {}
-
-        response = await client.post(
-            f"{service_url}/general/v0/general",
-            files=files,
-            data=data
-        )
-
-        if response.status_code != 200:
-            return JSONResponse(status_code=response.status_code, content={"error": f"Unstructured-IO error: {response.text}"})
-
-        # Parse JSON response into elements using local unstructured library
-        json_data = response.json()
         
-        # Use consolidated unstructured processing utility
-        from convert.utils.unstructured_utils import process_unstructured_json_to_content
-        markdown_content = process_unstructured_json_to_content(json_data, "md", fix_tables=True)
+        markdown_content = await convert_file_with_unstructured_io(
+            client=client,
+            service_url=service_url,
+            file_content=file_content,
+            filename=file.filename,
+            content_type=file.content_type or "application/octet-stream",
+            output_format="md",
+            fix_tables=True
+        )
 
         # Generate output filename
         base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
@@ -377,29 +368,20 @@ async def unstructured_to_text(request: Request, file: UploadFile = File(...)):
         # Read the uploaded file
         file_content = await file.read()
 
-        # Call Unstructured-IO service to get JSON
+        # Use centralized unstructured conversion function
+        from convert.utils.unstructured_utils import convert_file_with_unstructured_io
         client: httpx.AsyncClient = request.app.state.client
         service_url = SERVICES["unstructured-io"]
-
-        files = {"files": (file.filename, BytesIO(file_content), file.content_type or "application/octet-stream")}
-        # Remove output_format as the service returns JSON by default
-        data = {}
-
-        response = await client.post(
-            f"{service_url}/general/v0/general",
-            files=files,
-            data=data
-        )
-
-        if response.status_code != 200:
-            return JSONResponse(status_code=response.status_code, content={"error": f"Unstructured-IO error: {response.text}"})
-
-        # Parse JSON response into elements using local unstructured library
-        json_data = response.json()
         
-        # Use consolidated unstructured processing utility
-        from convert.utils.unstructured_utils import process_unstructured_json_to_content
-        text_content = process_unstructured_json_to_content(json_data, "txt")
+        text_content = await convert_file_with_unstructured_io(
+            client=client,
+            service_url=service_url,
+            file_content=file_content,
+            filename=file.filename,
+            content_type=file.content_type or "application/octet-stream",
+            output_format="txt",
+            fix_tables=False
+        )
 
         # Generate output filename
         base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
@@ -413,6 +395,46 @@ async def unstructured_to_text(request: Request, file: UploadFile = File(...)):
 
     except Exception as e:
         logger.exception("Error in unstructured_to_text")
+        return JSONResponse(status_code=500, content={"error": f"Conversion failed: {str(e)}"})
+
+
+@app.post("/unstructured-io-html")
+async def unstructured_to_html(request: Request, file: UploadFile = File(...)):
+    """Convert document to HTML using Unstructured-IO service and local JSON parsing."""
+    if not UNSTRUCTURED_AVAILABLE:
+        return JSONResponse(status_code=503, content={"error": "Unstructured library not available"})
+
+    try:
+        # Read the uploaded file
+        file_content = await file.read()
+
+        # Use centralized unstructured conversion function
+        from convert.utils.unstructured_utils import convert_file_with_unstructured_io
+        client: httpx.AsyncClient = request.app.state.client
+        service_url = SERVICES["unstructured-io"]
+        
+        html_content = await convert_file_with_unstructured_io(
+            client=client,
+            service_url=service_url,
+            file_content=file_content,
+            filename=file.filename,
+            content_type=file.content_type or "application/octet-stream",
+            output_format="html",
+            fix_tables=True
+        )
+
+        # Generate output filename
+        base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
+        output_filename = f"{base_name}.html"
+
+        return StreamingResponse(
+            BytesIO(html_content.encode('utf-8')),
+            media_type="text/html",
+            headers={"Content-Disposition": f"attachment; filename={output_filename}"}
+        )
+
+    except Exception as e:
+        logger.exception("Error in unstructured_to_html")
         return JSONResponse(status_code=500, content={"error": f"Conversion failed: {str(e)}"})
 
 
@@ -536,7 +558,7 @@ async def proxy_request(service: str, path: str, request: Request):
         content_type = resp.headers.get("content-type", "")
         expected_content_types = {
             "pandoc": ["application/pdf", "application/vnd.openxmlformats", "text/html", "text/plain", "text/markdown", "application/x-tex"],
-            "libreoffice": ["application/pdf", "application/vnd.openxmlformats", "text/plain"],
+            "libreoffice": ["application/pdf", "application/vnd.openxmlformats", "application/vnd.openxmlformats-officedocument", "text/plain", "application/octet-stream"],
             "gotenberg": ["application/pdf"],
             "unstructured-io": ["application/json", "text/plain", "text/markdown"]
         }
@@ -636,30 +658,20 @@ async def libreoffice_to_markdown(request: Request, file: UploadFile = File(...)
         # Get the PDF content from LibreOffice response
         pdf_content = libreoffice_response.content
 
-        # Step 2: Convert PDF to markdown using Unstructured-IO service directly
+        # Step 2: Convert PDF to markdown using centralized unstructured function
+        from convert.utils.unstructured_utils import convert_file_with_unstructured_io
         client = request.app.state.client
         unstructured_url = SERVICES["unstructured-io"]
-
-        # Prepare request to unstructured-io service
-        unstructured_files = {"files": ("converted.pdf", BytesIO(pdf_content), "application/pdf")}
-        unstructured_data = {}
-
-        unstructured_response = await client.post(
-            f"{unstructured_url}/general/v0/general",
-            files=unstructured_files,
-            data=unstructured_data
-        )
-
-        if unstructured_response.status_code != 200:
-            return JSONResponse(status_code=unstructured_response.status_code,
-                              content={"error": f"Unstructured-IO error: {unstructured_response.text}"})
-
-        # Parse JSON response into elements using local unstructured library
-        json_data = unstructured_response.json()
         
-        # Use consolidated unstructured processing utility
-        from convert.utils.unstructured_utils import process_unstructured_json_to_content
-        markdown_content = process_unstructured_json_to_content(json_data, "md", fix_tables=True)
+        markdown_content = await convert_file_with_unstructured_io(
+            client=client,
+            service_url=unstructured_url,
+            file_content=pdf_content,
+            filename="converted.pdf",
+            content_type="application/pdf",
+            output_format="md",
+            fix_tables=True
+        )
 
         # Generate output filename
         base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename

@@ -68,8 +68,8 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 
 ### Priority Formats (Documents)
 
-**Input Formats:** _\<http(s) URL\>_, `pptx`, `ppt`, `docx`, `odt`, `rtf`, `txt`, `html`, `md`, `tex`, `latex`, `pages`, `xlsx`, `xls`, `ods`, `odp`, `epub`, `eml`, `msg`  
-**Output Formats:** `pdf`, `docx`, `html`, `md`, `txt`, `json`, `tex`
+**Input Formats:** _\<http(s) URL\>_, `pptx`, `ppt`, `docx`, `odt`, `rtf`, `txt`, `html`, `md`, `tex`, `latex`, `pages`, `numbers`, `xlsx`, `xls`, `ods`, `odp`, `epub`, `eml`, `msg`  
+**Output Formats:** `pdf`, `docx`, `html`, `md`, `txt`, `json`, `tex`, `pptx`, `xlsx`
 
 ### 📖 Complete Documentation
 
