@@ -59,7 +59,8 @@ from ..config import (
 from .conversion_lookup import (
     get_primary_conversion,
     get_supported_conversions,
-    get_service_urls
+    get_service_urls,
+    get_all_conversions
 )
 from .url_helpers import (
     handle_url_conversion_request,
@@ -167,6 +168,7 @@ async def _convert_file(
     """
     Generic file conversion function that routes to the appropriate service.
     Supports both file upload and URL input, and handles both simple and chained conversions.
+    Automatically tries fallback services if the primary service fails.
 
     Args:
         request: FastAPI request object
@@ -299,351 +301,388 @@ async def _convert_file(
             logger.error(f"Error in chained conversion {input_format}→{output_format}: {e}")
             raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
     
-    # Auto-determine service for simple conversions if not provided
+    # For simple conversions, try services in order until one succeeds
     if service is None:
-        service, description = get_primary_conversion(input_format, output_format) or (ConversionService.UNSTRUCTURED_IO, "Fallback")
+        # Get all available services for this conversion
+        from .conversion_lookup import get_all_conversions
+        available_services = get_all_conversions(input_format, output_format)
+        if not available_services:
+            raise HTTPException(status_code=400, detail=f"No conversion available for {input_format} to {output_format}")
+    else:
+        # If a specific service was requested, only try that one
+        available_services = [(service, "Specified service")]
     
-    # Handle URL inputs by fetching content first
-    temp_file_wrapper = None
-    conversion_metadata = {}
-    
-    try:
-        if url:
+    # Try each service in order
+    last_error = None
+    for service_to_try, service_desc in available_services:
+        try:
+            logger.info(f"Trying service {service_to_try.value} for {input_format}→{output_format}")
+            
+            # Handle URL inputs by fetching content first
+            temp_file_wrapper = None
+            conversion_metadata = {}
+            
             try:
-                # Use URL conversion manager to fetch content if needed
-                temp_file_wrapper, conversion_metadata = await handle_url_conversion_request(
-                    url, service.value, input_format
-                )
-                
-                # If we got a temp file, use it as the file input
-                if temp_file_wrapper:
-                    file = temp_file_wrapper
-                    # Update input format if it was auto-detected
-                    if conversion_metadata.get('detected_format'):
-                        input_format = conversion_metadata['detected_format']
+                if url:
+                    try:
+                        # Use URL conversion manager to fetch content if needed
+                        temp_file_wrapper, conversion_metadata = await handle_url_conversion_request(
+                            url, service_to_try.value, input_format
+                        )
                         
-            except Exception as e:
-                # Clean up any temp files if something went wrong
-                if conversion_metadata.get('temp_file_path'):
-                    cleanup_conversion_temp_files(conversion_metadata)
-                raise
+                        # If we got a temp file, use it as the file input
+                        if temp_file_wrapper:
+                            file = temp_file_wrapper
+                            # Update input format if it was auto-detected
+                            if conversion_metadata.get('detected_format'):
+                                input_format = conversion_metadata['detected_format']
+                                
+                    except Exception as e:
+                        # Clean up any temp files if something went wrong
+                        if conversion_metadata.get('temp_file_path'):
+                            cleanup_conversion_temp_files(conversion_metadata)
+                        raise
 
-        # Get service client
-        client = await _get_service_client(service, request)
+                # Get service client
+                client = await _get_service_client(service_to_try, request)
 
-        # Prepare request based on service
-        service_url = DYNAMIC_SERVICE_URLS[service]
+                # Prepare request based on service
+                service_url = DYNAMIC_SERVICE_URLS[service_to_try]
 
-        if service == ConversionService.UNSTRUCTURED_IO:
-            # Unstructured IO now supports URLs through fetching
-            if file:
-                # Read file content
-                file_content = await file.read()
-                
-                # Get MIME type for input file using standard library
-                mime_type = get_mime_type(input_format)
-                files = {"files": (file.filename, BytesIO(file_content), mime_type)}
-                # Map output_format to MIME types for Unstructured-IO
-                unstructured_output_format = UNSTRUCTURED_IO_MIME_MAPPING.get(output_format, output_format)
-                
-                # Extract all user-provided parameters from the request
-                if extra_params is None:
-                    extra_params = await extract_request_params(request)
-                
-                # Default to 'auto' strategy, but allow override from extra_params
-                strategy = extra_params.get("strategy", "auto") if extra_params else "auto"
-                data = {"output_format": unstructured_output_format, "strategy": strategy}
-                
-                # Add any additional parameters from extra_params to the request data
-                if extra_params:
-                    for key, value in extra_params.items():
-                        if key not in data:  # Don't override existing parameters
-                            data[key] = value
+                if service_to_try == ConversionService.UNSTRUCTURED_IO:
+                    # Unstructured IO now supports URLs through fetching
+                    if file:
+                        # Read file content
+                        await file.seek(0)  # Reset file pointer
+                        file_content = await file.read()
+                        
+                        # Get MIME type for input file using standard library
+                        mime_type = get_mime_type(input_format)
+                        files = {"files": (file.filename, BytesIO(file_content), mime_type)}
+                        # Map output_format to MIME types for Unstructured-IO
+                        unstructured_output_format = UNSTRUCTURED_IO_MIME_MAPPING.get(output_format, output_format)
+                        
+                        # Extract all user-provided parameters from the request
+                        if extra_params is None:
+                            extra_params = await extract_request_params(request)
+                        
+                        # Default to 'auto' strategy, but allow override from extra_params
+                        strategy = extra_params.get("strategy", "auto") if extra_params else "auto"
+                        data = {"output_format": unstructured_output_format, "strategy": strategy}
+                        
+                        # Add any additional parameters from extra_params to the request data
+                        if extra_params:
+                            for key, value in extra_params.items():
+                                if key not in data:  # Don't override existing parameters
+                                    data[key] = value
 
-            else:
-                # This should not happen anymore since we fetch URLs above
-                raise HTTPException(
-                    status_code=500,
-                    detail="URL input should have been converted to file input"
-                )
+                    else:
+                        # This should not happen anymore since we fetch URLs above
+                        raise HTTPException(
+                            status_code=500,
+                            detail="URL input should have been converted to file input"
+                        )
 
-            # For markdown, text, and HTML outputs, we need to get JSON and convert locally
-            if output_format in ["md", "txt", "html"]:
-                # Always get JSON from Unstructured-IO
-                request_data = data.copy()
-                if "output_format" in request_data:
-                    del request_data["output_format"]  # Remove output_format to get JSON
+                    # For markdown, text, and HTML outputs, we need to get JSON and convert locally
+                    if output_format in ["md", "txt", "html"]:
+                        # Always get JSON from Unstructured-IO
+                        request_data = data.copy()
+                        if "output_format" in request_data:
+                            del request_data["output_format"]  # Remove output_format to get JSON
 
-                if files:
+                        if files:
+                            response = await client.post(
+                                f"{service_url}/general/v0/general",
+                                files=files,
+                                data=request_data
+                            )
+                        else:
+                            response = await client.post(
+                                f"{service_url}/general/v0/general",
+                                json=request_data
+                            )
+
+                        if response.status_code != 200:
+                            logger.error(f"Service {service_to_try} returned {response.status_code}: {response.text}")
+                            raise HTTPException(
+                                status_code=response.status_code,
+                                detail=f"Conversion failed: {response.text}"
+                            )
+
+                        # Parse JSON response and convert locally
+                        if not UNSTRUCTURED_AVAILABLE or not dict_to_elements or not elements_to_md:
+                            raise HTTPException(status_code=503, detail="Unstructured library not available for local conversion")
+
+                        json_data = response.json()
+                        
+                        # Use consolidated unstructured processing utility
+                        from .unstructured_utils import process_unstructured_json_to_content
+                        content = process_unstructured_json_to_content(json_data, output_format, fix_tables=True)
+                        media_type = "text/markdown" if output_format == "md" else "text/html" if output_format == "html" else "text/plain"
+
+                        # Generate output filename
+                        if file:
+                            base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
+                        else:
+                            parsed_url = urlparse(url)
+                            base_name = parsed_url.netloc + parsed_url.path.replace('/', '_')
+                            if not base_name:
+                                base_name = "url_content"
+
+                        output_filename = f"{base_name}.{output_format}"
+
+                        return StreamingResponse(
+                            BytesIO(content.encode('utf-8')),
+                            media_type=media_type,
+                            headers={"Content-Disposition": f"attachment; filename={output_filename}"}
+                        )
+                    else:
+                        # For JSON output or other formats, use the service directly
+                        if files:
+                            response = await client.post(
+                                f"{service_url}/general/v0/general",
+                                files=files,
+                                data=data
+                            )
+                        else:
+                            response = await client.post(
+                                f"{service_url}/general/v0/general",
+                                json=data
+                            )
+
+                elif service_to_try == ConversionService.LIBREOFFICE:
+                    # LibreOffice expects multipart/form-data with convert-to parameter
+                    if not file:
+                        raise HTTPException(status_code=400, detail="LibreOffice only supports file input")
+                    
+                    await file.seek(0)  # Reset file pointer
+                    file_content = await file.read()
+                    # Get MIME type for input file using standard library
+                    mime_type = get_mime_type(input_format)
+                    files = {"file": (file.filename, BytesIO(file_content), mime_type)}
+                    data = {"convert-to": output_format}
+
                     response = await client.post(
-                        f"{service_url}/general/v0/general",
+                        f"{service_url}/request",
                         files=files,
-                        data=request_data
-                    )
-                else:
-                    response = await client.post(
-                        f"{service_url}/general/v0/general",
-                        json=request_data
+                        data=data
                     )
 
+                elif service_to_try == ConversionService.PANDOC:
+                    if not file:
+                        raise HTTPException(status_code=400, detail="Pandoc only supports file input")
+                        
+                    await file.seek(0)  # Reset file pointer
+                    file_content = await file.read()
+                    files = {"file": (file.filename, BytesIO(file_content), f"application/{input_format}")}
+                    data = {"output_format": output_format}
+
+                    # Map input format to pandoc format name and add as extra arg
+                    pandoc_input_format = PANDOC_FORMAT_MAP.get(input_format, input_format)
+                    
+                    # Special handling for LaTeX to PDF: don't specify --from=latex to avoid parsing issues
+                    if input_format in ["latex", "tex"] and output_format == "pdf":
+                        # For LaTeX to PDF, let pandoc auto-detect and use pdflatex directly
+                        data["extra_args"] = "--pdf-engine=pdflatex"
+                    elif pandoc_input_format != "markdown":  # Default is markdown
+                        data["extra_args"] = f"--from={pandoc_input_format}"
+                    
+                    # Ensure HTML input format is explicitly specified
+                    if input_format == "html":
+                        if "extra_args" in data:
+                            data["extra_args"] += " --from=html"
+                        else:
+                            data["extra_args"] = "--from=html"
+
+                    # Add output format specific arguments
+                    if output_format == "txt":
+                        # For plain text output, use 'plain' writer to avoid markdown-like formatting
+                        # and include standalone to preserve title information
+                        if "extra_args" in data:
+                            data["extra_args"] += " --to=plain --standalone"
+                        else:
+                            data["extra_args"] = "--to=plain --standalone"
+                    elif output_format == "html":
+                        # For HTML output, use standalone to include title information
+                        if "extra_args" in data:
+                            data["extra_args"] += " --standalone"
+                        else:
+                            data["extra_args"] = "--standalone"
+                    elif output_format == "md":
+                        # For Markdown output, use standalone to include title information
+                        if "extra_args" in data:
+                            data["extra_args"] += " --standalone"
+                        else:
+                            data["extra_args"] = "--standalone"
+                    elif output_format == "pdf" and input_format in ["latex", "tex"]:
+                        # For LaTeX to PDF, specify the PDF engine explicitly to ensure proper compilation
+                        if "extra_args" in data:
+                            data["extra_args"] += " --pdf-engine=pdflatex --standalone"
+                        else:
+                            data["extra_args"] = "--pdf-engine=pdflatex --standalone"
+
+                    response = await client.post(
+                        f"{service_url}/convert",
+                        files=files,
+                        data=data
+                    )
+
+                elif service_to_try == ConversionService.GOTENBERG:
+                    # Gotenberg supports both files and URLs
+                    if file:
+                        await file.seek(0)  # Reset file pointer
+                        file_content = await file.read()
+                        # For HTML files, use the correct endpoint and filename
+                        if input_format == 'html':
+                            files = {"index.html": ("index.html", BytesIO(file_content), f"application/{input_format}")}
+                            endpoint = "forms/chromium/convert/html"
+                        elif input_format in ['docx', 'pptx', 'xlsx', 'xls', 'ppt', 'odt', 'ods', 'odp', 'pages', 'numbers']:
+                            files = {"files": (file.filename, BytesIO(file_content), f"application/{input_format}")}
+                            endpoint = "forms/libreoffice/convert"
+                        else:
+                            files = {"files": (file.filename, BytesIO(file_content), f"application/{input_format}")}
+                            endpoint = "forms/chromium/convert/html"
+                        data = {}
+                    else:
+                        # URL input for Gotenberg - prepare multipart form-data fields
+                        # Use the `files` parameter so httpx builds multipart/form-data.
+                        files = {"url": (None, url)}
+
+                    if extra_params:
+                        # Place extra params into the multipart payload as form fields
+                        for k, v in extra_params.items():
+                            files[k] = (None, str(v))
+
+                    # Use the correct endpoint based on input type
+                    if not file:
+                        # URL conversion always uses chromium
+                        endpoint = "forms/chromium/convert/url"
+
+                    # Send request with proper content type for URL inputs
+                    if file:
+                        response = await client.post(
+                            f"{service_url}/{endpoint}",
+                            files=files,
+                            data=data
+                        )
+                    else:
+                        # For URL inputs, send as multipart/form-data using `files` form fields
+                        response = await client.post(
+                            f"{service_url}/{endpoint}",
+                            files=files
+                        )
+
+                elif service_to_try == ConversionService.LOCAL:
+                    # Local processing - handle files or URLs
+                    if output_format == "html" and url:
+                        # Special case: URL to HTML - fetch raw HTML content
+                        try:
+                            url_data = await fetch_url_content(url)
+                            content = url_data['content']
+                            
+                            # Ensure content is properly decoded as UTF-8 text
+                            if isinstance(content, bytes):
+                                content = content.decode('utf-8', errors='replace')
+                            
+                            # Generate output filename from URL
+                            parsed_url = urlparse(url)
+                            base_name = parsed_url.netloc + parsed_url.path.replace('/', '_')
+                            if not base_name or base_name == '_':
+                                base_name = "url_content"
+                            output_filename = f"{base_name}.html"
+                            
+                            return StreamingResponse(
+                                BytesIO(content.encode('utf-8')),
+                                media_type="text/html",
+                                headers={"Content-Disposition": f"attachment; filename={output_filename}"}
+                            )
+                        except Exception as e:
+                            logger.error(f"URL to HTML conversion failed: {e}")
+                            raise HTTPException(status_code=500, detail=f"Failed to fetch URL content: {str(e)}")
+                    elif not file:
+                        raise HTTPException(status_code=400, detail="Local processing only supports file input for non-HTML formats")
+                    
+                    await file.seek(0)  # Reset file pointer
+                    file_content = await file.read()
+                    
+                    # Use the local conversion factory
+                    factory = LocalConversionFactory()
+                    content, media_type, output_filename = factory.convert(file_content, file.filename, input_format, output_format)
+                    
+                    # Return directly as StreamingResponse (skip the normal response handling)
+                    return StreamingResponse(
+                        BytesIO(content.encode('utf-8')),
+                        media_type=media_type,
+                        headers={"Content-Disposition": f"attachment; filename={output_filename}"}
+                    )
+
+                else:
+                    raise HTTPException(status_code=500, detail=f"Unsupported service: {service_to_try}")
+                
+                # Check response
                 if response.status_code != 200:
-                    logger.error(f"Service {service} returned {response.status_code}: {response.text}")
+                    logger.error(f"Service {service_to_try} returned {response.status_code}: {response.text}")
                     raise HTTPException(
                         status_code=response.status_code,
                         detail=f"Conversion failed: {response.text}"
                     )
 
-                # Parse JSON response and convert locally
-                if not UNSTRUCTURED_AVAILABLE or not dict_to_elements or not elements_to_md:
-                    raise HTTPException(status_code=503, detail="Unstructured library not available for local conversion")
-
-                json_data = response.json()
-                
-                # Use consolidated unstructured processing utility
-                from .unstructured_utils import process_unstructured_json_to_content
-                content = process_unstructured_json_to_content(json_data, output_format, fix_tables=True)
-                media_type = "text/markdown" if output_format == "md" else "text/html" if output_format == "html" else "text/plain"
+                # Determine content type based on output format
+                content_type = get_mime_type(output_format)
 
                 # Generate output filename
                 if file:
                     base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
                 else:
+                    # For URLs, use a generic name based on the URL
                     parsed_url = urlparse(url)
                     base_name = parsed_url.netloc + parsed_url.path.replace('/', '_')
                     if not base_name:
                         base_name = "url_content"
-
+                
                 output_filename = f"{base_name}.{output_format}"
 
                 return StreamingResponse(
-                    BytesIO(content.encode('utf-8')),
-                    media_type=media_type,
+                    BytesIO(response.content),
+                    media_type=content_type,
                     headers={"Content-Disposition": f"attachment; filename={output_filename}"}
                 )
-            else:
-                # For JSON output or other formats, use the service directly
-                if files:
-                    response = await client.post(
-                        f"{service_url}/general/v0/general",
-                        files=files,
-                        data=data
-                    )
-                else:
-                    response = await client.post(
-                        f"{service_url}/general/v0/general",
-                        json=data
-                    )
 
-        elif service == ConversionService.LIBREOFFICE:
-            # LibreOffice expects multipart/form-data with convert-to parameter
-            if not file:
-                raise HTTPException(status_code=400, detail="LibreOffice only supports file input")
-            
-            file_content = await file.read()
-            # Get MIME type for input file using standard library
-            mime_type = get_mime_type(input_format)
-            files = {"file": (file.filename, BytesIO(file_content), mime_type)}
-            data = {"convert-to": output_format}
-
-            response = await client.post(
-                f"{service_url}/request",
-                files=files,
-                data=data
-            )
-
-        elif service == ConversionService.PANDOC:
-            if not file:
-                raise HTTPException(status_code=400, detail="Pandoc only supports file input")
-                
-            file_content = await file.read()
-            files = {"file": (file.filename, BytesIO(file_content), f"application/{input_format}")}
-            data = {"output_format": output_format}
-
-            # Map input format to pandoc format name and add as extra arg
-            pandoc_input_format = PANDOC_FORMAT_MAP.get(input_format, input_format)
-            
-            # Special handling for LaTeX to PDF: don't specify --from=latex to avoid parsing issues
-            if input_format in ["latex", "tex"] and output_format == "pdf":
-                # For LaTeX to PDF, let pandoc auto-detect and use pdflatex directly
-                data["extra_args"] = "--pdf-engine=pdflatex"
-            elif pandoc_input_format != "markdown":  # Default is markdown
-                data["extra_args"] = f"--from={pandoc_input_format}"
-            
-            # Ensure HTML input format is explicitly specified
-            if input_format == "html":
-                if "extra_args" in data:
-                    data["extra_args"] += " --from=html"
-                else:
-                    data["extra_args"] = "--from=html"
-
-            # Add output format specific arguments
-            if output_format == "txt":
-                # For plain text output, use 'plain' writer to avoid markdown-like formatting
-                # and include standalone to preserve title information
-                if "extra_args" in data:
-                    data["extra_args"] += " --to=plain --standalone"
-                else:
-                    data["extra_args"] = "--to=plain --standalone"
-            elif output_format == "html":
-                # For HTML output, use standalone to include title information
-                if "extra_args" in data:
-                    data["extra_args"] += " --standalone"
-                else:
-                    data["extra_args"] = "--standalone"
-            elif output_format == "md":
-                # For Markdown output, use standalone to include title information
-                if "extra_args" in data:
-                    data["extra_args"] += " --standalone"
-                else:
-                    data["extra_args"] = "--standalone"
-            elif output_format == "pdf" and input_format in ["latex", "tex"]:
-                # For LaTeX to PDF, specify the PDF engine explicitly to ensure proper compilation
-                if "extra_args" in data:
-                    data["extra_args"] += " --pdf-engine=pdflatex --standalone"
-                else:
-                    data["extra_args"] = "--pdf-engine=pdflatex --standalone"
-
-            response = await client.post(
-                f"{service_url}/convert",
-                files=files,
-                data=data
-            )
-
-        elif service == ConversionService.GOTENBERG:
-            # Gotenberg supports both files and URLs
-            if file:
-                file_content = await file.read()
-                # For HTML files, use the correct endpoint and filename
-                if input_format == 'html':
-                    files = {"index.html": ("index.html", BytesIO(file_content), f"application/{input_format}")}
-                    endpoint = "forms/chromium/convert/html"
-                elif input_format in ['docx', 'pptx', 'xlsx', 'xls', 'ppt', 'odt', 'ods', 'odp', 'pages', 'numbers']:
-                    files = {"files": (file.filename, BytesIO(file_content), f"application/{input_format}")}
-                    endpoint = "forms/libreoffice/convert"
-                else:
-                    files = {"files": (file.filename, BytesIO(file_content), f"application/{input_format}")}
-                    endpoint = "forms/chromium/convert/html"
-                data = {}
-            else:
-                # URL input for Gotenberg - prepare multipart form-data fields
-                # Use the `files` parameter so httpx builds multipart/form-data.
-                files = {"url": (None, url)}
-
-            if extra_params:
-                # Place extra params into the multipart payload as form fields
-                for k, v in extra_params.items():
-                    files[k] = (None, str(v))
-
-            # Use the correct endpoint based on input type
-            if not file:
-                # URL conversion always uses chromium
-                endpoint = "forms/chromium/convert/url"
-
-            # Send request with proper content type for URL inputs
-            if file:
-                response = await client.post(
-                    f"{service_url}/{endpoint}",
-                    files=files,
-                    data=data
-                )
-            else:
-                # For URL inputs, send as multipart/form-data using `files` form fields
-                response = await client.post(
-                    f"{service_url}/{endpoint}",
-                    files=files
-                )
-
-        elif service == ConversionService.LOCAL:
-            # Local processing - handle files or URLs
-            if output_format == "html" and url:
-                # Special case: URL to HTML - fetch raw HTML content
-                try:
-                    url_data = await fetch_url_content(url)
-                    content = url_data['content']
-                    
-                    # Ensure content is properly decoded as UTF-8 text
-                    if isinstance(content, bytes):
-                        content = content.decode('utf-8', errors='replace')
-                    
-                    # Generate output filename from URL
-                    parsed_url = urlparse(url)
-                    base_name = parsed_url.netloc + parsed_url.path.replace('/', '_')
-                    if not base_name or base_name == '_':
-                        base_name = "url_content"
-                    output_filename = f"{base_name}.html"
-                    
-                    return StreamingResponse(
-                        BytesIO(content.encode('utf-8')),
-                        media_type="text/html",
-                        headers={"Content-Disposition": f"attachment; filename={output_filename}"}
-                    )
-                except Exception as e:
-                    logger.error(f"URL to HTML conversion failed: {e}")
-                    raise HTTPException(status_code=500, detail=f"Failed to fetch URL content: {str(e)}")
-            elif not file:
-                raise HTTPException(status_code=400, detail="Local processing only supports file input for non-HTML formats")
-            
-            file_content = await file.read()
-            
-            # Use the local conversion factory
-            factory = LocalConversionFactory()
-            content, media_type, output_filename = factory.convert(file_content, file.filename, input_format, output_format)
-            
-            # Return directly as StreamingResponse (skip the normal response handling)
-            return StreamingResponse(
-                BytesIO(content.encode('utf-8')),
-                media_type=media_type,
-                headers={"Content-Disposition": f"attachment; filename={output_filename}"}
-            )
-
-        else:
-            raise HTTPException(status_code=500, detail=f"Unsupported service: {service}")
-
-        # Check response
-        if response.status_code != 200:
-            logger.error(f"Service {service} returned {response.status_code}: {response.text}")
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"Conversion failed: {response.text}"
-            )
-
-        # Determine content type based on output format
-        content_type = get_mime_type(output_format)
-
-        # Generate output filename
-        if file:
-            base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
-        else:
-            # For URLs, use a generic name based on the URL
-            parsed_url = urlparse(url)
-            base_name = parsed_url.netloc + parsed_url.path.replace('/', '_')
-            if not base_name:
-                base_name = "url_content"
+            except httpx.RequestError as e:
+                logger.error(f"Request error for {service_to_try}: {e}")
+                # Clean up temp files on error
+                if conversion_metadata.get('temp_file_path'):
+                    cleanup_conversion_temp_files(conversion_metadata)
+                last_error = HTTPException(status_code=503, detail=f"Service {service_to_try} unavailable")
+                continue  # Try next service
+            except Exception as e:
+                logger.error(f"Conversion error with {service_to_try}: {e}")
+                # Clean up temp files on error
+                if conversion_metadata.get('temp_file_path'):
+                    cleanup_conversion_temp_files(conversion_metadata)
+                last_error = HTTPException(status_code=500, detail=f"Conversion failed: {str(e)}")
+                continue  # Try next service
+            finally:
+                # Clean up temp file wrapper if it exists
+                if temp_file_wrapper:
+                    await temp_file_wrapper.close()
         
-        output_filename = f"{base_name}.{output_format}"
-
-        return StreamingResponse(
-            BytesIO(response.content),
-            media_type=content_type,
-            headers={"Content-Disposition": f"attachment; filename={output_filename}"}
-        )
-
-    except httpx.RequestError as e:
-        logger.error(f"Request error for {service}: {e}")
-        # Clean up temp files on error
-        if conversion_metadata.get('temp_file_path'):
-            cleanup_conversion_temp_files(conversion_metadata)
-        raise HTTPException(status_code=503, detail=f"Service {service} unavailable")
-    except Exception as e:
-        logger.error(f"Conversion error: {e}")
-        # Clean up temp files on error
-        if conversion_metadata.get('temp_file_path'):
-            cleanup_conversion_temp_files(conversion_metadata)
-        raise HTTPException(status_code=500, detail=f"Conversion failed: {str(e)}")
-    finally:
-        # Clean up temp file wrapper if it exists
-        if temp_file_wrapper:
-            await temp_file_wrapper.close()
+        except Exception as e:
+            # If this was the last service to try, re-raise the error
+            if service_to_try == available_services[-1][0]:
+                if last_error:
+                    raise last_error
+                else:
+                    raise
+            else:
+                logger.warning(f"Service {service_to_try.value} failed, trying next service")
+                continue
+    
+    # If we get here, all services failed
+    if last_error:
+        raise last_error
+    else:
+        raise HTTPException(status_code=500, detail="All conversion services failed")
 
 
 async def extract_request_params(request: Request) -> Dict[str, Any]:

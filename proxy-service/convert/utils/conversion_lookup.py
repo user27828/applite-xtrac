@@ -62,6 +62,35 @@ def get_primary_conversion(input_format: str, output_format: str) -> Optional[Tu
         return (service, description)
 
 
+def get_all_conversions(input_format: str, output_format: str) -> List[Tuple[ConversionService, str]]:
+    """
+    Get all available conversion methods for a format pair, in priority order.
+
+    Args:
+        input_format: Input file format
+        output_format: Output file format
+
+    Returns:
+        List of tuples containing (service, description) in priority order
+    """
+    methods = get_conversion_methods(input_format, output_format)
+    if not methods:
+        return []
+
+    result = []
+    for method in methods:
+        # Check if this is a chained conversion (list of lists) or simple conversion (list of tuples)
+        if isinstance(method, list) and len(method) == 4:
+            # Chained conversion: [service, input, output, description]
+            service, _, _, description = method
+            result.append((service, description))
+        else:
+            # Simple conversion: (service, description)
+            result.append(method)
+    
+    return result
+
+
 def get_supported_conversions() -> Dict[str, List[str]]:
     """
     Get all supported input formats and their possible output formats.

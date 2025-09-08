@@ -133,22 +133,7 @@ async def convert_docx_to_txt(request: Request, file: UploadFile = File(...)):
 @router.post("/html-docx")
 async def convert_html_to_docx(request: Request, file: UploadFile = File(...)):
     """Convert HTML to DOCX (Document creation)"""
-    # Try primary service (LibreOffice) first
-    primary_service, primary_desc = get_primary_conversion("html", "docx") or (ConversionService.LIBREOFFICE, "Fallback")
-    
-    try:
-        return await _convert_file(request, file=file, input_format="html", output_format="docx", service=primary_service)
-    except HTTPException as e:
-        # If primary service fails, try secondary service (Pandoc)
-        if "LibreOffice" in str(e.detail) or "unoconvert" in str(e.detail):
-            logger.warning(f"Primary service {primary_service.value} failed for HTML->DOCX, trying fallback")
-            # Reset file pointer for the fallback attempt
-            await file.seek(0)
-            secondary_service = ConversionService.PANDOC
-            return await _convert_file(request, file=file, input_format="html", output_format="docx", service=secondary_service)
-        else:
-            # Re-raise if it's not a LibreOffice-specific error
-            raise
+    return await _convert_file(request, file=file, input_format="html", output_format="docx")
 
 
 @router.post("/html-json")
