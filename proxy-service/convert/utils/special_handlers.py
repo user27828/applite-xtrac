@@ -48,9 +48,13 @@ async def process_presentation_to_html(request, file_content, input_format, outp
                 def __init__(self, content: bytes, filename: str):
                     self.filename = filename
                     self.content = content
+                    self._position = 0
 
                 async def read(self):
                     return self.content
+
+                async def seek(self, position: int):
+                    self._position = position
 
             temp_upload = TempUploadFile(file_content, "converted.pptx")
 
