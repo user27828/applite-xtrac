@@ -53,7 +53,8 @@ except ImportError:
 from ..config import (
     ConversionService,
     PANDOC_FORMAT_MAP,
-    UNSTRUCTURED_IO_MIME_MAPPING
+    UNSTRUCTURED_IO_MIME_MAPPING,
+    SPECIAL_HANDLERS
 )
 from .conversion_lookup import (
     get_primary_conversion,
@@ -160,12 +161,12 @@ async def _convert_file(
     url: Optional[str] = None,
     input_format: str = "",
     output_format: str = "",
-    service: ConversionService = None,
+    service: Optional[ConversionService] = None,
     extra_params: Optional[dict] = None
 ) -> StreamingResponse:
     """
     Generic file conversion function that routes to the appropriate service.
-    Supports both file upload and URL input.
+    Supports both file upload and URL input, and handles both simple and chained conversions.
 
     Args:
         request: FastAPI request object
@@ -173,7 +174,7 @@ async def _convert_file(
         url: URL to convert (optional if file is provided)
         input_format: Input file format (required)
         output_format: Desired output format (required)
-        service: Conversion service to use (required)
+        service: Conversion service to use (optional - auto-determined if not provided)
         extra_params: Additional parameters for the service
 
     Returns:
@@ -183,6 +184,124 @@ async def _convert_file(
         raise HTTPException(status_code=400, detail="Either file or url must be provided")
     if file and url:
         raise HTTPException(status_code=400, detail="Cannot provide both file and url")
+    
+    # Check if this is a chained conversion
+    from .conversion_chaining import is_chained_conversion
+    if is_chained_conversion(input_format, output_format):
+        # Import required functions for chaining
+        from .conversion_chaining import get_conversion_steps, chain_conversions, ConversionStep
+        from .special_handlers import process_presentation_to_html
+        from ..config import SPECIAL_HANDLERS
+        
+        # Handle chained conversion
+        if not file:
+            raise HTTPException(status_code=400, detail="Chained conversions only support file input")
+        
+        try:
+            file_content = await file.read()
+            
+            # Get conversion steps from config
+            steps_data = get_conversion_steps(input_format, output_format)
+            
+            # Convert to ConversionStep objects
+            conversion_steps = []
+            for step_data in steps_data:
+                if len(step_data) == 4:
+                    step_service, step_input, step_output, description = step_data
+                    # Handle extra params for specific cases
+                    step_extra_params = {}
+                    if step_service == ConversionService.PANDOC and step_input in ["tex", "latex"]:
+                        step_extra_params = {"extra_args": "--from=latex"}
+                    elif step_service == ConversionService.PANDOC and step_input == "docx" and step_output == "md":
+                        step_extra_params = {"extra_args": "--from=docx"}
+                    
+                    conversion_steps.append(ConversionStep(
+                        service=step_service,
+                        input_format=step_input,
+                        output_format=step_output,
+                        extra_params=step_extra_params,
+                        description=description
+                    ))
+                elif len(step_data) == 5:
+                    # Special case with additional configuration
+                    step_service, step_input, step_output, description, special_config = step_data
+                    
+                    # Check if this step has a special handler
+                    if special_config.get("special_handler"):
+                        # Handle special case
+                        handler_name = special_config["special_handler"]
+                        
+                        if handler_name in SPECIAL_HANDLERS:
+                            # Import and call the special handler
+                            if handler_name == "presentation_to_html":
+                                # For special handlers, we need to execute the chain up to this point
+                                # and then call the special handler
+                                if len(conversion_steps) > 0:
+                                    # Execute the chain up to the special step
+                                    intermediate_result = await chain_conversions(
+                                        request=request,
+                                        initial_file_content=file_content,
+                                        initial_filename=file.filename,
+                                        conversion_steps=conversion_steps,
+                                        final_output_format=step_input,  # Intermediate format
+                                        final_content_type="application/octet-stream"
+                                    )
+                                    
+                                    # Extract content from intermediate result
+                                    intermediate_content = b""
+                                    async for chunk in intermediate_result.body_iterator:
+                                        intermediate_content += chunk
+                                    
+                                    # Call special handler with intermediate content
+                                    return await process_presentation_to_html(
+                                        request, intermediate_content, step_input, step_output, special_config
+                                    )
+                                else:
+                                    # First step is special - call handler directly
+                                    return await process_presentation_to_html(
+                                        request, file_content, input_format, output_format, special_config
+                                    )
+                        else:
+                            logger.error(f"Unknown special handler: {handler_name}")
+                            raise HTTPException(status_code=500, detail=f"Unknown special handler: {handler_name}")
+                    else:
+                        # Regular step with extra config but no special handler
+                        conversion_steps.append(ConversionStep(
+                            service=step_service,
+                            input_format=step_input,
+                            output_format=step_output,
+                            extra_params=special_config,
+                            description=description
+                        ))
+            
+            # Determine content type
+            content_type_map = {
+                "md": "text/markdown",
+                "html": "text/html",
+                "json": "application/json",
+                "txt": "text/plain",
+                "pdf": "application/pdf",
+                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            }
+            final_content_type = content_type_map.get(output_format, "application/octet-stream")
+            
+            # Execute chained conversion
+            return await chain_conversions(
+                request=request,
+                initial_file_content=file_content,
+                initial_filename=file.filename,
+                conversion_steps=conversion_steps,
+                final_output_format=output_format,
+                final_content_type=final_content_type
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in chained conversion {input_format}→{output_format}: {e}")
+            raise HTTPException(status_code=500, detail=f"Chained conversion failed: {str(e)}")
+    
+    # Auto-determine service for simple conversions if not provided
+    if service is None:
+        service, description = get_primary_conversion(input_format, output_format) or (ConversionService.UNSTRUCTURED_IO, "Fallback")
     
     # Handle URL inputs by fetching content first
     temp_file_wrapper = None
@@ -342,7 +461,12 @@ async def _convert_file(
 
             # Map input format to pandoc format name and add as extra arg
             pandoc_input_format = PANDOC_FORMAT_MAP.get(input_format, input_format)
-            if pandoc_input_format != "markdown":  # Default is markdown
+            
+            # Special handling for LaTeX to PDF: don't specify --from=latex to avoid parsing issues
+            if input_format in ["latex", "tex"] and output_format == "pdf":
+                # For LaTeX to PDF, let pandoc auto-detect and use pdflatex directly
+                data["extra_args"] = "--pdf-engine=pdflatex"
+            elif pandoc_input_format != "markdown":  # Default is markdown
                 data["extra_args"] = f"--from={pandoc_input_format}"
             
             # Ensure HTML input format is explicitly specified
@@ -372,6 +496,12 @@ async def _convert_file(
                     data["extra_args"] += " --standalone"
                 else:
                     data["extra_args"] = "--standalone"
+            elif output_format == "pdf" and input_format in ["latex", "tex"]:
+                # For LaTeX to PDF, specify the PDF engine explicitly to ensure proper compilation
+                if "extra_args" in data:
+                    data["extra_args"] += " --pdf-engine=pdflatex --standalone"
+                else:
+                    data["extra_args"] = "--pdf-engine=pdflatex --standalone"
 
             response = await client.post(
                 f"{service_url}/convert",

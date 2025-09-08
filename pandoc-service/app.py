@@ -87,18 +87,65 @@ async def convert_file(
     output_path = input_path + f".{output_format}"
 
     try:
-        # Build pandoc command
-        cmd = ["pandoc", input_path, "-o", output_path]
-        
-        # Add extra args if provided
-        if extra_args:
-            cmd.extend(extra_args.split())
+        # Special handling for LaTeX to PDF conversion
+        if output_format == "pdf" and (input_path.endswith('.tex') or input_path.endswith('.latex')):
+            # Use pdflatex directly for LaTeX to PDF conversion
+            # Extract base name without extension for jobname
+            base_name = os.path.splitext(os.path.basename(input_path))[0]
+            output_dir = os.path.dirname(output_path)
+            
+            cmd = ["pdflatex", "-interaction=nonstopmode", "-output-directory", output_dir, "-jobname", base_name, input_path]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            
+            # For LaTeX, return code 1 often just means warnings, not fatal errors
+            # Check if PDF was actually created despite warnings
+            latex_output_path = os.path.join(output_dir, base_name + ".pdf")
+            
+            if result.returncode != 0 and not os.path.exists(latex_output_path):
+                # Only fail if PDF wasn't created
+                error_msg = f"pdflatex failed with return code {result.returncode}"
+                if result.stderr:
+                    error_msg += f". stderr: {result.stderr}"
+                if result.stdout:
+                    error_msg += f". stdout: {result.stdout}"
+                if not result.stderr and not result.stdout:
+                    error_msg += ". No error output captured"
+                raise HTTPException(status_code=500, detail=error_msg)
+            elif result.returncode != 0 and os.path.exists(latex_output_path):
+                # PDF was created despite warnings - log the warnings but continue
+                print(f"pdflatex completed with warnings (return code {result.returncode}) but PDF was created successfully")
+                if result.stdout:
+                    print(f"pdflatex stdout: {result.stdout}")
+                if result.stderr:
+                    print(f"pdflatex stderr: {result.stderr}")
+            
+            # Check if output file exists
+            if not os.path.exists(latex_output_path):
+                raise HTTPException(status_code=500, detail=f"pdflatex completed but output PDF file was not found at {latex_output_path}")
+            
+            # Move the output to the expected location if different
+            if latex_output_path != output_path:
+                shutil.move(latex_output_path, output_path)
+                    
+            # Clean up auxiliary files created by pdflatex
+            aux_extensions = ['.aux', '.log', '.out', '.fls', '.fdb_latexmk', '.synctex.gz']
+            for ext in aux_extensions:
+                aux_file = os.path.join(output_dir, base_name + ext)
+                if os.path.exists(aux_file):
+                    os.remove(aux_file)
+        else:
+            # Build pandoc command for other conversions
+            cmd = ["pandoc", input_path, "-o", output_path]
+            
+            # Add extra args if provided
+            if extra_args:
+                cmd.extend(extra_args.split())
 
-        # Run pandoc
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        
-        if result.returncode != 0:
-            raise HTTPException(status_code=500, detail=f"Pandoc error: {result.stderr}")
+            # Run pandoc
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            
+            if result.returncode != 0:
+                raise HTTPException(status_code=500, detail=f"Pandoc error: {result.stderr}")
 
         # Get MIME type using comprehensive detection
         media_type = get_mime_type(output_path, output_format)

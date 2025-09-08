@@ -21,7 +21,17 @@ def get_conversion_methods(input_format: str, output_format: str) -> List[Tuple[
     Returns:
         List of tuples containing (service, description)
     """
-    key = (input_format.lower(), output_format.lower())
+    # Format aliases to handle common variations
+    format_aliases = {
+        "tex": "latex",  # tex and latex are the same format
+        "latex": "latex"
+    }
+    
+    # Normalize input and output formats using aliases
+    normalized_input = format_aliases.get(input_format.lower(), input_format.lower())
+    normalized_output = output_format.lower()
+    
+    key = (normalized_input, normalized_output)
     return CONVERSION_MATRIX.get(key, [])
 
 
