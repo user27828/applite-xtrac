@@ -146,6 +146,40 @@ async def test_validation():
             print(f"{status} {url} -> Valid: {is_valid} (Expected: {should_be_valid}) - Error: {e}")
 
 
+@pytest.mark.asyncio
+async def test_url_fetch_with_custom_user_agent():
+    """Test URL fetching with custom User-Agent."""
+    print("=== Testing URL Fetch with Custom User-Agent ===")
+
+    test_url = "https://httpbin.org/user-agent"
+    custom_user_agent = "TestBot/1.0 (Custom User Agent Test)"
+
+    url_manager = URLConversionManager()
+    
+    try:
+        print(f"\nFetching: {test_url}")
+        print(f"Using User-Agent: {custom_user_agent}")
+        
+        conversion_input = await url_manager.process_url_conversion(
+            test_url, 
+            "json", 
+            user_agent=custom_user_agent
+        )
+        
+        print(f"Status: {conversion_input.metadata.get('status', 'Unknown')}")
+        print(f"Content-Type: {conversion_input.metadata.get('content_type', 'Unknown')}")
+        print(f"Final URL: {conversion_input.metadata.get('final_url', test_url)}")
+        print(f"Detected Format: {conversion_input.metadata.get('detected_format', 'Unknown')}")
+        
+        # Clean up
+        await conversion_input.cleanup()
+        print("✅ Custom User-Agent test passed")
+        
+    except Exception as e:
+        print(f"❌ Custom User-Agent test failed: {e}")
+        raise
+
+
 async def main():
     """Run all tests."""
     print("URL Fetching Test Suite")
@@ -156,6 +190,7 @@ async def main():
         await test_temp_file_creation()
         await test_conversion_preparation()
         await test_validation()
+        await test_url_fetch_with_custom_user_agent()
 
         print("\n" + "=" * 50)
         print("All tests completed!")

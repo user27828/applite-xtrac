@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 import tempfile
+from datetime import datetime
 import json
 from typing import Dict, List
 
@@ -159,7 +160,7 @@ def output_data_dir():
 def conversion_test_results():
     """Dictionary to store conversion test results."""
     return {
-        "timestamp": "2025-01-09T12:00:00Z",
+        "timestamp": datetime.now().isoformat() + "Z",
         "test_run": "conversion_integration_tests",
         "results": [],
         "summary": {

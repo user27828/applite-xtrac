@@ -94,6 +94,22 @@ curl -X POST "http://localhost:8369/convert/url-txt" \
   -o document.txt
 ```
 
+### Convert URL with Custom User-Agent
+
+```bash
+# Use a custom User-Agent string for sites that require specific identification
+curl -X POST "http://localhost:8369/convert/url-pdf" \
+  -F "url=https://example.com" \
+  -F "user_agent=Mozilla/5.0 (compatible; MyBot/1.0; +https://example.com/bot)" \
+  -o webpage.pdf
+
+# Use mobile User-Agent for mobile-optimized content
+curl -X POST "http://localhost:8369/convert/url-html" \
+  -F "url=https://example.com/mobile-page" \
+  -F "user_agent=Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15" \
+  -o mobile-page.html
+```
+
 ## Configuration
 
 ### Environment Variables
@@ -103,11 +119,12 @@ curl -X POST "http://localhost:8369/convert/url-txt" \
 URL_FETCH_TIMEOUT=30          # Request timeout in seconds
 URL_FETCH_MAX_SIZE=52428800   # Max file size (50MB)
 URL_FETCH_RETRIES=3           # Number of retry attempts
-URL_FETCH_USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"  # Custom user agent
+URL_FETCH_USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"  # Default user agent
 
-# Temporary file management
-TEMP_DIR="/tmp/applite-xtrac"  # Temp file directory
-CLEANUP_TEMP_FILES=true         # Auto-cleanup temp files
+# Custom User-Agent Support
+# The user_agent parameter can be passed to any /convert/url-* endpoint:
+# curl -X POST "http://localhost:8369/convert/url-pdf" -F "url=https://example.com" -F "user_agent=Your Custom User Agent"
+# If not provided, the default browser-like User-Agent is used
 ```
 
 ### Content Type Detection

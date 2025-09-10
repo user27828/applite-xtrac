@@ -9,6 +9,7 @@ import asyncio
 from urllib.parse import urlparse
 import re
 import os
+from datetime import datetime
 
 # Import unstructured libraries for JSON to markdown/text conversion
 try:
@@ -45,7 +46,7 @@ def create_error_response(status_code: int, error_type: str, service: str = None
     """Create a consistent JSON error response across all endpoints."""
     error_data = {
         "error": error_type,
-        "timestamp": "2025-01-09T12:00:00Z",  # Could be made dynamic
+        "timestamp": datetime.now().isoformat() + "Z",
         "service": service,
         "status_code": status_code
     }
@@ -440,24 +441,53 @@ async def unstructured_to_html(request: Request, file: UploadFile = File(...)):
 
 @app.api_route("/{service}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
 async def proxy_request(service: str, path: str, request: Request):
+    """
+    Generic proxy endpoint that forwards requests to backend services.
+
+    This endpoint acts as a reverse proxy, routing requests to the appropriate backend service
+    (unstructured-io, libreoffice, pandoc, gotenberg) based on the {service} path parameter.
+
+    Features:
+    - Service validation and URL construction
+    - Request body/header forwarding with hop-by-hop header filtering
+    - Special handling for docs requests (adds dark mode parameter)
+    - Form parameter extraction for POST/PUT/PATCH requests
+    - Service-specific HTTP client selection (different timeouts/clients per service)
+    - Retry logic with exponential backoff for transient failures
+    - Comprehensive error handling with different responses for file downloads vs API calls
+    - Content-type validation for conversion endpoints
+    - Dark mode CSS injection for docs HTML responses
+    - Streaming responses to prevent memory issues with large files
+
+    Path: /{service}/{path:path}
+    Methods: GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD
+
+    Args:
+        service: Backend service name (unstructured-io, libreoffice, pandoc, gotenberg)
+        path: Path to forward to the backend service
+        request: FastAPI request object
+
+    Returns:
+        StreamingResponse or JSONResponse depending on the backend response
+    """
     logger.info(f"Proxy request: service={service}, path={path}")
     if service not in SERVICES:
         return JSONResponse(status_code=404, content={"error": "Service not found"})
-    
+
     service_url = SERVICES[service]
     target_url = f"{service_url}/{path}"
-    
+
     # Get request data
     body = await request.body()
     headers = dict(request.headers)
     # Remove host header
     headers.pop("host", None)
-    
+
     # Handle docs requests with dark mode
     query_params = dict(request.query_params)
     if path == "docs":
         query_params["dark"] = "true"
-    
+
     # Extract form data parameters for POST/PUT/PATCH requests
     form_params = {}
     if request.method in ["POST", "PUT", "PATCH"]:
@@ -469,13 +499,13 @@ async def proxy_request(service: str, path: str, request: Request):
                 for field_name, field_value in form_data.items():
                     if field_name not in ['file', 'files']:  # Skip file fields
                         form_params[field_name] = field_value
-                        
+
                 # If we have form data, we need to rebuild the body without the parameter fields
                 # For now, we'll pass parameters as query params to maintain compatibility
                 query_params.update(form_params)
         except Exception as e:
             logger.warning(f"Failed to extract form parameters in proxy: {e}")
-    
+
     client: httpx.AsyncClient = app.state.client
     # Use longer timeout client for LibreOffice conversions
     if service == "libreoffice":
@@ -483,21 +513,21 @@ async def proxy_request(service: str, path: str, request: Request):
     # Use Gotenberg client for Gotenberg requests
     elif service == "gotenberg":
         client = app.state.gotenberg_client
-    
+
     try:
         # Retry logic for transient failures
         max_retries = 2
         retry_delay = 1.0
-        
+
         for attempt in range(max_retries + 1):
             try:
                 # Use streaming to avoid buffering large responses in memory
                 req = client.build_request(method=request.method, url=target_url, headers=headers, content=body, params=query_params)
                 resp = await client.send(req, stream=True)
-                
+
                 # If we get here, the request succeeded (even if the service returned an error)
                 break
-                
+
             except httpx.RequestError as e:
                 if attempt < max_retries:
                     logger.warning(f"Request attempt {attempt + 1} failed for {service}/{path}: {e}. Retrying in {retry_delay}s...")
@@ -514,27 +544,27 @@ async def proxy_request(service: str, path: str, request: Request):
                         details=f"Failed after {max_retries + 1} attempts: {str(e)}",
                         retry_attempts=max_retries + 1
                     )
-        
+
         # CRITICAL: Check if the response indicates an error before streaming
         if resp.status_code >= 400:
             # Read the error response body
             error_content = await resp.aread()
             error_text = error_content.decode(resp.encoding or "utf-8", errors="replace")
             await resp.aclose()
-            
+
             # Log the error for debugging
             logger.error(f"Service {service} returned error {resp.status_code}: {error_text[:500]}...")
-            
+
             # For file download endpoints, return empty body to prevent error content from being saved as files
             # Detect file download requests by checking for conversion-related paths
             is_file_download = (
-                path in ["convert", "request"] or 
+                path in ["convert", "request"] or
                 "convert" in path or
                 any(keyword in path for keyword in ["pdf", "docx", "html", "txt", "md", "tex"])
             )
-            
+
             logger.info(f"Error handling: service={service}, path={path}, is_file_download={is_file_download}")
-            
+
             if is_file_download:
                 # Return empty body with error status - prevents clients from saving error content as files
                 logger.info(f"Returning empty body for file download error on {service}/{path}")

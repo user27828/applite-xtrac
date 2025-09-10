@@ -118,28 +118,6 @@ def get_dynamic_service_urls():
 # Use dynamic URLs
 DYNAMIC_SERVICE_URLS = get_dynamic_service_urls()
 
-def validate_url(url: str) -> bool:
-    """Validate that the URL is properly formatted and uses http/https."""
-    if not url or not isinstance(url, str):
-        return False
-    
-    # Basic URL validation 
-    try:
-        parsed = urlparse(url)
-        # Must have scheme and netloc
-        if not parsed.scheme or not parsed.netloc:
-            return False
-        # Only allow http and https
-        if parsed.scheme not in ['http', 'https']:
-            return False
-        # Basic sanity check for netloc
-        if not re.match(r'^[a-zA-Z0-9.-]+$', parsed.netloc.replace(':', '').replace('.', '')):
-            return False
-        return True
-    except Exception:
-        return False
-
-
 async def _get_service_client(service: ConversionService, request: Request) -> httpx.AsyncClient:
     """Get the appropriate HTTP client for a service."""
     if service == ConversionService.LIBREOFFICE:
@@ -192,21 +170,13 @@ async def _convert_file(
         url_input = await url_manager.process_url_conversion(url, output_format)
     
     # Handle same-format conversions specially
-    print(f"DEBUG: Checking for passthrough - url_input: {url_input is not None}, has_metadata: {url_input and hasattr(url_input, 'metadata')}")
-    if url_input and hasattr(url_input, 'metadata'):
-        print(f"DEBUG: url_input metadata: {url_input.metadata}")
-        print(f"DEBUG: passthrough_conversion flag: {url_input.metadata.get('passthrough_conversion', False)}")
-    
     if url_input and hasattr(url_input, 'metadata') and url_input.metadata.get('passthrough_conversion'):
-        print(f"DEBUG: Passthrough conversion detected for {input_format} to {output_format}")
         # For passthrough conversions, fetch the URL content and return it directly
         from .url_fetcher import fetch_url_content
         
         try:
-            print(f"DEBUG: Fetching URL content from {url_input.url}")
             # Fetch the URL content
             fetch_result = await fetch_url_content(url_input.url)
-            print(f"DEBUG: Fetched content length: {len(fetch_result['content'])}")
             
             # Determine content type
             content_type_map = {
@@ -218,11 +188,9 @@ async def _convert_file(
                 "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             }
             content_type = content_type_map.get(output_format, "application/octet-stream")
-            print(f"DEBUG: Content type: {content_type}")
             
             # Return the content directly as a streaming response
             content_bytes = fetch_result['content']
-            print(f"DEBUG: Returning streaming response with {len(content_bytes)} bytes")
             return StreamingResponse(
                 BytesIO(content_bytes),
                 media_type=content_type,
@@ -233,7 +201,6 @@ async def _convert_file(
             )
             
         except Exception as e:
-            print(f"DEBUG: Error in passthrough conversion: {e}")
             logger.error(f"Failed to fetch URL content for passthrough conversion: {e}")
             raise HTTPException(status_code=400, detail=f"Failed to fetch URL content: {str(e)}")
     
@@ -389,27 +356,20 @@ async def _convert_file(
             if url_input:
                 # Use the new ConversionInput system
                 try:
-                    print(f"DEBUG: Getting input for service {service_to_try}")
                     input_for_service = await url_input.get_for_service(service_to_try)
-                    print(f"DEBUG: Input type: {type(input_for_service)}")
                     
                     if isinstance(input_for_service, str):
                         # Direct URL input
                         current_url = input_for_service
                         current_file = None
-                        print(f"DEBUG: Using direct URL: {current_url}")
                     else:
                         # File input (UploadFile or wrapper)
                         current_file = input_for_service
                         current_url = None
-                        print(f"DEBUG: Using file input: {current_file.filename if hasattr(current_file, 'filename') else 'unknown'}")
                         if hasattr(current_file, 'file_path'):
-                            print(f"DEBUG: File path: {current_file.file_path}")
                             import os
-                            print(f"DEBUG: File exists: {os.path.exists(current_file.file_path)}")
                         
                 except Exception as e:
-                    print(f"DEBUG: Error getting input for service: {e}")
                     logger.error(f"Failed to get input for service {service_to_try}: {e}")
                     raise
             elif url:
@@ -622,12 +582,9 @@ async def _convert_file(
                 elif current_url:
                     # URL input for Gotenberg - prepare multipart form-data fields
                     # Use the `files` parameter so httpx builds multipart/form-data.
-                    print(f"DEBUG: Preparing Gotenberg URL request for: {current_url}")
                     files = {"url": (None, current_url)}
                     data = {}
                     endpoint = "forms/chromium/convert/url"
-                    print(f"DEBUG: Gotenberg endpoint: {endpoint}")
-                    print(f"DEBUG: Gotenberg files: {files}")
                 else:
                     raise HTTPException(status_code=400, detail="No valid input for Gotenberg conversion")
 
@@ -650,15 +607,10 @@ async def _convert_file(
                     )
                 else:
                     # For URL inputs, send as multipart/form-data using `files` form fields
-                    print(f"DEBUG: Sending Gotenberg URL request to: {service_url}/{endpoint}")
                     response = await client.post(
                         f"{service_url}/{endpoint}",
                         files=files
                     )
-                    print(f"DEBUG: Gotenberg response status: {response.status_code}")
-                    print(f"DEBUG: Gotenberg response headers: {dict(response.headers)}")
-                    print(f"DEBUG: Gotenberg response content length: {len(response.content)}")
-                    print(f"DEBUG: Gotenberg response content type: {response.headers.get('content-type', 'unknown')}")
 
             elif service_to_try == ConversionService.LOCAL:
                 # Local processing - handle files or URLs
@@ -715,10 +667,6 @@ async def _convert_file(
                     detail=f"Conversion failed: {response.text}"
                 )
 
-            print(f"DEBUG: Response check passed for {service_to_try}, status: {response.status_code}")
-            print(f"DEBUG: Response content length: {len(response.content)}")
-            print(f"DEBUG: Response content type: {response.headers.get('content-type', 'unknown')}")
-
             # Determine content type based on output format
             content_type = get_mime_type(output_format)
 
@@ -736,11 +684,6 @@ async def _convert_file(
             
             output_filename = f"{base_name}.{output_format}"
 
-            print(f"DEBUG: About to create StreamingResponse for {service_to_try}")
-            print(f"DEBUG: Content type: {content_type}")
-            print(f"DEBUG: Output filename: {output_filename}")
-            print(f"DEBUG: Response content length: {len(response.content)}")
-
             return StreamingResponse(
                 BytesIO(response.content),
                 media_type=content_type,
@@ -749,7 +692,6 @@ async def _convert_file(
 
         except httpx.RequestError as e:
             logger.error(f"Request error for {service_to_try}: {e}")
-            print(f"DEBUG: RequestError caught for {service_to_try}: {e}")
             # Don't clean up resources here - keep them for other services to try
             # if url_input:
             #     await url_input.cleanup()
@@ -757,10 +699,7 @@ async def _convert_file(
             continue  # Try next service
         except Exception as e:
             logger.error(f"Conversion error with {service_to_try}: {e}")
-            print(f"DEBUG: General exception caught for {service_to_try}: {e}")
-            print(f"DEBUG: Exception type: {type(e)}")
             import traceback
-            print(f"DEBUG: Exception traceback: {traceback.format_exc()}")
             # Don't clean up resources here - keep them for other services to try
             # if url_input:
             #     await url_input.cleanup()

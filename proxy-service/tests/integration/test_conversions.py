@@ -48,7 +48,7 @@ class TestConversionEndpoints:
         failed = sum(1 for r in self.test_results if r["status"] is False)
 
         results_data = {
-            "timestamp": "2025-09-05T12:19:06.148515",
+            "timestamp": datetime.now().isoformat() + "Z",
             "test_run": "conversion_integration_tests",
             "results": {
                 "conversion": self.test_results,

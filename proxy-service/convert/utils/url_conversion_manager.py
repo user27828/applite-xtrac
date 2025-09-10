@@ -173,10 +173,10 @@ class URLConversionManager:
         caps = self.service_capabilities.get(service, {})
         return input_format in caps.get("supported_input_formats", [])
 
-    async def _fetch_to_temp_file(self, url: str) -> Tuple[URLFileWrapper, Dict[str, Any]]:
+    async def _fetch_to_temp_file(self, url: str, user_agent: Optional[str] = None) -> Tuple[URLFileWrapper, Dict[str, Any]]:
         """Fetch URL to temp file and return wrapper."""
         try:
-            temp_path, fetch_result = await fetch_url_to_temp_file(url)
+            temp_path, fetch_result = await fetch_url_to_temp_file(url, user_agent=user_agent)
 
             # Detect actual format from content
             detected_format = detect_content_format(
@@ -236,7 +236,7 @@ class URLConversionManager:
             "conversion_path": "direct_url" if use_direct_url else "temp_file_conversion"
         }
 
-    async def process_url_conversion(self, url: str, target_format: str) -> ConversionInput:
+    async def process_url_conversion(self, url: str, target_format: str, user_agent: Optional[str] = None) -> ConversionInput:
         """Main entry point - returns ConversionInput ready for conversion pipeline."""
         # Validate URL format
         try:
@@ -287,7 +287,7 @@ class URLConversionManager:
             return DirectURLInput(url, metadata)
         else:
             # Fetch to temp file and return file wrapper
-            temp_file_wrapper, fetch_metadata = await self._fetch_to_temp_file(url)
+            temp_file_wrapper, fetch_metadata = await self._fetch_to_temp_file(url, user_agent)
 
             # Combine metadata
             metadata = {

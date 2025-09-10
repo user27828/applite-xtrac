@@ -50,6 +50,7 @@ This document provides a comprehensive overview of supported file formats across
     - [Convert URL to PDF](#convert-url-to-pdf)
     - [Convert URL to HTML](#convert-url-to-html)
     - [Convert Markdown to DOCX](#convert-markdown-to-docx)
+    - [Dynamic Endpoint Examples](#dynamic-endpoint-examples)
     - [List All Supported Conversions](#list-all-supported-conversions)
   - [🧠 Service Intelligence](#-service-intelligence)
 
@@ -507,6 +508,29 @@ curl -X POST "http://localhost:8369/convert/url-html" -F "url=https://example.co
 
 ```bash
 curl -X POST "http://localhost:8369/convert/md-docx" -F "file=@document.md" -o document.docx
+```
+
+### Dynamic Endpoint Examples
+
+The API supports dynamic endpoints for any supported conversion pair:
+
+```bash
+# Dynamic file conversion - any supported format pair
+curl -X POST "http://localhost:8369/convert/docx-pdf" -F "file=@document.docx" -o document.pdf
+curl -X POST "http://localhost:8369/convert/pdf-json" -F "file=@document.pdf" -o structure.json
+curl -X POST "http://localhost:8369/convert/md-docx" -F "file=@document.md" -o document.docx
+curl -X POST "http://localhost:8369/convert/html-pdf" -F "file=@webpage.html" -o webpage.pdf
+
+# Dynamic URL conversion - any supported output format
+curl -X POST "http://localhost:8369/convert/url-pdf" -F "url=https://example.com" -o webpage.pdf
+curl -X POST "http://localhost:8369/convert/url-md" -F "url=https://example.com" -o webpage.md
+curl -X POST "http://localhost:8369/convert/url-json" -F "url=https://example.com" -o webpage.json
+
+# Dynamic URL conversion with custom User-Agent
+curl -X POST "http://localhost:8369/convert/url-pdf" \
+  -F "url=https://example.com" \
+  -F "user_agent=Mozilla/5.0 (compatible; MyBot/1.0)" \
+  -o webpage.pdf
 ```
 
 ### List All Supported Conversions

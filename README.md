@@ -137,6 +137,43 @@ curl http://localhost:8369/convert/supported
 curl http://localhost:8369/convert/info/docx-pdf
 ```
 
+### Dynamic Endpoint Pattern
+
+The API supports dynamic endpoints for any supported conversion pair using the pattern `/{input_format}-{output_format}`:
+
+**Supported Dynamic Conversions:**
+- `POST /convert/{input_format}-{output_format}` - Convert files between any supported formats
+- `POST /convert/url-{output_format}` - Convert URLs to any supported output format
+
+**Examples:**
+```bash
+# Dynamic file conversion
+curl -X POST "http://localhost:8369/convert/docx-pdf" -F "file=@document.docx" -o document.pdf
+curl -X POST "http://localhost:8369/convert/pdf-json" -F "file=@document.pdf" -o structure.json
+curl -X POST "http://localhost:8369/convert/md-docx" -F "file=@document.md" -o document.docx
+
+# Dynamic URL conversion
+curl -X POST "http://localhost:8369/convert/url-pdf" -F "url=https://example.com" -o webpage.pdf
+curl -X POST "http://localhost:8369/convert/url-md" -F "url=https://example.com" -o webpage.md
+
+# Dynamic URL conversion with custom User-Agent
+curl -X POST "http://localhost:8369/convert/url-pdf" \
+  -F "url=https://example.com" \
+  -F "user_agent=Mozilla/5.0 (compatible; MyBot/1.0)" \
+  -o webpage.pdf
+```
+
+**Format Validation:**
+- Input and output formats must be 2-7 characters long
+- Conversion pair must be supported (use `/convert/supported` to check)
+- Invalid formats return HTTP 400 with error details
+
+**User-Agent Parameter:**
+- `user_agent` (optional): Custom User-Agent string to send with URL requests
+- If not provided, uses default browser-like User-Agent
+- Useful for sites that block default User-Agents or require specific identification
+- Applies to both Scrapy and requests-based fetching methods
+
 ### Parameter Passing
 
 All conversion endpoints automatically accept and pass through parameters to the underlying services. This allows you to customize the behavior of the conversion services:
@@ -727,33 +764,3 @@ The system includes advanced special case handling for complex conversions:
 - Easy to add new special conversion logic
 - Clean separation of standard vs special conversions
 - Automatic delegation based on conversion matrix configuration
-
-## Recent Updates
-
-### Codebase Refactoring (Latest)
-The codebase has been recently refactored to improve maintainability and organization:
-
-**✅ Completed Improvements:**
-- **Modular Architecture**: Moved utility functions from `config.py` to dedicated modules
-- **Better Separation of Concerns**: Configuration, utilities, and business logic are now properly separated
-- **Enhanced Maintainability**: Easier to locate and modify specific functionality
-- **Improved Testing**: All 100+ conversion tests pass with the new structure
-
-**New Module Structure:**
-```
-convert/
-├── config.py                    # Core configuration only
-├── router.py                    # Route handlers
-└── utils/
-    ├── conversion_lookup.py     # Lookup functions
-    ├── conversion_chaining.py   # Chaining logic
-    ├── conversion_core.py       # Core execution
-    ├── special_handlers.py      # Custom handlers
-    └── ... (other utilities)
-```
-
-**Migration Details:**
-- Functions moved: `get_conversion_methods()`, `get_primary_conversion()`, `get_supported_conversions()`, `get_service_urls()`, `get_conversion_steps()`, `is_chained_conversion()`, `process_presentation_to_html()`
-- All imports updated throughout the codebase
-- Backward compatibility maintained
-- Comprehensive testing validates all functionality

@@ -109,13 +109,14 @@ def create_session_with_retries() -> requests.Session:
     return session
 
 
-async def fetch_url_with_scrapy(url: str, timeout: int = DEFAULT_TIMEOUT) -> Dict[str, Any]:
+async def fetch_url_with_scrapy(url: str, timeout: int = DEFAULT_TIMEOUT, user_agent: Optional[str] = None) -> Dict[str, Any]:
     """
     Fetch URL content using Scrapy.
 
     Args:
         url: The URL to fetch
         timeout: Timeout in seconds
+        user_agent: Custom User-Agent string to use for the request
 
     Returns:
         Dict containing content, content_type, final_url, status, headers
@@ -130,8 +131,9 @@ async def fetch_url_with_scrapy(url: str, timeout: int = DEFAULT_TIMEOUT) -> Dic
 
     try:
         # Configure Scrapy settings
+        scrapy_user_agent = user_agent or 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         settings = {
-            'USER_AGENT': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'USER_AGENT': scrapy_user_agent,
             'ROBOTSTXT_OBEY': True,
             'DOWNLOAD_DELAY': 1,
             'CONCURRENT_REQUESTS': 1,
@@ -166,13 +168,14 @@ async def fetch_url_with_scrapy(url: str, timeout: int = DEFAULT_TIMEOUT) -> Dic
         raise URLFetchError(f"Failed to fetch URL with Scrapy: {str(e)}")
 
 
-async def fetch_url_with_requests(url: str, timeout: int = DEFAULT_TIMEOUT) -> Dict[str, Any]:
+async def fetch_url_with_requests(url: str, timeout: int = DEFAULT_TIMEOUT, user_agent: Optional[str] = None) -> Dict[str, Any]:
     """
     Fetch URL content using requests (fallback method).
 
     Args:
         url: The URL to fetch
         timeout: Timeout in seconds
+        user_agent: Custom User-Agent string to use for the request
 
     Returns:
         Dict containing content, content_type, final_url, status, headers
@@ -183,11 +186,14 @@ async def fetch_url_with_requests(url: str, timeout: int = DEFAULT_TIMEOUT) -> D
     try:
         session = create_session_with_retries()
 
+        # Use provided user agent or default
+        request_user_agent = user_agent or 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+
         response = session.get(
             url,
             timeout=timeout,
             headers={
-                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'User-Agent': request_user_agent,
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             },
             stream=True
@@ -215,7 +221,7 @@ async def fetch_url_with_requests(url: str, timeout: int = DEFAULT_TIMEOUT) -> D
         raise URLFetchError(f"Failed to fetch URL with requests: {str(e)}")
 
 
-async def fetch_url_content(url: str, timeout: int = DEFAULT_TIMEOUT, use_scrapy: bool = False) -> Dict[str, Any]:
+async def fetch_url_content(url: str, timeout: int = DEFAULT_TIMEOUT, use_scrapy: bool = False, user_agent: Optional[str] = None) -> Dict[str, Any]:
     """
     Fetch URL content using the best available method.
 
@@ -223,6 +229,7 @@ async def fetch_url_content(url: str, timeout: int = DEFAULT_TIMEOUT, use_scrapy
         url: The URL to fetch
         timeout: Timeout in seconds
         use_scrapy: Whether to prefer Scrapy over requests
+        user_agent: Custom User-Agent string to use for the request
 
     Returns:
         Dict containing content, content_type, final_url, status, headers
@@ -246,13 +253,13 @@ async def fetch_url_content(url: str, timeout: int = DEFAULT_TIMEOUT, use_scrapy
     # Try Scrapy first if requested
     if use_scrapy:
         try:
-            return await fetch_url_with_scrapy(url, timeout)
+            return await fetch_url_with_scrapy(url, timeout, user_agent)
         except URLFetchError as e:
             logger.warning(f"Scrapy fetch failed, falling back to requests: {e}")
             # Fall through to requests
 
     # Fallback to requests
-    return await fetch_url_with_requests(url, timeout)
+    return await fetch_url_with_requests(url, timeout, user_agent)
 
 
 def get_content_type_from_url(url: str) -> str:
@@ -327,7 +334,7 @@ async def save_content_to_temp_file(content: bytes, filename: str) -> str:
         raise URLFetchError(f"Failed to save content: {str(e)}")
 
 
-async def fetch_url_to_temp_file(url: str, timeout: int = DEFAULT_TIMEOUT, use_scrapy: bool = False) -> Tuple[str, Dict[str, Any]]:
+async def fetch_url_to_temp_file(url: str, timeout: int = DEFAULT_TIMEOUT, use_scrapy: bool = False, user_agent: Optional[str] = None) -> Tuple[str, Dict[str, Any]]:
     """
     Fetch URL content and save to a temporary file.
 
@@ -343,7 +350,7 @@ async def fetch_url_to_temp_file(url: str, timeout: int = DEFAULT_TIMEOUT, use_s
         URLFetchError: If fetching or saving fails
     """
     # Fetch the content
-    fetch_result = await fetch_url_content(url, timeout, use_scrapy)
+    fetch_result = await fetch_url_content(url, timeout, use_scrapy, user_agent)
 
     # Generate filename
     content_type = fetch_result.get('content_type', '')
