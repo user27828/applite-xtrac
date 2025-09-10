@@ -70,6 +70,7 @@ from .utils.special_handlers import process_presentation_to_html
 
 # Import URL conversion manager
 from .utils.url_conversion_manager import URLConversionManager
+from .utils.error_handling import create_http_exception, ErrorCode, validate_format_parameter
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -93,9 +94,9 @@ async def convert_url_dynamic(request: Request, output_format: str, url: str = F
     valid_output_formats.update(PASSTHROUGH_FORMATS)
     
     if output_format not in valid_output_formats:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Unsupported output format: {output_format}. Supported formats: {sorted(valid_output_formats)}"
+        raise create_http_exception(
+            ErrorCode.INVALID_FORMAT,
+            details=f"Unsupported output format: {output_format}. Supported formats: {sorted(valid_output_formats)}"
         )
     
     # Use dedicated URL manager to determine input format and prepare conversion
@@ -110,9 +111,11 @@ async def convert_url_dynamic(request: Request, output_format: str, url: str = F
         from .utils.conversion_lookup import get_conversion_methods
         conversion_methods = get_conversion_methods(input_format, output_format)
         if not conversion_methods:
-            raise HTTPException(
-                status_code=400,
-                detail=f"No conversion available from {input_format} to {output_format}"
+            raise create_http_exception(
+                ErrorCode.CONVERSION_NOT_SUPPORTED,
+                details=f"No conversion available from {input_format} to {output_format}",
+                input_format=input_format,
+                output_format=output_format
             )
     
     # Pass to standard conversion pipeline (which handles passthrough automatically)
@@ -130,18 +133,18 @@ async def convert_url_dynamic(request: Request, output_format: str, url: str = F
 async def convert_dynamic(request: Request, input_format: str, output_format: str, file: UploadFile = File(...)):
     """Convert file from input_format to output_format (dynamic endpoint)"""
     
-    # Validate format lengths (2-7 characters to support all format names)
-    if not (2 <= len(input_format) <= 7):
-        raise HTTPException(status_code=400, detail=f"Input format must be 2-7 characters, got {len(input_format)}")
-    if not (2 <= len(output_format) <= 7):
-        raise HTTPException(status_code=400, detail=f"Output format must be 2-7 characters, got {len(output_format)}")
+    # Validate format parameters
+    validate_format_parameter(input_format, "input_format", 2, 7)
+    validate_format_parameter(output_format, "output_format", 2, 7)
     
     # Check if conversion pair exists in config
     conversion_methods = get_conversion_methods(input_format, output_format)
     if not conversion_methods:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"No conversion available from {input_format} to {output_format}"
+        raise create_http_exception(
+            ErrorCode.CONVERSION_NOT_SUPPORTED,
+            details=f"No conversion available from {input_format} to {output_format}",
+            input_format=input_format,
+            output_format=output_format
         )
     
     # Proceed with conversion
@@ -163,7 +166,12 @@ async def get_url_conversion_info_endpoint(input_format: str, output_format: str
     """Get information about URL conversion capabilities"""
     methods = get_primary_conversion(input_format, output_format)
     if not methods:
-        raise HTTPException(status_code=404, detail=f"Conversion {input_format} to {output_format} not supported")
+        raise create_http_exception(
+            ErrorCode.CONVERSION_NOT_SUPPORTED,
+            details=f"Conversion {input_format} to {output_format} not supported",
+            input_format=input_format,
+            output_format=output_format
+        )
 
     service, description = methods
 

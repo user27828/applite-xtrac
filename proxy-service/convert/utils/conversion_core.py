@@ -65,6 +65,7 @@ from .conversion_lookup import (
 )
 from .url_conversion_manager import ConversionInput
 from .url_fetcher import fetch_url_content
+from .error_handling import create_http_exception, ErrorCode, handle_conversion_error, handle_service_error
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -136,9 +137,15 @@ async def _convert_file(
     # Validate input parameters
     input_count = sum([file is not None, url is not None, url_input is not None])
     if input_count == 0:
-        raise HTTPException(status_code=400, detail="Either file, url, or url_input must be provided")
+        raise create_http_exception(
+            ErrorCode.MISSING_PARAMETER,
+            details="Either file, url, or url_input must be provided"
+        )
     if input_count > 1:
-        raise HTTPException(status_code=400, detail="Cannot provide multiple input types (file, url, url_input)")
+        raise create_http_exception(
+            ErrorCode.INVALID_REQUEST,
+            details="Cannot provide multiple input types (file, url, url_input)"
+        )
     
     # Handle legacy URL input by converting to new format
     if url and not url_input:
@@ -179,7 +186,10 @@ async def _convert_file(
             
         except Exception as e:
             logger.error(f"Failed to fetch URL content for passthrough conversion: {e}")
-            raise HTTPException(status_code=400, detail=f"Failed to fetch URL content: {str(e)}")
+            raise create_http_exception(
+                ErrorCode.URL_FETCH_FAILED,
+                details=f"Failed to fetch URL content: {str(e)}"
+            )
     
     # Check if this is a chained conversion
     from .conversion_chaining import is_chained_conversion
@@ -192,7 +202,10 @@ async def _convert_file(
         # Handle chained conversion - only file input supported for now
         # TODO: Add support for ConversionInput in chained conversions
         if not file and not url_input:
-            raise HTTPException(status_code=400, detail="Chained conversions currently only support file input")
+            raise create_http_exception(
+                ErrorCode.INVALID_REQUEST,
+                details="Chained conversions currently only support file input"
+            )
         
         # Get input content
         if file:
@@ -205,9 +218,15 @@ async def _convert_file(
                 file_content = await url_input.temp_file_wrapper.read()
                 input_filename = url_input.temp_file_wrapper.filename
             else:
-                raise HTTPException(status_code=400, detail="URL input not supported for chained conversions yet")
+                raise create_http_exception(
+                    ErrorCode.INVALID_REQUEST,
+                    details="URL input not supported for chained conversions yet"
+                )
         else:
-            raise HTTPException(status_code=400, detail="No valid input for chained conversion")
+            raise create_http_exception(
+                ErrorCode.INVALID_REQUEST,
+                details="No valid input for chained conversion"
+            )
         
         try:
             # Get conversion steps from config
@@ -315,7 +334,12 @@ async def _convert_file(
         from .conversion_lookup import get_all_conversions
         available_services = get_all_conversions(input_format, output_format)
         if not available_services:
-            raise HTTPException(status_code=400, detail=f"No conversion available for {input_format} to {output_format}")
+            raise create_http_exception(
+                ErrorCode.CONVERSION_NOT_SUPPORTED,
+                details=f"No conversion available for {input_format} to {output_format}",
+                input_format=input_format,
+                output_format=output_format
+            )
     else:
         # If a specific service was requested, only try that one
         available_services = [(service, "Specified service")]
@@ -417,9 +441,11 @@ async def _convert_file(
 
                     if response.status_code != 200:
                         logger.error(f"Service {service_to_try} returned {response.status_code}: {response.text}")
-                        raise HTTPException(
-                            status_code=response.status_code,
-                            detail=f"Conversion failed: {response.text}"
+                        raise create_http_exception(
+                            ErrorCode.SERVICE_ERROR,
+                            details=f"Conversion failed: {response.text}",
+                            service=str(service_to_try),
+                            status_code=response.status_code
                         )
 
                     # Parse JSON response and convert locally
@@ -466,7 +492,11 @@ async def _convert_file(
             elif service_to_try == ConversionService.LIBREOFFICE:
                 # LibreOffice expects multipart/form-data with convert-to parameter
                 if not current_file:
-                    raise HTTPException(status_code=400, detail="LibreOffice only supports file input")
+                    raise create_http_exception(
+                        ErrorCode.INVALID_REQUEST,
+                        details="LibreOffice only supports file input",
+                        service="libreoffice"
+                    )
                 
                 await current_file.seek(0)  # Reset file pointer
                 file_content = await current_file.read()
@@ -483,7 +513,11 @@ async def _convert_file(
 
             elif service_to_try == ConversionService.PANDOC:
                 if not current_file:
-                    raise HTTPException(status_code=400, detail="Pandoc only supports file input")
+                    raise create_http_exception(
+                        ErrorCode.INVALID_REQUEST,
+                        details="Pandoc only supports file input",
+                        service="pandoc"
+                    )
                     
                 await current_file.seek(0)  # Reset file pointer
                 file_content = await current_file.read()
@@ -563,7 +597,11 @@ async def _convert_file(
                     data = {}
                     endpoint = "forms/chromium/convert/url"
                 else:
-                    raise HTTPException(status_code=400, detail="No valid input for Gotenberg conversion")
+                    raise create_http_exception(
+                        ErrorCode.INVALID_REQUEST,
+                        details="No valid input for Gotenberg conversion",
+                        service="gotenberg"
+                    )
 
                 if extra_params:
                     # Place extra params into the multipart payload as form fields
@@ -615,9 +653,16 @@ async def _convert_file(
                         )
                     except Exception as e:
                         logger.error(f"URL to HTML conversion failed: {e}")
-                        raise HTTPException(status_code=500, detail=f"Failed to fetch URL content: {str(e)}")
+                        raise create_http_exception(
+                            ErrorCode.URL_FETCH_FAILED,
+                            details=f"Failed to fetch URL content: {str(e)}"
+                        )
                 elif not current_file:
-                    raise HTTPException(status_code=400, detail="Local processing only supports file input for non-HTML formats")
+                    raise create_http_exception(
+                        ErrorCode.INVALID_REQUEST,
+                        details="Local processing only supports file input for non-HTML formats",
+                        service="local"
+                    )
                 
                 await current_file.seek(0)  # Reset file pointer
                 file_content = await current_file.read()
@@ -634,14 +679,20 @@ async def _convert_file(
                 )
 
             else:
-                raise HTTPException(status_code=500, detail=f"Unsupported service: {service_to_try}")
+                raise create_http_exception(
+                    ErrorCode.INTERNAL_ERROR,
+                    details=f"Unsupported service: {service_to_try}",
+                    service=str(service_to_try)
+                )
             
             # Check response
             if response.status_code != 200:
                 logger.error(f"Service {service_to_try} returned {response.status_code}: {response.text}")
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=f"Conversion failed: {response.text}"
+                raise create_http_exception(
+                    ErrorCode.SERVICE_ERROR,
+                    details=f"Conversion failed: {response.text}",
+                    service=str(service_to_try),
+                    status_code=response.status_code
                 )
 
             # Determine content type based on output format

@@ -25,6 +25,9 @@ from convert.router import router as convert_router
 # Import service URL configuration
 from convert.utils.conversion_lookup import get_service_urls
 
+# Import centralized error handling
+from convert.utils.error_handling import create_error_response, ErrorCode, handle_service_error
+
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -40,25 +43,6 @@ HOP_BY_HOP = {
     "transfer-encoding",
     "upgrade",
 }
-
-
-def create_error_response(status_code: int, error_type: str, service: str = None, details: str = None, **kwargs) -> JSONResponse:
-    """Create a consistent JSON error response across all endpoints."""
-    error_data = {
-        "error": error_type,
-        "timestamp": datetime.now().isoformat() + "Z",
-        "service": service,
-        "status_code": status_code
-    }
-    
-    if details:
-        error_data["details"] = details[:1000]  # Limit details length
-    
-    # Add any additional fields
-    error_data.update(kwargs)
-    
-    logger.error(f"Error response: {error_data}")
-    return JSONResponse(status_code=status_code, content=error_data)
 
 
 async def check_unstructured_io_health(client: httpx.AsyncClient, service_url: str) -> tuple[bool, int]:
