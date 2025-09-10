@@ -54,13 +54,14 @@ from ..config import (
     ConversionService,
     PANDOC_FORMAT_MAP,
     UNSTRUCTURED_IO_MIME_MAPPING,
-    SPECIAL_HANDLERS
+    SPECIAL_HANDLERS,
+    SERVICE_URLS
 )
 from .conversion_lookup import (
     get_primary_conversion,
     get_supported_conversions,
-    get_service_urls,
-    get_all_conversions
+    get_all_conversions,
+    DYNAMIC_SERVICE_URLS
 )
 from .url_conversion_manager import ConversionInput
 from .url_fetcher import fetch_url_content
@@ -93,30 +94,6 @@ def get_mime_type(extension: str) -> str:
     
     # Fallback for unknown extensions
     return f"application/{extension}"
-
-# Service URL mappings (should match main app)
-SERVICE_URLS = {
-    ConversionService.UNSTRUCTURED_IO: "http://unstructured-io:8000",
-    ConversionService.LIBREOFFICE: "http://libreoffice:2004",
-    ConversionService.PANDOC: "http://pandoc:3000",
-    ConversionService.GOTENBERG: "http://gotenberg:3000",
-    ConversionService.LOCAL: None  # Local processing, no URL needed
-}
-
-# Get dynamic service URLs that match the main app configuration
-def get_dynamic_service_urls():
-    """Get service URLs with the same logic as the main app"""
-    urls = get_service_urls()
-    return {
-        ConversionService.UNSTRUCTURED_IO: urls.get("unstructured-io"),
-        ConversionService.LIBREOFFICE: urls.get("libreoffice"),
-        ConversionService.PANDOC: urls.get("pandoc"),
-        ConversionService.GOTENBERG: urls.get("gotenberg"),
-        ConversionService.LOCAL: None
-    }
-
-# Use dynamic URLs
-DYNAMIC_SERVICE_URLS = get_dynamic_service_urls()
 
 async def _get_service_client(service: ConversionService, request: Request) -> httpx.AsyncClient:
     """Get the appropriate HTTP client for a service."""

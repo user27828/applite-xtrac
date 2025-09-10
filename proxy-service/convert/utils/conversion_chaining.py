@@ -12,7 +12,8 @@ from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from ..config import ConversionService, UNSTRUCTURED_IO_MIME_MAPPING
-from .conversion_core import _get_service_client, DYNAMIC_SERVICE_URLS
+from .conversion_lookup import DYNAMIC_SERVICE_URLS
+from .conversion_core import _get_service_client
 
 # Try to import unstructured functions for local markdown/text conversion
 try:

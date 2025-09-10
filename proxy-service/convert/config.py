@@ -30,13 +30,6 @@ SERVICE_URL_CONFIGS = {
     }
 }
 
-# Passthrough formats - formats that can be passed through without conversion
-# when input and output formats are the same
-PASSTHROUGH_FORMATS = {
-    "html",
-    "txt", 
-    "md"
-}
 
 class ConversionService(Enum):
     """Available conversion services."""
@@ -46,6 +39,24 @@ class ConversionService(Enum):
     GOTENBERG = "gotenberg"
     LOCAL = "local"
 
+
+# Service URL mappings (should match main app)
+SERVICE_URLS = {
+    ConversionService.UNSTRUCTURED_IO: "http://unstructured-io:8000",
+    ConversionService.LIBREOFFICE: "http://libreoffice:2004",
+    ConversionService.PANDOC: "http://pandoc:3000",
+    ConversionService.GOTENBERG: "http://gotenberg:3000",
+    ConversionService.LOCAL: None  # Local processing, no URL needed
+}
+
+
+# Passthrough formats - formats that can be passed through without conversion
+# when input and output formats are the same
+PASSTHROUGH_FORMATS = {
+    "html",
+    "txt", 
+    "md"
+}
 
 # Conversion matrix defining input -> output format mappings with preferred services
 CONVERSION_MATRIX = {

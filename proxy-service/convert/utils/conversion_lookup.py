@@ -10,6 +10,44 @@ import socket
 from ..config import CONVERSION_MATRIX, SERVICE_URL_CONFIGS, ConversionService
 
 
+def get_service_urls() -> Dict[str, str]:
+    """
+    Get service URLs with fallback mechanism for Docker vs local development.
+
+    Returns:
+        Dictionary mapping service names to their resolved URLs
+    """
+    urls = {}
+
+    for service, config in SERVICE_URL_CONFIGS.items():
+        # Try Docker URL first
+        try:
+            # Quick DNS resolution test
+            socket.gethostbyname(config["docker"].replace("http://", "").split(":")[0])
+            urls[service] = config["docker"]
+        except socket.gaierror:
+            # Fall back to localhost
+            urls[service] = config["local"]
+
+    return urls
+
+
+def get_dynamic_service_urls():
+    """Get service URLs with the same logic as the main app"""
+    urls = get_service_urls()
+    return {
+        ConversionService.UNSTRUCTURED_IO: urls.get("unstructured-io"),
+        ConversionService.LIBREOFFICE: urls.get("libreoffice"),
+        ConversionService.PANDOC: urls.get("pandoc"),
+        ConversionService.GOTENBERG: urls.get("gotenberg"),
+        ConversionService.LOCAL: None
+    }
+
+
+# Use dynamic URLs
+DYNAMIC_SERVICE_URLS = get_dynamic_service_urls()
+
+
 def get_conversion_methods(input_format: str, output_format: str) -> List[Tuple[ConversionService, str]]:
     """
     Get available conversion methods for a given input/output format pair.
@@ -106,25 +144,3 @@ def get_supported_conversions() -> Dict[str, List[str]]:
             supported[input_fmt].append(output_fmt)
 
     return supported
-
-
-def get_service_urls() -> Dict[str, str]:
-    """
-    Get service URLs with fallback mechanism for Docker vs local development.
-
-    Returns:
-        Dictionary mapping service names to their resolved URLs
-    """
-    urls = {}
-
-    for service, config in SERVICE_URL_CONFIGS.items():
-        # Try Docker URL first
-        try:
-            # Quick DNS resolution test
-            socket.gethostbyname(config["docker"].replace("http://", "").split(":")[0])
-            urls[service] = config["docker"]
-        except socket.gaierror:
-            # Fall back to localhost
-            urls[service] = config["local"]
-
-    return urls

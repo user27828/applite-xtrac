@@ -47,13 +47,15 @@ except ImportError:
     UNSTRUCTURED_AVAILABLE = False
 
 from .config import (
-    ConversionService
+    SERVICE_URLS
 )
 from .utils.conversion_lookup import (
     get_primary_conversion,
     get_supported_conversions,
     get_service_urls,
-    get_conversion_methods
+    get_conversion_methods,
+    DYNAMIC_SERVICE_URLS,
+    get_dynamic_service_urls
 )
 from .utils.conversion_chaining import (
     get_conversion_steps,
@@ -61,10 +63,7 @@ from .utils.conversion_chaining import (
 )
 from .utils.conversion_core import (
     _convert_file,
-    _get_service_client,
-    SERVICE_URLS,
-    DYNAMIC_SERVICE_URLS,
-    get_dynamic_service_urls
+    _get_service_client
 )
 from .utils.conversion_chaining import chain_conversions, ConversionStep
 from .utils.special_handlers import process_presentation_to_html
