@@ -11,10 +11,12 @@ import re
 import mimetypes
 from typing import Optional, Dict, Any
 from urllib.parse import urlparse
+from io import BytesIO
 from fastapi import HTTPException, Request, UploadFile, Form
 from fastapi.responses import StreamingResponse
-from io import BytesIO
-import asyncio
+
+# Import centralized HTTP client factory
+from .http_client import ServiceType
 
 # Import local conversion factory
 from .._local_ import LocalConversionFactory
@@ -102,7 +104,11 @@ async def _get_service_client(service: ConversionService, request: Request) -> h
         return request.app.state.libreoffice_client
     elif service == ConversionService.GOTENBERG:
         return request.app.state.gotenberg_client
+    elif service == ConversionService.PANDOC:
+        # Pandoc uses the default client
+        return request.app.state.client
     else:
+        # Default client for unstructured.io and other services
         return request.app.state.client
 
 

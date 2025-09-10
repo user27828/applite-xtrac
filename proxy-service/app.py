@@ -28,6 +28,13 @@ from convert.utils.conversion_lookup import get_service_urls
 # Import centralized error handling
 from convert.utils.error_handling import create_error_response, ErrorCode, handle_service_error
 
+# Import centralized HTTP client factory
+from convert.utils.http_client import (
+    get_http_client_factory,
+    ServiceType,
+    lifespan_http_clients
+)
+
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -75,59 +82,18 @@ async def check_unstructured_io_health(client: httpx.AsyncClient, service_url: s
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create shared AsyncClients optimized for Docker networking
-    # Connection limits and keepalive for better performance with containers
-    limits = httpx.Limits(
-        max_keepalive_connections=20,  # Keep connections alive
-        max_connections=100,           # Total connection limit
-        keepalive_expiry=30.0          # Keep connections alive for 30s
-    )
+    """Application lifespan manager with centralized HTTP client setup."""
+    # Get the HTTP client factory
+    factory = get_http_client_factory()
 
-    # Transport with Docker networking optimizations
-    transport = httpx.AsyncHTTPTransport(limits=limits)
+    # Create service-specific clients using the centralized factory
+    app.state.client = factory.create_client(ServiceType.UNSTRUCTURED_IO)
+    app.state.libreoffice_client = factory.create_client(ServiceType.LIBREOFFICE)
+    app.state.gotenberg_client = factory.create_client(ServiceType.GOTENBERG)
 
-    # Get timeout from environment variable or set default (None = no timeout)
-    http_timeout_str = os.getenv('APPLITEXTRAC_HTTP_TIMEOUT', '')
-    if not http_timeout_str.strip():
-        http_timeout = None  # No timeout
-        os.environ['APPLITEXTRAC_HTTP_TIMEOUT'] = ''
-    else:
-        http_timeout = float(http_timeout_str)
-    
-    # Use the configured timeout for all clients
-    default_timeout = httpx.Timeout(
-        connect=5.0,
-        read=http_timeout,
-        write=300.0,
-        pool=5.0
-    )
-
-    app.state.client = httpx.AsyncClient(
-        timeout=default_timeout,
-        transport=transport,
-        # Disable automatic redirects to reduce latency
-        follow_redirects=False
-    )
-
-    # All clients use the same timeout configuration
-    app.state.libreoffice_client = httpx.AsyncClient(
-        timeout=default_timeout,
-        transport=transport,
-        follow_redirects=False 
-    )
-
-    app.state.gotenberg_client = httpx.AsyncClient(
-        timeout=default_timeout,
-        transport=httpx.AsyncHTTPTransport(limits=limits),
-        follow_redirects=False 
-    )
-
-    try:
+    # Use the centralized lifespan context manager for proper cleanup
+    async with lifespan_http_clients():
         yield
-    finally:
-        await app.state.client.aclose()
-        await app.state.libreoffice_client.aclose()
-        await app.state.gotenberg_client.aclose() 
 
 
 app = FastAPI(lifespan=lifespan)
