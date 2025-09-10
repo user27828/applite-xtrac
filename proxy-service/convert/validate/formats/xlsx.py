@@ -1,69 +1,103 @@
 """
 XLSX file validation.
 
-Validates Microsoft Excel XLSX files using ZIP structure and content checks.
+Validates Excel XLSX files using openpyxl for structure and content checks.
 """
 
-import zipfile
 from pathlib import Path
 from typing import Optional
 import logging
 
+from ..base_validator import ArchiveBasedValidator, ValidationError
+
 logger = logging.getLogger(__name__)
 
-def validate_xlsx(file_path: str) -> bool:
-    """
-    Validate XLSX file.
 
-    Checks:
-    - File is valid ZIP archive
-    - Contains required XLSX structure ([Content_Types].xml, xl/workbook.xml)
-    - Has workbook content
+class XLSXValidator(ArchiveBasedValidator):
+    """XLSX file validator using the base validation framework."""
 
-    Args:
-        file_path: Path to the XLSX file
+    def __init__(self):
+        # Define required files for XLSX format
+        required_files = [
+            '[Content_Types].xml',
+            '_rels/.rels',
+            'xl/workbook.xml'
+        ]
+        super().__init__("xlsx", required_files)
 
-    Returns:
-        bool: True if validation passes
+    def _validate_content(self, content: bytes, **options) -> bool:
+        """
+        Validate XLSX file content.
 
-    Raises:
-        ValueError: If validation fails
-    """
-    try:
-        with zipfile.ZipFile(file_path, 'r') as zf:
-            # Check for required XLSX files
-            required_files = [
-                '[Content_Types].xml',
-                'xl/workbook.xml'
-            ]
+        Args:
+            content: XLSX file content as bytes
+            **options: Additional validation options
 
-            for required_file in required_files:
-                if required_file not in zf.namelist():
-                    raise ValueError(f"Missing required XLSX file: {required_file}")
+        Returns:
+            bool: True if validation passes
 
-            # Check workbook content exists and has size
-            try:
-                workbook_info = zf.getinfo('xl/workbook.xml')
-                if workbook_info.file_size == 0:
-                    raise ValueError("XLSX workbook content is empty")
-            except KeyError:
-                raise ValueError("xl/workbook.xml not found in XLSX structure")
+        Raises:
+            ValidationError: If validation fails
+        """
+        # Perform basic archive validation
+        self._validate_basic_archive_content(content)
 
-            # Optional: Check for worksheets
-            worksheets = [name for name in zf.namelist() if name.startswith('xl/worksheets/') and name.endswith('.xml')]
-            if not worksheets:
-                logger.warning("XLSX file contains no worksheets")
+        # Validate XLSX-specific structure
+        self._validate_xlsx_structure(content)
 
-            # Optional: Check for shared strings
-            shared_strings_files = [name for name in zf.namelist() if 'sharedStrings' in name]
-            if not shared_strings_files:
-                logger.info("XLSX file has no shared strings (may be expected for simple files)")
+        return True
 
-            return True
+    def _validate_xlsx_structure(self, content: bytes) -> None:
+        """
+        Validate XLSX file structure.
 
-    except zipfile.BadZipFile:
-        raise ValueError("File is not a valid ZIP archive (required for XLSX)")
-    except Exception as e:
-        if isinstance(e, ValueError):
-            raise
-        raise ValueError(f"Failed to validate XLSX: {e}")
+        Args:
+            content: XLSX file content as bytes
+
+        Raises:
+            ValidationError: If structure validation fails
+        """
+        # Check for required XLSX files
+        required_files = [
+            'xl/workbook.xml',
+            'xl/worksheets/sheet1.xml',
+            '[Content_Types].xml'
+        ]
+
+        missing_files = []
+        for required_file in required_files:
+            if not self._file_exists_in_archive(content, required_file):
+                missing_files.append(required_file)
+
+        if missing_files:
+            raise ValidationError(
+                f"Missing required XLSX files: {', '.join(missing_files)}",
+                format_type=self.format_name,
+                details={"missing_files": missing_files}
+            )
+
+        # Check for workbook relationships
+        if not self._file_exists_in_archive(content, 'xl/_rels/workbook.xml.rels'):
+            self.logger.warning("Missing workbook relationships file")
+
+        # Validate content types
+        content_types_content = self._extract_file_from_archive(content, '[Content_Types].xml')
+        if content_types_content:
+            self._validate_content_types(content_types_content.decode('utf-8'))
+
+    def _validate_content_types(self, content_types_xml: str) -> None:
+        """
+        Validate Content_Types.xml content.
+
+        Args:
+            content_types_xml: Content of [Content_Types].xml
+        """
+        # Check for required content type declarations
+        required_types = [
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml'
+        ]
+
+        for content_type in required_types:
+            if content_type not in content_types_xml:
+                self.logger.warning(f"Missing content type declaration: {content_type}")

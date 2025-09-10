@@ -1,80 +1,92 @@
 """
 Markdown file validation.
 
-Validates Markdown files using encoding and basic content checks.
+Validates Markdown files using structure and content checks.
 """
 
+import re
 from pathlib import Path
 from typing import Optional
 import logging
-import re
+
+from ..base_validator import TextBasedValidator, ValidationError
 
 logger = logging.getLogger(__name__)
 
-def validate_markdown(file_path: str) -> bool:
-    """
-    Validate Markdown file.
 
-    Checks:
-    - File can be read as UTF-8 text
-    - Contains some content
-    - Basic Markdown structure (optional headers, lists, etc.)
+class MarkdownValidator(TextBasedValidator):
+    """Markdown file validator using the base validation framework."""
 
-    Args:
-        file_path: Path to the Markdown file
+    def __init__(self):
+        super().__init__("md")
 
-    Returns:
-        bool: True if validation passes
+    def _validate_content(self, content: str, **options) -> bool:
+        """
+        Validate Markdown file content.
 
-    Raises:
-        ValueError: If validation fails
-    """
-    try:
-        with open(file_path, 'r', encoding='utf-8', errors='strict') as f:
-            content = f.read()
-    except UnicodeDecodeError:
-        raise ValueError("Markdown file must be valid UTF-8 encoded text")
-    except Exception as e:
-        raise ValueError(f"Failed to read Markdown file: {e}")
+        Args:
+            content: Markdown content to validate
+            **options: Additional validation options
 
-    if not content.strip():
-        raise ValueError("Markdown file is empty")
+        Returns:
+            bool: True if validation passes
 
-    # Basic Markdown validation - check for common patterns
-    # This is permissive since Markdown can be plain text
-    lines = content.split('\n')
+        Raises:
+            ValidationError: If validation fails
+        """
+        # Perform basic text content validation
+        self._validate_basic_text_content(content)
 
-    # Check if it looks like Markdown (has headers, lists, links, etc.)
-    has_markdown_features = False
+        # Validate Markdown-specific structure
+        self._validate_markdown_structure(content)
 
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
+        return True
 
-        # Check for headers (#, ##, ###)
-        if re.match(r'^#{1,6}\s+', line):
-            has_markdown_features = True
-            break
+    def _validate_markdown_structure(self, content: str) -> None:
+        """
+        Validate Markdown document structure.
 
-        # Check for list items (-, *, +, numbers)
-        if re.match(r'^[\s]*[-\*\+]|\d+\.', line):
-            has_markdown_features = True
-            break
+        Args:
+            content: Markdown content to validate
 
-        # Check for links [text](url)
-        if '[' in line and '](' in line and ')' in line:
-            has_markdown_features = True
-            break
+        Raises:
+            ValidationError: If structure validation fails
+        """
+        lines = content.split('\n')
 
-        # Check for emphasis (*text*, **text**, _text_, __text__)
-        if re.search(r'\*\*.*?\*\*|\*.*?\*|_{2}.*?_{2}|_.*?_', line):
-            has_markdown_features = True
-            break
+        # Check for basic content
+        if not any(line.strip() for line in lines):
+            raise ValidationError(
+                "Markdown file appears to be empty",
+                format_type=self.format_name,
+                details={"total_lines": len(lines), "empty_lines": sum(1 for line in lines if not line.strip())}
+            )
 
-    # If no Markdown features found, that's still OK - it could be plain text
-    # that will be treated as Markdown
-    if not has_markdown_features:
-        logger.info("Markdown file appears to be plain text - this is acceptable")
+        # Check for common Markdown elements (optional - just warnings)
+        has_headers = any(re.match(r'^#{1,6}\s', line) for line in lines)
+        has_links = any('[' in line and '](' in line for line in lines)
+        has_lists = any(re.match(r'^[\s]*[-\*\+]|\d+\.', line) for line in lines)
 
-    return True
+        if not has_headers and not has_links and not has_lists:
+            self.logger.info("Markdown file contains no common Markdown elements (headers, links, lists)")
+
+        # Check for code blocks (basic validation)
+        self._validate_code_blocks(content)
+
+    def _validate_code_blocks(self, content: str) -> None:
+        """
+        Validate code blocks in Markdown.
+
+        Args:
+            content: Markdown content to validate
+        """
+        # Check for fenced code blocks
+        fenced_blocks = re.findall(r'```[\s\S]*?```', content, re.MULTILINE)
+        for i, block in enumerate(fenced_blocks):
+            if not block.strip():
+                self.logger.warning(f"Empty fenced code block found at position {i}")
+
+        # Check for inline code
+        inline_code = re.findall(r'`[^`\n]+`', content)
+        if not inline_code and not fenced_blocks:
+            self.logger.info("No code blocks found in Markdown file")

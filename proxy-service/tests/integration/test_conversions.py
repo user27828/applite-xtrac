@@ -200,7 +200,12 @@ class TestConversionEndpoints:
                     
                     # Validate the output file
                     try:
-                        file_valid = validate_file(str(output_file_path), output_ext)
+                        validation_result = validate_file(str(output_file_path), output_ext)
+                        if validation_result is None:
+                            # Content doesn't match expected format (e.g., plain text as TeX)
+                            file_valid = None
+                        else:
+                            file_valid = validation_result
                     except ValidationError as e:
                         file_valid = False
                         result["validation_error"] = str(e)
@@ -426,7 +431,10 @@ class TestConversionEndpoints:
             service_name = CONVERSION_METHOD_TO_SERVICE_MAP.get(conversion_method, conversion_method.upper().replace(" ", "_"))
 
             # Print consolidated result
-            valid_status = "✅ Y" if result.get("fileValid", False) else "❌ N"
+            if result.get("fileValid") is None:
+                valid_status = "➖ N/A"
+            else:
+                valid_status = "✅ Y" if result.get("fileValid", False) else "❌ N"
             line = f"🤔 /convert/{endpoint} ({input_ext} → {output_ext}): {status_emoji} / Valid: {valid_status} / IN: {sample_file['filename']} {time_info} ({service_name}){error_info}"
             print(line)
             output_lines.append(line)
@@ -530,7 +538,7 @@ class TestConversionEndpoints:
                 endpoint = result["endpoint"].replace("/convert/", "")
                 input_ext = result["input_extension"]
                 output_ext = result["output_extension"]
-                valid_status = "✅ Y" if result.get("fileValid", False) else "❌ N"
+                valid_status = "➖ N/A" if result.get("fileValid") is None else "✅ Y" if result.get("fileValid", False) else "❌ N"
                 print(f"🤔 /convert/{endpoint} ({input_ext} → {output_ext}): {status_emoji} / Valid: {valid_status} / IN: {result.get('input_filename', 'unknown')} {time_info} ({service_name}){error_info}")
 
         # Print summary

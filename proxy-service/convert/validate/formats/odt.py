@@ -1,78 +1,132 @@
 """
 ODT file validation.
 
-Validates OpenDocument Text (ODT) files using ZIP structure and content checks.
+Validates OpenDocument Text files using structure and content checks.
 """
 
-import zipfile
 from pathlib import Path
 from typing import Optional
 import logging
 
+from ..base_validator import ArchiveBasedValidator, ValidationError
+
 logger = logging.getLogger(__name__)
 
-def validate_odt(file_path: str) -> bool:
-    """
-    Validate ODT file.
 
-    Checks:
-    - File is valid ZIP archive
-    - Contains required ODT structure (mimetype, META-INF/manifest.xml, content.xml)
-    - Has document content
+class ODTValidator(ArchiveBasedValidator):
+    """ODT file validator using the base validation framework."""
 
-    Args:
-        file_path: Path to the ODT file
+    def __init__(self):
+        # Define required files for ODT format
+        required_files = [
+            'mimetype',
+            'META-INF/manifest.xml',
+            'content.xml'
+        ]
+        super().__init__("odt", required_files)
 
-    Returns:
-        bool: True if validation passes
+    def _validate_content(self, content: bytes, **options) -> bool:
+        """
+        Validate ODT file content.
 
-    Raises:
-        ValueError: If validation fails
-    """
-    try:
-        with zipfile.ZipFile(file_path, 'r') as zf:
-            # Check for required ODT files
-            required_files = [
-                'mimetype',
-                'META-INF/manifest.xml',
-                'content.xml'
-            ]
+        Args:
+            content: ODT file content as bytes
+            **options: Additional validation options
 
-            for required_file in required_files:
-                if required_file not in zf.namelist():
-                    raise ValueError(f"Missing required ODT file: {required_file}")
+        Returns:
+            bool: True if validation passes
 
-            # Check mimetype content
-            try:
-                with zf.open('mimetype') as f:
-                    mimetype_content = f.read().decode('utf-8').strip()
-                    if mimetype_content != 'application/vnd.oasis.opendocument.text':
-                        raise ValueError(f"Invalid ODT mimetype: {mimetype_content}")
-            except KeyError:
-                raise ValueError("mimetype file not found in ODT structure")
+        Raises:
+            ValidationError: If validation fails
+        """
+        # Perform basic archive validation
+        self._validate_basic_archive_content(content)
 
-            # Check document content exists and has size
-            try:
-                content_info = zf.getinfo('content.xml')
-                if content_info.file_size == 0:
-                    raise ValueError("ODT document content is empty")
-            except KeyError:
-                raise ValueError("content.xml not found in ODT structure")
+        # Validate ODT-specific structure
+        self._validate_odt_structure(content)
 
-            # Optional: Check for meta.xml (document metadata)
-            if 'meta.xml' in zf.namelist():
-                try:
-                    meta_info = zf.getinfo('meta.xml')
-                    if meta_info.file_size == 0:
-                        logger.warning("ODT file has empty metadata")
-                except KeyError:
-                    pass  # meta.xml is optional
+        return True
 
-            return True
+    def _validate_odt_structure(self, content: bytes) -> None:
+        """
+        Validate ODT file structure.
 
-    except zipfile.BadZipFile:
-        raise ValueError("File is not a valid ZIP archive (required for ODT)")
-    except Exception as e:
-        if isinstance(e, ValueError):
-            raise
-        raise ValueError(f"Failed to validate ODT: {e}")
+        Args:
+            content: ODT file content as bytes
+
+        Raises:
+            ValidationError: If structure validation fails
+        """
+        # Check for required ODT files
+        required_files = [
+            'content.xml',
+            'styles.xml',
+            'meta.xml',
+            'META-INF/manifest.xml'
+        ]
+
+        missing_files = []
+        for required_file in required_files:
+            if not self._file_exists_in_archive(content, required_file):
+                missing_files.append(required_file)
+
+        if missing_files:
+            raise ValidationError(
+                f"Missing required ODT files: {', '.join(missing_files)}",
+                format_type=self.format_name,
+                details={"missing_files": missing_files}
+            )
+
+        # Validate manifest
+        manifest_content = self._extract_file_from_archive(content, 'META-INF/manifest.xml')
+        if manifest_content:
+            self._validate_manifest(manifest_content.decode('utf-8'))
+
+        # Validate content.xml structure
+        content_xml = self._extract_file_from_archive(content, 'content.xml')
+        if content_xml:
+            self._validate_content_xml(content_xml.decode('utf-8'))
+
+    def _validate_manifest(self, manifest_xml: str) -> None:
+        """
+        Validate manifest.xml content.
+
+        Args:
+            manifest_xml: Content of manifest.xml
+        """
+        # Check for required manifest entries
+        required_entries = [
+            'content.xml',
+            'styles.xml',
+            'meta.xml'
+        ]
+
+        for entry in required_entries:
+            if f'<manifest:file-entry manifest:full-path="{entry}"' not in manifest_xml:
+                self.logger.warning(f"Missing manifest entry for: {entry}")
+
+    def _validate_content_xml(self, content_xml: str) -> None:
+        """
+        Validate content.xml structure.
+
+        Args:
+            content_xml: Content of content.xml
+        """
+        # Check for basic ODT structure
+        if '<office:document-content' not in content_xml:
+            raise ValidationError(
+                "Invalid ODT content.xml: missing document-content element",
+                format_type=self.format_name,
+                details={"missing": "office:document-content"}
+            )
+
+        if '<office:body>' not in content_xml:
+            raise ValidationError(
+                "Invalid ODT content.xml: missing body element",
+                format_type=self.format_name,
+                details={"missing": "office:body"}
+            )
+
+        # Check for text content
+        if '<office:text>' not in content_xml:
+            self.logger.warning("ODT file contains no text content")

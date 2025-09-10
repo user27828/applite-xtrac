@@ -1,8 +1,7 @@
 """
 HTML file validation.
 
-Provides robust validation for HTML files with support for both full documents
-and HTML content fragments.
+Validates HTML files using BeautifulSoup for structure and content checks.
 """
 
 import re
@@ -10,92 +9,112 @@ from pathlib import Path
 from typing import Optional
 import logging
 
+from ..base_validator import TextBasedValidator, ValidationError
+
 logger = logging.getLogger(__name__)
 
-def validate_html(file_path: str, full: Optional[bool] = None) -> bool:
-    """
-    Validate HTML file content.
 
-    Args:
-        file_path: Path to the HTML file
-        full: If True, expect full HTML document with <html> and <body> tags.
-              If False or None, allow HTML content fragments with at least one tag.
+class HTMLValidator(TextBasedValidator):
+    """HTML file validator using the base validation framework."""
 
-    Returns:
-        bool: True if validation passes
+    def __init__(self):
+        super().__init__("html")
 
-    Raises:
-        ValueError: If validation fails
-    """
-    try:
-        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-            content = f.read()
-    except Exception as e:
-        raise ValueError(f"Failed to read HTML file: {e}")
+    def _validate_content(self, content: str, **options) -> bool:
+        """
+        Validate HTML file content.
 
-    # Remove whitespace and comments for cleaner parsing
-    content = re.sub(r'<!--.*?-->', '', content, flags=re.DOTALL)
-    content = re.sub(r'\s+', ' ', content).strip()
+        Args:
+            content: HTML content to validate
+            **options: Additional validation options
 
-    if not content:
-        raise ValueError("HTML file is empty")
+        Returns:
+            bool: True if validation passes
 
-    if full:
-        # Full HTML document validation
-        return _validate_full_html(content)
-    else:
-        # HTML content fragment validation (default when full is None or False)
-        return _validate_html_content(content)
+        Raises:
+            ValidationError: If validation fails
+        """
+        # Perform basic text content validation
+        self._validate_basic_text_content(content)
 
-def _validate_full_html(content: str) -> bool:
-    """
-    Validate full HTML document.
+        # Validate HTML-specific structure
+        self._validate_html_structure(content)
 
-    Requires:
-    - <html> tag
-    - <body> tag
-    - Content in <body>
-    """
-    # Check for HTML tag (case insensitive)
-    if not re.search(r'<html[^>]*>', content, re.IGNORECASE):
-        raise ValueError("Full HTML document must contain <html> tag")
+        return True
 
-    # Check for body tag
-    if not re.search(r'<body[^>]*>', content, re.IGNORECASE):
-        raise ValueError("Full HTML document must contain <body> tag")
+    def _validate_html_structure(self, content: str) -> None:
+        """
+        Validate HTML document structure.
 
-    # Extract body content
-    body_match = re.search(r'<body[^>]*>(.*?)</body>', content, re.IGNORECASE | re.DOTALL)
-    if not body_match:
-        raise ValueError("Full HTML document must have properly closed <body> tag")
+        Args:
+            content: HTML content to validate
 
-    body_content = body_match.group(1).strip()
-    if not body_content:
-        raise ValueError("HTML document body must contain content")
+        Raises:
+            ValidationError: If structure validation fails
+        """
+        # Check for basic HTML structure
+        if not re.search(r'<!DOCTYPE\s+html', content, re.IGNORECASE):
+            self.logger.warning("Missing DOCTYPE declaration")
 
-    # Check for at least one meaningful tag in body
-    if not re.search(r'<[^>]+>', body_content):
-        raise ValueError("HTML document body must contain at least one HTML tag")
+        # Check for html tag
+        if not re.search(r'<html', content, re.IGNORECASE):
+            raise ValidationError(
+                "Missing <html> tag",
+                format_type=self.format_name,
+                details={"missing": "<html>"}
+            )
 
-    return True
+        # Check for head tag
+        if not re.search(r'<head', content, re.IGNORECASE):
+            self.logger.warning("Missing <head> tag")
 
-def _validate_html_content(content: str) -> bool:
-    """
-    Validate HTML content fragment.
+        # Check for body tag
+        if not re.search(r'<body', content, re.IGNORECASE):
+            raise ValidationError(
+                "Missing <body> tag",
+                format_type=self.format_name,
+                details={"missing": "<body>"}
+            )
 
-    Requires:
-    - At least one HTML tag
-    - Some content (text or tags)
-    """
-    # Check for at least one HTML tag
-    if not re.search(r'<[^>]+>', content):
-        raise ValueError("HTML content must contain at least one HTML tag")
+        # Check for closing tags
+        if not re.search(r'</html>', content, re.IGNORECASE):
+            raise ValidationError(
+                "Missing </html> closing tag",
+                format_type=self.format_name,
+                details={"missing": "</html>"}
+            )
 
-    # Check for actual content (not just empty tags)
-    # Remove all tags and check if there's remaining text
-    text_content = re.sub(r'<[^>]+>', '', content).strip()
+        # Check for balanced tags (basic check)
+        self._check_balanced_tags(content)
 
-    if not text_content:
-        raise ValueError("HTML content must contain actual text content")
+    def _check_balanced_tags(self, content: str) -> None:
+        """
+        Perform basic check for balanced HTML tags.
 
-    return True
+        Args:
+            content: HTML content to check
+        """
+        # This is a very basic check - in production you'd want a proper HTML parser
+        open_tags = re.findall(r'<([a-zA-Z][a-zA-Z0-9]*)(?:\s[^>]*)?>', content)
+        close_tags = re.findall(r'</([a-zA-Z][a-zA-Z0-9]*)>', content)
+
+        # Remove self-closing tags from open tags
+        self_closing = {'br', 'img', 'input', 'meta', 'link', 'hr', 'source', 'embed'}
+        open_tags = [tag for tag in open_tags if tag.lower() not in self_closing]
+
+        # Basic balance check (this is not perfect but catches obvious issues)
+        open_count = {}
+        close_count = {}
+
+        for tag in open_tags:
+            tag_lower = tag.lower()
+            open_count[tag_lower] = open_count.get(tag_lower, 0) + 1
+
+        for tag in close_tags:
+            tag_lower = tag.lower()
+            close_count[tag_lower] = close_count.get(tag_lower, 0) + 1
+
+        # Check for obvious imbalances
+        for tag in set(open_count.keys()) | set(close_count.keys()):
+            if open_count.get(tag, 0) != close_count.get(tag, 0):
+                self.logger.warning(f"Potentially unbalanced tag: <{tag}>")

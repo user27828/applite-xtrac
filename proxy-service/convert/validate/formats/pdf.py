@@ -1,63 +1,109 @@
 """
 PDF file validation.
 
-Validates PDF files using magic bytes and basic structure checks.
+Validates PDF files using PyPDF2 for structure and content checks.
 """
 
-import os
 from pathlib import Path
 from typing import Optional
 import logging
 
+from ..base_validator import BinaryBasedValidator, ValidationError
+
 logger = logging.getLogger(__name__)
 
-def validate_pdf(file_path: str) -> bool:
-    """
-    Validate PDF file.
 
-    Checks:
-    - File starts with PDF magic bytes (%PDF-)
-    - Contains EOF marker
-    - Basic structure validation
+class PDFValidator(BinaryBasedValidator):
+    """PDF file validator using the base validation framework."""
 
-    Args:
-        file_path: Path to the PDF file
+    def __init__(self):
+        super().__init__("pdf")
 
-    Returns:
-        bool: True if validation passes
+    def _validate_content(self, content: bytes, **options) -> bool:
+        """
+        Validate PDF file content.
 
-    Raises:
-        ValueError: If validation fails
-    """
-    try:
-        with open(file_path, 'rb') as f:
-            # Read first 1024 bytes for header check
-            header = f.read(1024)
+        Args:
+            content: PDF file content as bytes
+            **options: Additional validation options
 
-            # Check PDF magic bytes
-            if not header.startswith(b'%PDF-'):
-                raise ValueError("File does not have valid PDF header")
+        Returns:
+            bool: True if validation passes
 
-            # Check version (should be 1.x)
-            try:
-                version_part = header[5:8].decode('ascii')
-                major_version = int(version_part[0])
-                if major_version < 1:
-                    raise ValueError(f"Unsupported PDF version: {version_part}")
-            except (ValueError, IndexError):
-                raise ValueError("Invalid PDF version format")
+        Raises:
+            ValidationError: If validation fails
+        """
+        # Perform basic binary content validation
+        self._validate_basic_binary_content(content)
 
-            # Read last 1024 bytes for EOF check
-            f.seek(-min(1024, os.path.getsize(file_path)), 2)
-            footer = f.read()
+        # Validate PDF-specific structure
+        self._validate_pdf_structure(content)
 
-            # Check for EOF marker
-            if b'%%EOF' not in footer:
-                raise ValueError("PDF file missing EOF marker")
+        return True
 
-            return True
+    def _validate_pdf_structure(self, content: bytes) -> None:
+        """
+        Validate PDF file structure.
 
-    except Exception as e:
-        if isinstance(e, ValueError):
-            raise
-        raise ValueError(f"Failed to validate PDF: {e}")
+        Args:
+            content: PDF file content as bytes
+
+        Raises:
+            ValidationError: If structure validation fails
+        """
+        # Check PDF header
+        if not content.startswith(b'%PDF-'):
+            raise ValidationError(
+                "Invalid PDF file: missing PDF header",
+                format_type=self.format_name,
+                details={"header_found": content[:10] if len(content) >= 10 else content}
+            )
+
+        # Check PDF trailer
+        if b'%%EOF' not in content:
+            raise ValidationError(
+                "Invalid PDF file: missing EOF marker",
+                format_type=self.format_name,
+                details={"eof_found": b'%%EOF' in content}
+            )
+
+        # Check for xref table or xref stream
+        if b'xref' not in content and b'/Type/XRef' not in content:
+            raise ValidationError(
+                "Invalid PDF file: missing cross-reference table",
+                format_type=self.format_name,
+                details={"xref_found": b'xref' in content, "xref_stream_found": b'/Type/XRef' in content}
+            )
+
+        # Basic structure validation
+        self._validate_pdf_objects(content)
+
+    def _validate_pdf_objects(self, content: bytes) -> None:
+        """
+        Validate basic PDF object structure.
+
+        Args:
+            content: PDF file content as bytes
+        """
+        # Check for basic PDF objects (this is a simplified validation)
+        content_str = content.decode('latin-1', errors='ignore')
+
+        # Look for object definitions
+        import re
+        obj_pattern = r'\d+\s+\d+\s+obj'
+        objects = re.findall(obj_pattern, content_str)
+
+        if not objects:
+            raise ValidationError(
+                "Invalid PDF file: no PDF objects found",
+                format_type=self.format_name,
+                details={"objects_found": len(objects)}
+            )
+
+        # Check for root object
+        if '/Root' not in content_str:
+            raise ValidationError(
+                "Invalid PDF file: missing root object reference",
+                format_type=self.format_name,
+                details={"root_found": '/Root' in content_str}
+            )

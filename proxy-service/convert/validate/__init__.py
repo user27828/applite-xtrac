@@ -10,11 +10,10 @@ import logging
 from typing import Dict, Any, Optional, Union
 from pathlib import Path
 
+from .base_validator import ValidationError, create_validator_for_format
+
 logger = logging.getLogger(__name__)
 
-class ValidationError(Exception):
-    """Raised when file validation fails."""
-    pass
 
 class FileValidator:
     """Factory class for file validation."""
@@ -25,21 +24,26 @@ class FileValidator:
 
     def _load_validators(self):
         """Load all available format validators."""
-        from .formats import html, pdf, docx, md, txt, json_validator, tex, xlsx, pptx, odt, ods, odp
+        # Import validator classes
+        from .formats import (
+            html, pdf, docx, md, txt, json, tex,
+            xlsx, pptx, odt, ods, odp
+        )
 
-        self._validators = {
-            'html': html.validate_html,
-            'pdf': pdf.validate_pdf,
-            'docx': docx.validate_docx,
-            'pptx': pptx.validate_pptx,
-            'md': md.validate_markdown,
-            'txt': txt.validate_text,
-            'json': json_validator.validate_json,
-            'tex': tex.validate_tex,
-            'xlsx': xlsx.validate_xlsx,
-            'odt': odt.validate_odt,
-            'ods': ods.validate_ods,
-            'odp': odp.validate_odp,
+        # Map format names to validator classes
+        self._validator_classes = {
+            'html': html.HTMLValidator,
+            'pdf': pdf.PDFValidator,
+            'docx': docx.DOCXValidator,
+            'pptx': pptx.PPTXValidator,
+            'md': md.MarkdownValidator,
+            'txt': txt.TextValidator,
+            'json': json.JSONValidator,
+            'tex': tex.TeXValidator,
+            'xlsx': xlsx.XLSXValidator,
+            'odt': odt.ODTValidator,
+            'ods': ods.ODSValidator,
+            'odp': odp.ODPValidator,
         }
 
     def validate_file(
@@ -75,19 +79,26 @@ class FileValidator:
         if file_size == 0:
             raise ValidationError("File is empty (size 0)")
 
-        # Get validator
-        validator = self._validators.get(expected_format.lower())
-        if not validator:
+        # Get validator class
+        validator_class = self._validator_classes.get(expected_format.lower())
+        if not validator_class:
             raise ValueError(f"Unsupported format: {expected_format}")
 
         try:
-            return validator(str(file_path), **options)
+            # Create validator instance and validate
+            validator = validator_class()
+            return validator.validate_file(str(file_path), **options)
+        except ValidationError:
+            # Re-raise ValidationError as-is
+            raise
         except Exception as e:
             logger.error(f"Validation failed for {file_path}: {e}")
             raise ValidationError(f"Validation failed: {str(e)}")
 
+
 # Global validator instance
 _validator = None
+
 
 def get_validator() -> FileValidator:
     """Get the global file validator instance."""
@@ -96,11 +107,12 @@ def get_validator() -> FileValidator:
         _validator = FileValidator()
     return _validator
 
+
 def validate_file(
     file_path: Union[str, Path],
     expected_format: str,
     **options
-) -> bool:
+) -> Optional[bool]:
     """
     Convenience function to validate a file.
 
@@ -110,7 +122,7 @@ def validate_file(
         **options: Additional validation options
 
     Returns:
-        bool: True if validation passes
+        Optional[bool]: True if validation passes, None if content doesn't match format
 
     Raises:
         ValidationError: If validation fails
