@@ -84,7 +84,7 @@ Use this for basic conversion testing.
 
     print(f"Created test files in {TEST_FILES_DIR}")
 
-def test_endpoint(endpoint, input_file, output_file=None, description=""):
+def __test_conversion_endpoint(endpoint, input_file, output_file=None, description=""):
     """Test a specific conversion endpoint."""
     if not os.path.exists(input_file):
         print(f"❌ Input file {input_file} does not exist")
@@ -145,14 +145,14 @@ def run_tests():
     test_supported_conversions()
 
     # Test markdown conversions
-    test_endpoint(
+    __test_conversion_endpoint(
         "/convert/md-pdf",
         TEST_FILES_DIR / "test.md",
         TEST_FILES_DIR / "test_output.pdf",
         "Convert Markdown to PDF"
     )
 
-    test_endpoint(
+    __test_conversion_endpoint(
         "/convert/md-docx",
         TEST_FILES_DIR / "test.md",
         TEST_FILES_DIR / "test_output.docx",
@@ -160,14 +160,14 @@ def run_tests():
     )
 
     # Test HTML conversions
-    test_endpoint(
+    __test_conversion_endpoint(
         "/convert/html-pdf",
         TEST_FILES_DIR / "test.html",
         TEST_FILES_DIR / "test_html_output.pdf",
         "Convert HTML to PDF"
     )
 
-    test_endpoint(
+    __test_conversion_endpoint(
         "/convert/html-md",
         TEST_FILES_DIR / "test.html",
         TEST_FILES_DIR / "test_html_output.md",
@@ -175,14 +175,14 @@ def run_tests():
     )
 
     # Test text conversions
-    test_endpoint(
+    __test_conversion_endpoint(
         "/convert/txt-pdf",
         TEST_FILES_DIR / "test.txt",
         TEST_FILES_DIR / "test_txt_output.pdf",
         "Convert Text to PDF"
     )
 
-    test_endpoint(
+    __test_conversion_endpoint(
         "/convert/txt-docx",
         TEST_FILES_DIR / "test.txt",
         TEST_FILES_DIR / "test_txt_output.docx",

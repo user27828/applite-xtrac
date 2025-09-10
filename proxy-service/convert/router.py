@@ -60,13 +60,6 @@ from .utils.conversion_chaining import (
     get_conversion_steps,
     is_chained_conversion
 )
-from .utils.url_helpers import (
-    handle_url_conversion_request,
-    cleanup_conversion_temp_files,
-    get_url_conversion_info,
-    validate_url_conversion_request,
-    get_supported_input_formats
-)
 from .utils.conversion_core import (
     _convert_file,
     _get_service_client,
@@ -77,6 +70,9 @@ from .utils.conversion_core import (
 )
 from .utils.conversion_chaining import chain_conversions, ConversionStep
 from .utils.special_handlers import process_presentation_to_html
+
+# Import URL conversion manager
+from .utils.url_conversion_manager import URLConversionManager
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -684,52 +680,121 @@ async def convert_txt_to_tex(request: Request, file: UploadFile = File(...)):
 # url conversions
 @router.post("/url-html")
 async def convert_url_to_html(request: Request, url: str = Form(...)):
-    """Convert URL to HTML (Local - raw HTML content fetching)"""
-    # Validate URL
-    if not validate_url(url):
-        raise HTTPException(status_code=400, detail="Invalid URL format. URL must be a valid HTTP or HTTPS URL.")
+    """Convert URL to HTML (Intelligent routing - direct or temp file based on service capabilities)"""
+    # Use dedicated URL manager
+    url_manager = URLConversionManager()
+    conversion_input = await url_manager.process_url_conversion(url, "html")
     
-    return await _convert_file(request, url=url, input_format="auto", output_format="html")
+    # Pass to standard conversion pipeline
+    return await _convert_file(
+        request=request,
+        file=None,
+        url_input=conversion_input,
+        input_format=conversion_input.metadata["detected_format"],
+        output_format="html"
+    )
 
 
 @router.post("/url-json")
 async def convert_url_to_json(request: Request, url: str = Form(...)):
-    """Convert URL to JSON structure (Unstructured-IO - web content analysis)"""
-    # Validate URL
-    if not validate_url(url):
-        raise HTTPException(status_code=400, detail="Invalid URL format. URL must be a valid HTTP or HTTPS URL.")
+    """Convert URL to JSON structure (Intelligent routing - direct or temp file based on service capabilities)"""
+    # Use dedicated URL manager
+    url_manager = URLConversionManager()
+    conversion_input = await url_manager.process_url_conversion(url, "json")
     
-    return await _convert_file(request, url=url, input_format="auto", output_format="json")
+    # Pass to standard conversion pipeline
+    return await _convert_file(
+        request=request,
+        file=None,
+        url_input=conversion_input,
+        input_format=conversion_input.metadata["detected_format"],
+        output_format="json"
+    )
 
 
 @router.post("/url-md")
 async def convert_url_to_md(request: Request, url: str = Form(...)):
-    """Convert URL to Markdown (Unstructured-IO - content extraction)"""
-    # Validate URL
-    if not validate_url(url):
-        raise HTTPException(status_code=400, detail="Invalid URL format. URL must be a valid HTTP or HTTPS URL.")
+    """Convert URL to Markdown (Intelligent routing - direct or temp file based on service capabilities)"""
+    # Use dedicated URL manager
+    url_manager = URLConversionManager()
+    conversion_input = await url_manager.process_url_conversion(url, "md")
     
-    return await _convert_file(request, url=url, input_format="auto", output_format="md")
+    # Pass to standard conversion pipeline
+    return await _convert_file(
+        request=request,
+        file=None,
+        url_input=conversion_input,
+        input_format=conversion_input.metadata["detected_format"],
+        output_format="md"
+    )
 
 
 @router.post("/url-pdf")
 async def convert_url_to_pdf(request: Request, url: str = Form(...)):
-    """Convert URL to PDF (Gotenberg - high-fidelity web to PDF)"""
-    # Validate URL
-    if not validate_url(url):
-        raise HTTPException(status_code=400, detail="Invalid URL format. URL must be a valid HTTP or HTTPS URL.")
+    """Convert URL to PDF (Intelligent routing - direct or temp file based on service capabilities)"""
+    # Use dedicated URL manager
+    url_manager = URLConversionManager()
+    conversion_input = await url_manager.process_url_conversion(url, "pdf")
     
-    return await _convert_file(request, url=url, input_format="auto", output_format="pdf")
+    # Pass to standard conversion pipeline
+    return await _convert_file(
+        request=request,
+        file=None,
+        url_input=conversion_input,
+        input_format=conversion_input.metadata["detected_format"],
+        output_format="pdf"
+    )
 
 
 @router.post("/url-txt")
 async def convert_url_to_txt(request: Request, url: str = Form(...)):
-    """Convert URL to plain text (Unstructured-IO - text extraction)"""
-    # Validate URL
-    if not validate_url(url):
-        raise HTTPException(status_code=400, detail="Invalid URL format. URL must be a valid HTTP or HTTPS URL.")
+    """Convert URL to plain text (Intelligent routing - direct or temp file based on service capabilities)"""
+    # Use dedicated URL manager
+    url_manager = URLConversionManager()
+    conversion_input = await url_manager.process_url_conversion(url, "txt")
     
-    return await _convert_file(request, url=url, input_format="auto", output_format="txt")
+    # Pass to standard conversion pipeline
+    return await _convert_file(
+        request=request,
+        file=None,
+        url_input=conversion_input,
+        input_format=conversion_input.metadata["detected_format"],
+        output_format="txt"
+    )
+
+
+@router.post("/url-docx")
+async def convert_url_to_docx(request: Request, url: str = Form(...)):
+    """Convert URL to DOCX (Download HTML content and convert to Word document)"""
+    # Use dedicated URL manager
+    url_manager = URLConversionManager()
+    conversion_input = await url_manager.process_url_conversion(url, "docx")
+    
+    # Pass to standard conversion pipeline
+    return await _convert_file(
+        request=request,
+        file=None,
+        url_input=conversion_input,
+        input_format=conversion_input.metadata["detected_format"],
+        output_format="docx"
+    )
+
+
+@router.post("/url-odt")
+async def convert_url_to_odt(request: Request, url: str = Form(...)):
+    """Convert URL to ODT (Download HTML content and convert to OpenDocument Text)"""
+    # Use dedicated URL manager
+    url_manager = URLConversionManager()
+    conversion_input = await url_manager.process_url_conversion(url, "odt")
+    
+    # Pass to standard conversion pipeline
+    return await _convert_file(
+        request=request,
+        file=None,
+        url_input=conversion_input,
+        input_format=conversion_input.metadata["detected_format"],
+        output_format="odt"
+    )
 
 
 # xls conversions
@@ -826,8 +891,19 @@ async def get_url_conversion_info_endpoint(input_format: str, output_format: str
 
     if url:
         # Add URL-specific information if URL is provided
-        url_info = get_url_conversion_info(url, service.value, input_format)
-        info["url_analysis"] = url_info
+        try:
+            url_manager = URLConversionManager()
+            path_info = url_manager.get_optimal_conversion_path(url, output_format)
+            info["url_analysis"] = {
+                "detected_format": path_info["detected_format"],
+                "conversion_path": path_info["conversion_path"],
+                "requires_temp_file": path_info["requires_temp_file"]
+            }
+        except Exception as e:
+            info["url_analysis"] = {
+                "error": str(e),
+                "detected_format": "unknown"
+            }
 
     return JSONResponse(content=info)
 
@@ -861,22 +937,21 @@ async def _validate_url_common(url: str):
     Common validation logic for both GET and POST methods.
     """
     try:
-        # Use the validation function to check URL and content
-        file_wrapper, metadata = await validate_url_conversion_request(
-            url, "unstructured-io", "auto"  # Use a service that fetches content
-        )
-
-        # Clean up the temp file since we're not using it
-        if file_wrapper and 'temp_file_path' in metadata:
-            cleanup_conversion_temp_files(metadata)
-
+        # Use the new URL manager to validate and analyze the URL
+        url_manager = URLConversionManager()
+        
+        # Try to process the URL to see if it's valid
+        conversion_input = await url_manager.process_url_conversion(url, "html")
+        
+        # Clean up the temp file since we're just validating
+        await conversion_input.cleanup()
+        
         return JSONResponse(content={
             "valid": True,
             "url": url,
-            "detected_format": metadata.get('detected_format'),
-            "validated_format": metadata.get('validated_format'),
-            "content_type": metadata.get('content_type'),
-            "message": f"URL content format '{metadata.get('validated_format')}' is supported for conversion"
+            "detected_format": conversion_input.metadata.get('detected_format'),
+            "conversion_path": conversion_input.metadata.get('conversion_path'),
+            "message": f"URL is valid and format '{conversion_input.metadata.get('detected_format')}' is supported for conversion"
         })
 
     except HTTPException as e:
@@ -884,12 +959,12 @@ async def _validate_url_common(url: str):
             "valid": False,
             "url": url,
             "error": e.detail,
-            "supported_formats": list(get_supported_input_formats())
+            "supported_formats": ["html", "pdf", "docx", "xlsx", "pptx", "txt", "md", "json", "doc", "xls", "ppt", "odt", "ods", "odp", "rtf", "tex", "epub", "eml", "msg", "pages", "numbers", "key"]  # Common supported formats
         }, status_code=e.status_code)
     except Exception as e:
         return JSONResponse(content={
             "valid": False,
             "url": url,
             "error": f"Validation failed: {str(e)}",
-            "supported_formats": list(get_supported_input_formats())
+            "supported_formats": ["html", "pdf", "docx", "xlsx", "pptx", "txt", "md", "json", "doc", "xls", "ppt", "odt", "ods", "odp", "rtf", "tex", "epub", "eml", "msg", "pages", "numbers", "key"]  # Common supported formats
         }, status_code=500)

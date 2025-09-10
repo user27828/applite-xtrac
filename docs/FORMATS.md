@@ -101,13 +101,14 @@ This document provides a comprehensive overview of supported file formats across
 | .textile | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ |
 | .tsv | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ✅* |
 | .txt | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
-| _\<url\>_ | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ |
 | .wiki | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ |
 | .xls | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
 | .xlsx | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
 
 
 > **Note**: `✅*` indicates that the format pair is supported by the underlying services but does **not** have a dedicated `/convert/*` endpoint. These conversions are only accessible by directly calling the proxied service endpoints (refer to individual service documentation for syntax). Service names marked with `*` in the conversion tables also indicate missing `/convert/*` endpoints for those specific conversions.
+> 
+> **URL Input**: URL in/out conversions are generally anything supported in the matrix.
 
 ## Comprehensive Format Support
 

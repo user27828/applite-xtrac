@@ -249,6 +249,29 @@ class TestConversionEndpoints:
 
         return result
 
+    async def _run_sync_test(
+        self,
+        client: TestClient,
+        endpoint: str,
+        input_file_path: Path,
+        input_ext: str,
+        output_ext: str,
+        output_dir: Path
+    ) -> Dict:
+        """Run the synchronous test method in a thread pool."""
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            self._test_conversion_endpoint,
+            client,
+            endpoint,
+            input_file_path,
+            input_ext,
+            output_ext,
+            output_dir
+        )
+
     def _validate_response_content(self, response, expected_output_ext: str) -> bool:
         """Validate that the response content matches expected format."""
         if not response.content:
@@ -409,7 +432,7 @@ class TestConversionEndpoints:
             output_lines.append(line)
 
         # Print summary
-        success_rate = (passed_count / total_count * 100) if total_count > 0 else 0
+        success_rate = (passed_count / total_count * 100) if total_count > 0 else 0.0
         summary_line = f"\n📊 Summary: {total_count} conversions tested, {passed_count} passed, {failed_count} failed ({success_rate:.1f}% success rate)"
         print(summary_line)
         output_lines.append(summary_line)
@@ -459,15 +482,15 @@ class TestConversionEndpoints:
         async with httpx.AsyncClient(base_url="http://testserver") as async_client:
             tasks = []
             for conversion in valid_conversions:
-                task = self._test_conversion_endpoint_async(
-                    semaphore=semaphore,
-                    async_client=async_client,
-                    endpoint=conversion["endpoint"],
-                    input_file_path=conversion["sample_file"]["path"],
-                    input_ext=conversion["input_extension"],
-                    output_ext=conversion["output_extension"],
-                    output_dir=output_data_dir,
-                    sample_filename=conversion["sample_file"]["filename"]
+                task = asyncio.create_task(
+                    self._run_sync_test(
+                        client,
+                        conversion["endpoint"],
+                        conversion["sample_file"]["path"],
+                        conversion["input_extension"],
+                        conversion["output_extension"],
+                        output_data_dir
+                    )
                 )
                 tasks.append(task)
             
@@ -512,6 +535,6 @@ class TestConversionEndpoints:
 
         # Print summary
         total_count = len(valid_conversions)
-        success_rate = (passed_count / total_count * 100) if total_count > 0 else 0
+        success_rate = (passed_count / total_count * 100) if total_count > 0 else 0.0
         summary_line = f"\n📊 Summary: {total_count} conversions tested, {passed_count} passed, {failed_count} failed ({success_rate:.1f}% success rate)"
         print(summary_line)

@@ -9,22 +9,21 @@ for testing the integration.
 import asyncio
 import sys
 import os
+import pytest
 
 # Add the convert module to the path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from convert.utils.url_fetcher import (
-    fetch_url_content,
-    fetch_url_to_temp_file,
-    detect_content_format,
-    URLFetchError
-)
-from convert.utils.url_helpers import (
-    prepare_url_for_conversion,
-    validate_and_prepare_url_conversion
-)
+# from convert.utils.url_fetcher import (
+#     fetch_url_content,
+#     fetch_url_to_temp_file,
+#     detect_content_format,
+#     URLFetchError
+# )
+from convert.utils.url_conversion_manager import URLConversionManager
 
 
+@pytest.mark.asyncio
 async def test_basic_url_fetch():
     """Test basic URL fetching functionality."""
     print("=== Testing Basic URL Fetch ===")
@@ -34,86 +33,89 @@ async def test_basic_url_fetch():
         "https://httpbin.org/json",  # JSON content
     ]
 
+    url_manager = URLConversionManager()
+    
     for url in test_urls:
         try:
             print(f"\nFetching: {url}")
-            result = await fetch_url_content(url, timeout=10)
+            conversion_input = await url_manager.process_url_conversion(url, "html")
+            
+            print(f"Status: {conversion_input.metadata.get('status', 'Unknown')}")
+            print(f"Content-Type: {conversion_input.metadata.get('content_type', 'Unknown')}")
+            print(f"Content Length: {conversion_input.metadata.get('content_length', 'Unknown')} bytes")
+            print(f"Final URL: {conversion_input.metadata.get('final_url', url)}")
+            print(f"Detected Format: {conversion_input.metadata.get('detected_format', 'Unknown')}")
+            
+            # Clean up
+            await conversion_input.cleanup()
 
-            print(f"Status: {result['status']}")
-            print(f"Content-Type: {result['content_type']}")
-            print(f"Content Length: {len(result['content'])} bytes")
-            print(f"Final URL: {result['final_url']}")
-
-            # Detect format
-            detected_format = detect_content_format(
-                result['content'],
-                result['content_type'],
-                url
-            )
-            print(f"Detected Format: {detected_format}")
-
-        except URLFetchError as e:
-            print(f"Fetch failed: {e}")
         except Exception as e:
-            print(f"Unexpected error: {e}")
+            print(f"Fetch failed: {e}")
 
 
+@pytest.mark.asyncio
 async def test_temp_file_creation():
     """Test fetching URL to temporary file."""
     print("\n=== Testing Temp File Creation ===")
 
     url = "https://httpbin.org/html"
+    url_manager = URLConversionManager()
+    
     try:
         print(f"Fetching to temp file: {url}")
-        temp_path, metadata = await fetch_url_to_temp_file(url, timeout=10)
-
-        print(f"Temp file created: {temp_path}")
-        print(f"File exists: {os.path.exists(temp_path)}")
-        print(f"File size: {os.path.getsize(temp_path)} bytes")
-        print(f"Metadata: {metadata}")
+        conversion_input = await url_manager.process_url_conversion(url, "pdf")  # Use PDF to force temp file creation
+        
+        if hasattr(conversion_input, 'temp_file_wrapper') and conversion_input.temp_file_wrapper:
+            temp_path = conversion_input.temp_file_wrapper.file_path
+            print(f"Temp file created: {temp_path}")
+            print(f"File exists: {os.path.exists(temp_path)}")
+            print(f"File size: {os.path.getsize(temp_path)} bytes")
+            print(f"Metadata: {conversion_input.metadata}")
+        else:
+            print("No temp file was created (direct URL used)")
+            print(f"Direct URL: {conversion_input.url}")
+            print(f"Metadata: {conversion_input.metadata}")
 
         # Clean up
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-            print("Temp file cleaned up")
+        await conversion_input.cleanup()
+        print("Temp file cleaned up")
 
     except Exception as e:
         print(f"Temp file test failed: {e}")
 
 
+@pytest.mark.asyncio
 async def test_conversion_preparation():
     """Test URL preparation for conversion."""
     print("\n=== Testing Conversion Preparation ===")
 
     test_cases = [
-        ("https://httpbin.org/html", "unstructured-io", "html"),
-        ("https://httpbin.org/html", "gotenberg", "html"),
-        ("https://httpbin.org/html", "pandoc", "html"),
+        ("https://httpbin.org/html", "html"),
+        ("https://httpbin.org/html", "pdf"),
+        ("https://httpbin.org/html", "json"),
     ]
 
-    for url, service, input_format in test_cases:
+    url_manager = URLConversionManager()
+    
+    for url, output_format in test_cases:
         try:
-            print(f"\nTesting {service} with {url}")
-            file_wrapper, metadata = await prepare_url_for_conversion(
-                url, service, input_format, timeout=10
-            )
+            print(f"\nTesting URL conversion for {url} -> {output_format}")
+            conversion_input = await url_manager.process_url_conversion(url, output_format)
 
-            print(f"Fetch required: {metadata['fetch_required']}")
-            if file_wrapper:
-                print(f"Temp file: {metadata.get('temp_file_path')}")
-                print(f"Detected format: {metadata.get('detected_format')}")
-                await file_wrapper.close()
-
-                # Clean up temp file
-                temp_path = metadata.get('temp_file_path')
-                if temp_path and os.path.exists(temp_path):
-                    os.remove(temp_path)
-                    print("Temp file cleaned up")
-
+            print(f"Detected format: {conversion_input.metadata['detected_format']}")
+            print(f"Conversion path: {conversion_input.metadata['conversion_path']}")
+            if hasattr(conversion_input, 'temp_file_wrapper'):
+                print(f"Temp file created: {conversion_input.metadata.get('temp_file_path')}")
+            
+            # Clean up
+            await conversion_input.cleanup()
+            print("✓ Conversion preparation successful")
+            
         except Exception as e:
-            print(f"Conversion preparation failed: {e}")
+            print(f"✗ Error: {e}")
 
 
+@pytest.mark.asyncio
 async def test_validation():
     """Test URL validation."""
     print("\n=== Testing URL Validation ===")
@@ -126,25 +128,22 @@ async def test_validation():
         ("", False),                        # Empty
     ]
 
+    url_manager = URLConversionManager()
+    
     for url, should_be_valid in test_urls:
         try:
-            result = await validate_and_prepare_url_conversion(
-                url, "unstructured-io", "html", timeout=5
-            )
-            is_valid = result[0] is not None or not result[1].get('fetch_required', True)
+            conversion_input = await url_manager.process_url_conversion(url, "html")
+            is_valid = True  # If no exception, it's valid
             status = "✓" if is_valid == should_be_valid else "✗"
             print(f"{status} {url} -> Valid: {is_valid} (Expected: {should_be_valid})")
-
-            # Clean up if temp file was created
-            metadata = result[1]
-            temp_path = metadata.get('temp_file_path')
-            if temp_path and os.path.exists(temp_path):
-                os.remove(temp_path)
+            
+            # Clean up
+            await conversion_input.cleanup()
 
         except Exception as e:
             is_valid = False
             status = "✓" if is_valid == should_be_valid else "✗"
-            print(f"{status} {url} -> Valid: {is_valid} (Expected: {should_be_valid}) - {e}")
+            print(f"{status} {url} -> Valid: {is_valid} (Expected: {should_be_valid}) - Error: {e}")
 
 
 async def main():

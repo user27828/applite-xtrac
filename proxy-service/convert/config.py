@@ -30,6 +30,14 @@ SERVICE_URL_CONFIGS = {
     }
 }
 
+# Passthrough formats - formats that can be passed through without conversion
+# when input and output formats are the same
+PASSTHROUGH_FORMATS = {
+    "html",
+    "txt", 
+    "md"
+}
+
 class ConversionService(Enum):
     """Available conversion services."""
     UNSTRUCTURED_IO = "unstructured-io"
@@ -96,6 +104,11 @@ CONVERSION_MATRIX = {
     ("html", "docx"): [
         (ConversionService.LIBREOFFICE, "HTML to Word"),
         (ConversionService.PANDOC, "HTML to Word"),
+    ],
+
+    ("html", "odt"): [
+        (ConversionService.LIBREOFFICE, "HTML to ODT"),
+        (ConversionService.PANDOC, "HTML to ODT"),
     ],
 
     ("html", "json"): [
@@ -538,6 +551,16 @@ CONVERSION_MATRIX = {
 
     ("xlsx", "txt"): [
         (ConversionService.LOCAL, "Excel to Text via local processing"),
+    ],
+
+    ("url", "docx"): [
+        (ConversionService.LIBREOFFICE, "URL to DOCX via HTML download and conversion"),
+        (ConversionService.PANDOC, "URL to DOCX via HTML download and conversion"),
+    ],
+
+    ("url", "odt"): [
+        (ConversionService.LIBREOFFICE, "URL to ODT via HTML download and conversion"),
+        (ConversionService.PANDOC, "URL to ODT via HTML download and conversion"),
     ],
 }
 
