@@ -676,127 +676,6 @@ async def convert_txt_to_tex(request: Request, file: UploadFile = File(...)):
     """Convert Text to LaTeX (Plain text to academic format)"""
     return await _convert_file(request, file=file, input_format="txt", output_format="tex")
 
-
-# url conversions
-@router.post("/url-html")
-async def convert_url_to_html(request: Request, url: str = Form(...)):
-    """Convert URL to HTML (Intelligent routing - direct or temp file based on service capabilities)"""
-    # Use dedicated URL manager
-    url_manager = URLConversionManager()
-    conversion_input = await url_manager.process_url_conversion(url, "html")
-    
-    # Pass to standard conversion pipeline
-    return await _convert_file(
-        request=request,
-        file=None,
-        url_input=conversion_input,
-        input_format=conversion_input.metadata["detected_format"],
-        output_format="html"
-    )
-
-
-@router.post("/url-json")
-async def convert_url_to_json(request: Request, url: str = Form(...)):
-    """Convert URL to JSON structure (Intelligent routing - direct or temp file based on service capabilities)"""
-    # Use dedicated URL manager
-    url_manager = URLConversionManager()
-    conversion_input = await url_manager.process_url_conversion(url, "json")
-    
-    # Pass to standard conversion pipeline
-    return await _convert_file(
-        request=request,
-        file=None,
-        url_input=conversion_input,
-        input_format=conversion_input.metadata["detected_format"],
-        output_format="json"
-    )
-
-
-@router.post("/url-md")
-async def convert_url_to_md(request: Request, url: str = Form(...)):
-    """Convert URL to Markdown (Intelligent routing - direct or temp file based on service capabilities)"""
-    # Use dedicated URL manager
-    url_manager = URLConversionManager()
-    conversion_input = await url_manager.process_url_conversion(url, "md")
-    
-    # Pass to standard conversion pipeline
-    return await _convert_file(
-        request=request,
-        file=None,
-        url_input=conversion_input,
-        input_format=conversion_input.metadata["detected_format"],
-        output_format="md"
-    )
-
-
-@router.post("/url-pdf")
-async def convert_url_to_pdf(request: Request, url: str = Form(...)):
-    """Convert URL to PDF (Intelligent routing - direct or temp file based on service capabilities)"""
-    # Use dedicated URL manager
-    url_manager = URLConversionManager()
-    conversion_input = await url_manager.process_url_conversion(url, "pdf")
-    
-    # Pass to standard conversion pipeline
-    return await _convert_file(
-        request=request,
-        file=None,
-        url_input=conversion_input,
-        input_format=conversion_input.metadata["detected_format"],
-        output_format="pdf"
-    )
-
-
-@router.post("/url-txt")
-async def convert_url_to_txt(request: Request, url: str = Form(...)):
-    """Convert URL to plain text (Intelligent routing - direct or temp file based on service capabilities)"""
-    # Use dedicated URL manager
-    url_manager = URLConversionManager()
-    conversion_input = await url_manager.process_url_conversion(url, "txt")
-    
-    # Pass to standard conversion pipeline
-    return await _convert_file(
-        request=request,
-        file=None,
-        url_input=conversion_input,
-        input_format=conversion_input.metadata["detected_format"],
-        output_format="txt"
-    )
-
-
-@router.post("/url-docx")
-async def convert_url_to_docx(request: Request, url: str = Form(...)):
-    """Convert URL to DOCX (Download HTML content and convert to Word document)"""
-    # Use dedicated URL manager
-    url_manager = URLConversionManager()
-    conversion_input = await url_manager.process_url_conversion(url, "docx")
-    
-    # Pass to standard conversion pipeline
-    return await _convert_file(
-        request=request,
-        file=None,
-        url_input=conversion_input,
-        input_format=conversion_input.metadata["detected_format"],
-        output_format="docx"
-    )
-
-
-@router.post("/url-odt")
-async def convert_url_to_odt(request: Request, url: str = Form(...)):
-    """Convert URL to ODT (Download HTML content and convert to OpenDocument Text)"""
-    # Use dedicated URL manager
-    url_manager = URLConversionManager()
-    conversion_input = await url_manager.process_url_conversion(url, "odt")
-    
-    # Pass to standard conversion pipeline
-    return await _convert_file(
-        request=request,
-        file=None,
-        url_input=conversion_input,
-        input_format=conversion_input.metadata["detected_format"],
-        output_format="odt"
-    )
-
-
 # xls conversions
 @router.post("/xls-html")
 async def convert_xls_to_html(request: Request, file: UploadFile = File(...)):
@@ -858,8 +737,55 @@ async def convert_xlsx_to_txt(request: Request, file: UploadFile = File(...)):
     """Convert XLSX to Text (Spreadsheet to Text)"""
     return await _convert_file(request, file=file, input_format="xlsx", output_format="txt")
 
+#-- URL to {format} conversions
+#-------------------------------------------------------------------------------
+@router.post("/url-{output_format}")
+async def convert_url_dynamic(request: Request, output_format: str, url: str = Form(...)):
+    """Convert URL to specified output format (dynamic endpoint)"""
+    # Validate output format is supported
+    supported_conversions = get_supported_conversions()
+    valid_output_formats = set()
+    for input_fmt, output_fmts in supported_conversions.items():
+        valid_output_formats.update(output_fmts)
+    
+    # Also include passthrough formats
+    from .config import PASSTHROUGH_FORMATS
+    valid_output_formats.update(PASSTHROUGH_FORMATS)
+    
+    if output_format not in valid_output_formats:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Unsupported output format: {output_format}. Supported formats: {sorted(valid_output_formats)}"
+        )
+    
+    # Use dedicated URL manager to determine input format and prepare conversion
+    url_manager = URLConversionManager()
+    conversion_input = await url_manager.process_url_conversion(url, output_format)
+    
+    # Get detected input format
+    input_format = conversion_input.metadata["detected_format"]
+    
+    # For non-passthrough conversions, validate that the conversion pair exists
+    if input_format != output_format or input_format not in PASSTHROUGH_FORMATS:
+        from .utils.conversion_lookup import get_conversion_methods
+        conversion_methods = get_conversion_methods(input_format, output_format)
+        if not conversion_methods:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No conversion available from {input_format} to {output_format}"
+            )
+    
+    # Pass to standard conversion pipeline (which handles passthrough automatically)
+    return await _convert_file(
+        request=request,
+        file=None,
+        url_input=conversion_input,
+        input_format=input_format,
+        output_format=output_format
+    )
 
-# Utility endpoints
+#-- Utility endpoints
+#-------------------------------------------------------------------------------
 @router.get("/supported")
 async def get_supported_conversions_endpoint():
     """Get all supported conversion format pairs"""
