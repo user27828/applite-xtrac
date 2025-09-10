@@ -80,6 +80,13 @@ logger = logging.getLogger(__name__)
 # Create router
 router = APIRouter(prefix="/convert", tags=["conversions"])
 
+#-- Consolidated {input}-{output} format converter
+#-------------------------------------------------------------------------------
+#@router.post("/{input_format}-{output_format}")
+
+
+#-- Legacy converters
+#-------------------------------------------------------------------------------
 
 # doc conversions
 @router.post("/doc-md")
@@ -143,6 +150,10 @@ async def convert_html_to_md(request: Request, file: UploadFile = File(...)):
     """Convert HTML to Markdown (Content extraction)"""
     return await _convert_file(request, file=file, input_format="html", output_format="md")
 
+@router.post("/html-odt")
+async def convert_html_to_odt(request: Request, file: UploadFile = File(...)):
+    """Convert HTML to ODT (Web content to OpenDocument)"""
+    return await _convert_file(request, file=file, input_format="html", output_format="odt")
 
 @router.post("/html-pdf")
 async def convert_html_to_pdf(request: Request, file: UploadFile = File(...)):
@@ -894,3 +905,4 @@ async def _validate_url_common(url: str):
             "error": f"Validation failed: {str(e)}",
             "supported_formats": ["html", "pdf", "docx", "xlsx", "pptx", "txt", "md", "json", "doc", "xls", "ppt", "odt", "ods", "odp", "rtf", "tex", "epub", "eml", "msg", "pages", "numbers", "key"]  # Common supported formats
         }, status_code=500)
+
