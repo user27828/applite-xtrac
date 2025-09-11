@@ -20,8 +20,8 @@ SERVICE_URL_CONFIGS = {
         "docker": "http://libreoffice:2004",
         "local": "http://localhost:2004"
     },
-    "pandoc": {
-        "docker": "http://pandoc:3000",
+    "pyconvert": {
+        "docker": "http://pyconvert:3000",
         "local": "http://localhost:3030"
     },
     "gotenberg": {
@@ -49,7 +49,7 @@ class ConversionService(Enum):
 SERVICE_URLS = {
     ConversionService.UNSTRUCTURED_IO: "http://unstructured-io:8000",
     ConversionService.LIBREOFFICE: "http://libreoffice:2004",
-    ConversionService.PANDOC: "http://pandoc:3000",
+    ConversionService.PANDOC: "http://pyconvert:3000",
     ConversionService.GOTENBERG: "http://gotenberg:3000",
     ConversionService.LOCAL: None,  # Local processing, no URL needed
     ConversionService.LOCAL_WEASYPRINT: None  # Local WeasyPrint processing, no URL needed

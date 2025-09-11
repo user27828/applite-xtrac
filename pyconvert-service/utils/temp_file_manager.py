@@ -1,5 +1,5 @@
 """
-Centralized Temporary File Management System for Pandoc Service.
+Centralized Temporary File Management System for PyConvert Service.
 
 This module provides a unified temporary file management system with:
 - Automatic cleanup
@@ -23,8 +23,8 @@ import weakref
 
 logger = logging.getLogger(__name__)
 
-# Default temporary directory for pandoc service
-DEFAULT_TEMP_DIR = "/tmp/pandoc-service"
+# Default temporary directory for pyconvert service
+DEFAULT_TEMP_DIR = "/tmp/pyconvert-service"
 
 
 class TempFileError(Exception):

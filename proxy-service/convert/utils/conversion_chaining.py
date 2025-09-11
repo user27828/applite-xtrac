@@ -139,7 +139,7 @@ async def chain_conversions(
                 data.update(step.extra_params)
 
                 response = await client.post(
-                    f"{service_url}/convert",
+                    f"{service_url}/pandoc",
                     files=files,
                     data=data
                 )

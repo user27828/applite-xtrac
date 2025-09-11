@@ -95,7 +95,7 @@ test_docker_network() {
     log_info "Testing Docker network connectivity..."
 
     # Check if containers are running
-    local containers=("applite-xtrac-unstructured-io-1" "applite-xtrac-libreoffice-1" "applite-xtrac-pandoc-1" "applite-xtrac-gotenberg-1")
+    local containers=("applite-xtrac-unstructured-io-1" "applite-xtrac-libreoffice-1" "applite-xtrac-pyconvert-1" "applite-xtrac-gotenberg-1")
 
     for container in "${containers[@]}"; do
         if docker ps --format "table {{.Names}}" | grep -q "^${container}$"; then

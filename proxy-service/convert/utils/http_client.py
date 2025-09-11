@@ -18,11 +18,11 @@ logger = logging.getLogger(__name__)
 
 class ServiceType(Enum):
     """Service types for HTTP client configuration."""
+    DEFAULT = "default"
     UNSTRUCTURED_IO = "unstructured_io"
     LIBREOFFICE = "libreoffice"
     GOTENBERG = "gotenberg"
     PANDOC = "pandoc"
-    DEFAULT = "default"
 
 
 class HTTPClientFactory:
@@ -199,8 +199,3 @@ def create_gotenberg_client(**overrides) -> httpx.AsyncClient:
 def create_pandoc_client(**overrides) -> httpx.AsyncClient:
     """Create HTTP client for Pandoc service."""
     return create_service_client(ServiceType.PANDOC, **overrides)
-
-
-def create_default_client(**overrides) -> httpx.AsyncClient:
-    """Create default HTTP client."""
-    return create_service_client(ServiceType.DEFAULT, **overrides)

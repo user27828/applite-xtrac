@@ -32,12 +32,13 @@ DEFAULT_TEMP_DIR = "/tmp/applite-xtrac"
 # Service-specific subdirectories
 SERVICE_DIRS = {
     "proxy": "proxy",
-    "pandoc": "pandoc",
+    "pyconvert": "pandoc",
     "unstructured": "unstructured",
     "gotenberg": "gotenberg",
     "libreoffice": "libreoffice",
     "url_fetcher": "url_processor",
-    "conversion": "conversion"
+    "conversion": "conversion",
+    "pandoc": "pandoc",
 }
 
 

@@ -28,7 +28,7 @@ class TestHealthEndpoints:
         assert "services" in data
 
         # Should check all expected services
-        expected_services = ["unstructured-io", "libreoffice", "pandoc", "gotenberg"]
+        expected_services = ["unstructured-io", "libreoffice", "pyconvert", "gotenberg"]
         services_data = data["services"]
 
         for service in expected_services:

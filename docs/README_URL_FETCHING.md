@@ -7,7 +7,7 @@ This module provides comprehensive URL fetching capabilities for document conver
 The URL fetching system bridges the gap between services that support direct URL input and those that require file uploads. It provides:
 
 1. **Intelligent URL Processing** - Automatic content type detection and format inference
-2. **Multi-Service Integration** - Works with all conversion services (Gotenberg, Unstructured-IO, LibreOffice, Pandoc)
+2. **Multi-Service Integration** - Works with all conversion services (Gotenberg, Unstructured-IO, LibreOffice, PyConvert)
 3. **Robust Error Handling** - Comprehensive timeout, retry, and error recovery mechanisms
 4. **Performance Optimization** - Connection pooling, caching, and resource management
 
@@ -52,7 +52,7 @@ The URL fetching system bridges the gap between services that support direct URL
 | Endpoint | Primary Service | Description | Use Case |
 |----------|----------------|-------------|----------|
 | `POST /convert/url-md` | Unstructured IO | URL to Markdown conversion | Content extraction |
-| `POST /convert/url-md` | Pandoc | Fallback Markdown conversion | Alternative processing |
+| `POST /convert/url-md` | PyConvert | Fallback Markdown conversion | Alternative processing |
 
 ### URL to Text Conversions
 | Endpoint | Primary Service | Description | Use Case |
@@ -133,7 +133,7 @@ The system automatically detects content types and routes to appropriate service
 
 - **HTML pages** → Gotenberg (PDF), Unstructured IO (JSON/MD/TXT)
 - **PDF links** → Unstructured IO (structure extraction)
-- **Office documents** → LibreOffice/Pandoc (format conversion)
+- **Office documents** → LibreOffice/PyConvert (format conversion)
 - **Images** → Limited support (metadata extraction only)
 - **Plain text** → Direct processing
 

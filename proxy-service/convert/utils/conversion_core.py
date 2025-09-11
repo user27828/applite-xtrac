@@ -584,7 +584,7 @@ async def _convert_file(
                         data["extra_args"] = "--pdf-engine=pdflatex --standalone"
 
                 response = await client.post(
-                    f"{service_url}/convert",
+                    f"{service_url}/pandoc",
                     files=files,
                     data=data
                 )

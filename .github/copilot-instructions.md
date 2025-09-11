@@ -47,7 +47,7 @@ The conversion system in `proxy-service/convert/router.py` implements **service 
 
 - **PDF output** → Gotenberg (highest quality for documents)
 - **JSON structure** → Unstructured IO (best semantic extraction) 
-- **DOCX output** → LibreOffice or Pandoc (format-optimized)
+- **DOCX output** → LibreOffice or PyConvert (format-optimized)
 - **URL inputs** → Gotenberg for PDF, Unstructured IO for text/JSON
 
 ### Configuration Pattern

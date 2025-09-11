@@ -38,7 +38,7 @@ def get_dynamic_service_urls():
     return {
         ConversionService.UNSTRUCTURED_IO: urls.get("unstructured-io"),
         ConversionService.LIBREOFFICE: urls.get("libreoffice"),
-        ConversionService.PANDOC: urls.get("pandoc"),
+        ConversionService.PANDOC: urls.get("pyconvert"),
         ConversionService.GOTENBERG: urls.get("gotenberg"),
         ConversionService.LOCAL: None,
         ConversionService.LOCAL_WEASYPRINT: None

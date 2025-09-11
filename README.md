@@ -13,7 +13,7 @@ or LLM pipelines.
 
 - **Unstructured IO** (`/unstructured-io`): Document structure extraction and processing using the official Unstructured API
 - **LibreOffice Unoserver** (`/libreoffice`): Document conversion using LibreOffice headless server
-- **Pandoc API** (`/pandoc`): Document format conversion with PDF support via FastAPI service
+- **PyConvert API** (`/pandoc`): Document format conversion with PDF support via FastAPI service
 - **Gotenberg** (`/gotenberg`): High-fidelity HTML to PDF conversion, including support for URLs and office documents
 - **\<Local Proxy\>**: In addition to handling proxying for the other services, this container has some smaller or manually-defined conversion services.
 
@@ -27,7 +27,7 @@ Proxying to these containers aims to preserve the original functionality of the 
 
 - `/unstructured-io/*` → Unstructured IO API (port 8000)
 - `/libreoffice/*` → LibreOffice API (port 2004)
-- `/pandoc/*` → Pandoc API (port 3000)
+- `/pandoc/*` → PyConvert API (port 3000)
 - `/gotenberg/*` → Gotenberg API (port 4000)
 
 **Helper endpoints**:
@@ -334,14 +334,14 @@ curl -X POST "http://localhost:8369/libreoffice/request" \
 - ODT → PDF
 - And many other office document format conversions
 
-### Pandoc
-- `GET /pandoc/ping` - Pandoc health check (uses `/ping` endpoint)
-- `POST /pandoc/convert` - Document conversion
+### PyConvert
+- `GET /pandoc/ping` - PyConvert health check (uses `/ping` endpoint)
+- `POST /pandoc/pandoc` - Document conversion
   - **Supported formats**: `pdf`, `docx`, `html`, `txt`, `md`, `tex`
   - **Form data**: `file` (file upload), `output_format` (string), `extra_args` (optional string)
   - **Features**: Automatic cleanup, timeout handling (60s), background file processing
 
-**Pandoc Integration:**
+**PyConvert Integration:**
 - Uses [Pandoc](https://pandoc.org/) for universal document conversion
 - Supports conversion between markup formats and office documents
 - Includes LaTeX support for high-quality PDF generation
@@ -349,13 +349,13 @@ curl -X POST "http://localhost:8369/libreoffice/request" \
 **Sample Request:**
 ```bash
 # Convert Markdown to PDF
-curl -X POST "http://localhost:8369/pandoc/convert" \
+curl -X POST "http://localhost:8369/pandoc/pandoc" \
   -F "file=@document.md" \
   -F "output_format=pdf" \
   -o converted_document.pdf
 
 # Convert with custom Pandoc arguments
-curl -X POST "http://localhost:8369/pandoc/convert" \
+curl -X POST "http://localhost:8369/pandoc/pandoc" \
   -F "file=@document.md" \
   -F "output_format=pdf" \
   -F 'extra_args=--pdf-engine=pdflatex --variable geometry:margin=1in' \
@@ -440,7 +440,7 @@ Health checks are implemented for each service:
 docker-compose build
 
 # Build specific service
-docker-compose build pandoc
+docker-compose build pyconvert
 docker-compose build proxy
 ```
 
@@ -519,7 +519,7 @@ For local development without containers, you can run the Python services direct
 3. Install dependencies:
    ```bash
    pip install -r proxy-service/requirements.txt
-   pip install fastapi uvicorn python-multipart  # for pandoc-service if needed
+   pip install fastapi uvicorn python-multipart  # for pyconvert-service if needed
    ```
 
 4. Run the services:
@@ -528,15 +528,15 @@ For local development without containers, you can run the Python services direct
    cd proxy-service
    uvicorn app:app --host 0.0.0.0 --port 8369
 
-   # Run pandoc service (in another terminal)
-   cd pandoc-service
+   # Run pyconvert service (in another terminal)
+   cd pyconvert-service
    uvicorn app:app --host 0.0.0.0 --port 3000
    ```
 
 **Note:** 
-- The proxy and pandoc services can be run locally with Python
+- The proxy and pyconvert services can be run locally with Python
 - Unstructured-io and libreoffice services require their respective containers or separate installations
-- For pandoc-service, ensure pandoc is installed on your system
+- For pyconvert-service, ensure pandoc is installed on your system
 - All services communicate via the `app-network` when using containers
 
 ## Container Runtime Options
@@ -567,7 +567,7 @@ podman-compose up --build
 
 ## Security Considerations
 
-- The LibreOffice and Pandoc services should not be exposed directly to the internet
+- The LibreOffice and PyConvert services should not be exposed directly to the internet
 - The proxy service handles routing and can implement additional security measures
 - Docker's user namespace isolation provides security layers
 - Consider adding authentication and rate limiting for production use
@@ -627,8 +627,7 @@ docker info
 docker system prune -a
 
 # Rebuild specific service
-docker-compose build pandoc
-docker-compose build proxy
+docker-compose build pyconvert
 ```
 
 ### PEP 668 (Externally Managed Environment)

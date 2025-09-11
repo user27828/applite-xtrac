@@ -12,12 +12,12 @@ PROJECT_NAME="applite-xtrac"
 APPLITEXTRAC_PORT=${APPLITEXTRAC_PORT:-8369}
 APPLITEXTRAC_HTTP_TIMEOUT=${APPLITEXTRAC_HTTP_TIMEOUT:-0}
 REQUIRED_PORTS=(${APPLITEXTRAC_PORT} 4000)  # Ports that need to be available
-SERVICES=("unstructured-io" "libreoffice" "pandoc" "gotenberg" "proxy")
+SERVICES=("unstructured-io" "libreoffice" "pyconvert" "gotenberg" "proxy")
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
+YIGHLIGHT='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
@@ -31,7 +31,7 @@ log_success() {
 }
 
 log_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+    echo -e "${YIGHLIGHT}[WARNING]${NC} $1"
 }
 
 log_error() {
@@ -254,10 +254,10 @@ dev_mode() {
     # Start all services except proxy
     log_info "Starting containerized services (excluding proxy)..."
     docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME up -d --build \
-        unstructured-io libreoffice pandoc gotenberg || log_error "Failed to start containerized services"
+        unstructured-io libreoffice pyconvert gotenberg || log_error "Failed to start containerized services"
     
     # Wait for containerized services
-    wait_for_services 60 5 unstructured-io libreoffice pandoc gotenberg
+    wait_for_services 60 5 unstructured-io libreoffice pyconvert gotenberg
     
     # Check containerized services health
     check_dev_services_health
@@ -271,7 +271,7 @@ check_dev_services_health() {
     log_info "Checking containerized services health..."
     
     # Check if containers are running
-    for service in unstructured-io libreoffice pandoc gotenberg; do
+    for service in unstructured-io libreoffice pyconvert gotenberg; do
         if ! docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME ps $service 2>/dev/null | grep -q "Up"; then
             log_error "Service $service is not running"
             return 1
@@ -306,7 +306,7 @@ start_local_proxy() {
     export APPLITEXTRAC_PORT  # Export the port variable
     export UNSTRUCTURED_IO_URL="http://localhost:8000"
     export LIBREOFFICE_URL="http://localhost:2004" 
-    export PANDOC_URL="http://localhost:3030"
+    export PYCONVERT_URL="http://localhost:3030/pandoc"
     export GOTENBERG_URL="http://localhost:3001"
     
     # Network optimization environment variables for Docker communication
@@ -328,7 +328,7 @@ stop_dev_mode() {
     
     # Stop containerized services
     docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME down \
-        unstructured-io libreoffice pandoc gotenberg || log_warning "Failed to stop containerized services"
+        unstructured-io libreoffice pyconvert gotenberg || log_warning "Failed to stop containerized services"
     
     # Kill local proxy process with graceful shutdown first, then force kill
     # Try multiple patterns to find uvicorn processes

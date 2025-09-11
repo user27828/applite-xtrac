@@ -182,7 +182,7 @@ async def get_url_conversion_info_endpoint(input_format: str, output_format: str
         "description": description,
         "url_support": {
             "direct_url": service.value in ["gotenberg"],  # Services that support direct URL input
-            "fetch_required": service.value in ["unstructured-io", "libreoffice", "pandoc"],
+            "fetch_required": service.value in ["unstructured-io", "libreoffice", "pyconvert"],
             "supported": True
         }
     }

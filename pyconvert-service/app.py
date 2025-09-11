@@ -44,7 +44,7 @@ def get_mime_type(file_path: str, output_format: str) -> str:
     # Use unified MIME detector
     return get_unified_mime_type(filename=file_path, expected_format=output_format)
 
-@app.post("/convert")
+@app.post("/pandoc")
 async def convert_file(
     background_tasks: BackgroundTasks,
     file: UploadFile,
@@ -66,7 +66,7 @@ async def convert_file(
     input_temp = manager.create_temp_file(
         content=file_content,
         extension=os.path.splitext(file.filename)[1],
-        prefix="pandoc_input"
+        prefix="pyconvert_input"
     )
     input_path = input_temp.path
 
@@ -74,7 +74,7 @@ async def convert_file(
     output_filename = f"{os.path.splitext(file.filename)[0]}.{output_format}"
     output_temp = manager.create_temp_file(
         filename=output_filename,
-        prefix="pandoc_output"
+        prefix="pyconvert_output"
     )
     output_path = output_temp.path
 
@@ -129,6 +129,10 @@ async def convert_file(
             # Build pandoc command for other conversions
             cmd = ["pandoc", input_path, "-o", output_path]
             
+            # Special handling for PDF output - need to specify PDF engine
+            if output_format == "pdf":
+                cmd = ["pandoc", input_path, "-o", output_path, "--pdf-engine=xelatex"]
+            
             # Add extra args if provided
             if extra_args:
                 cmd.extend(extra_args.split())
@@ -137,7 +141,16 @@ async def convert_file(
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             
             if result.returncode != 0:
-                raise HTTPException(status_code=500, detail=f"Pandoc error: {result.stderr}")
+                error_msg = f"Pandoc failed with return code {result.returncode}"
+                if result.stderr:
+                    error_msg += f". stderr: {result.stderr}"
+                if result.stdout:
+                    error_msg += f". stdout: {result.stdout}"
+                if not result.stderr and not result.stdout:
+                    error_msg += ". No error output captured"
+                print(f"Pandoc command failed: {error_msg}")
+                print(f"Command was: {' '.join(cmd)}")
+                raise HTTPException(status_code=500, detail=error_msg)
 
         # Get MIME type using comprehensive detection
         media_type = get_unified_mime_type(filename=output_path, expected_format=output_format)

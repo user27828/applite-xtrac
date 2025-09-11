@@ -48,9 +48,9 @@ services:
         max_attempts: 3
         window: 120s
 
-  pandoc:
+  pyconvert:
     <<: *common-service
-    build: ./pandoc-service
+    build: ./pyconvert-service
     ports:
       - "3030:3000"
 

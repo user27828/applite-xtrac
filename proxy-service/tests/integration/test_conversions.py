@@ -56,7 +56,8 @@ class TestConversionEndpoints:
                     "unstructured-io": {"status": "healthy", "response_time_ms": 150},
                     "libreoffice": {"status": "healthy", "response_time_ms": 120},
                     "pandoc": {"status": "healthy", "response_time_ms": 100},
-                    "gotenberg": {"status": "healthy", "response_time_ms": 200}
+                    "gotenberg": {"status": "healthy", "response_time_ms": 200},
+                    "pyconvert": {"status": "healthy", "response_time_ms": 100},
                 }
             },
             "summary": {

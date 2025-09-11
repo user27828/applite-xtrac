@@ -137,7 +137,7 @@ async def general_ping():
 async def ping_all():
     """Check health of all services"""
     results = {}
-    services = ["unstructured-io", "libreoffice", "pandoc", "gotenberg"]
+    services = ["unstructured-io", "libreoffice", "pyconvert", "gotenberg"]
     
     client: httpx.AsyncClient = app.state.client
     for service in services:
@@ -167,7 +167,7 @@ async def ping_all():
                 if response.status_code == 404:
                     results[service] = {"status": "healthy", "response_code": 404}
                     continue
-            elif service == "pandoc":
+            elif service == "pyconvert":
                 response = await service_client.get(f"{service_url}/ping")
             elif service == "gotenberg":
                 # Gotenberg should respond with 200 OK to a GET request to /
@@ -259,8 +259,8 @@ async def service_ping(service: str, request: Request):
             else:
                 # For any other status code, treat as unhealthy
                 return JSONResponse(status_code=503, content={"success": False, "error": f"Service {service} unhealthy (status: {response.status_code})"})
-        elif service == "pandoc":
-            response = await ping_client.get(f"{service_url}/ping")
+        elif service == "pyconvert":
+            response = await ping_client.get(f"http://pyconvert:3000/ping")
         elif service == "gotenberg":
             # Gotenberg should respond with 200 OK to a GET request to /
             response = await ping_client.get(f"{service_url}/")
@@ -711,7 +711,7 @@ async def proxy_request(service: str, path: str, request: Request):
     Generic proxy endpoint that forwards requests to backend services.
 
     This endpoint acts as a reverse proxy, routing requests to the appropriate backend service
-    (unstructured-io, libreoffice, pandoc, gotenberg) based on the {service} path parameter.
+    (unstructured-io, libreoffice, pyconvert, gotenberg) based on the {service} path parameter.
 
     Features:
     - Service validation and URL construction
@@ -729,7 +729,7 @@ async def proxy_request(service: str, path: str, request: Request):
     Methods: GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD
 
     Args:
-        service: Backend service name (unstructured-io, libreoffice, pandoc, gotenberg)
+        service: Backend service name (unstructured-io, libreoffice, pyconvert, gotenberg)
         path: Path to forward to the backend service
         request: FastAPI request object
 
@@ -853,7 +853,7 @@ async def proxy_request(service: str, path: str, request: Request):
         # Additional validation: Check content-type for document conversion endpoints
         content_type = resp.headers.get("content-type", "")
         expected_content_types = {
-            "pandoc": ["application/pdf", "application/vnd.openxmlformats", "text/html", "text/plain", "text/markdown", "application/x-tex"],
+            "pyconvert": ["application/pdf", "application/vnd.openxmlformats", "text/html", "text/plain", "text/markdown", "application/x-tex"],
             "libreoffice": ["application/pdf", "application/vnd.openxmlformats", "application/vnd.openxmlformats-officedocument", "text/plain", "application/octet-stream"],
             "gotenberg": ["application/pdf"],
             "unstructured-io": ["application/json", "text/plain", "text/markdown"]

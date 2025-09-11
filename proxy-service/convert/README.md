@@ -36,8 +36,8 @@ Special attention has been given to formats commonly used for **resumes/CVs/cove
 | `POST /convert/pptx-pdf` | PPTX to PDF | Gotenberg | Presentation conversion |
 | `POST /convert/ppt-pdf` | PPT to PDF | LibreOffice | Legacy presentation |
 | `POST /convert/html-pdf` | HTML to PDF | Gotenberg | Web content to PDF |
-| `POST /convert/md-pdf` | Markdown to PDF | Pandoc | Text content to PDF |
-| `POST /convert/tex-pdf` | LaTeX to PDF | Pandoc | Academic content |
+| `POST /convert/md-pdf` | Markdown to PDF | PyConvert | Text content to PDF |
+| `POST /convert/tex-pdf` | LaTeX to PDF | PyConvert | Academic content |
 | `POST /convert/txt-pdf` | Text to PDF | LibreOffice | Simple text to PDF |
 | `POST /convert/rtf-pdf` | RTF to PDF | LibreOffice | Legacy text format |
 | `POST /convert/odt-pdf` | ODT to PDF | LibreOffice | Open document |
