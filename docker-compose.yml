@@ -2,17 +2,40 @@
 # Use with: docker-compose up --build
 # Or with Podman: podman-compose up --build
 
+# ===== YAML ANCHORS & TEMPLATES =====
+
+x-common-service: &common-service
+  networks:
+    - app-network
+
+x-service-template: &service-template
+  <<: *common-service
+  ports:
+    - "${EXTERNAL_PORT:-INTERNAL_PORT}:INTERNAL_PORT"
+
+x-env-template: &env-template
+  environment:
+    - PORT=${INTERNAL_PORT}
+
+x-restart-policy: &restart-policy
+  deploy:
+    restart_policy:
+      condition: on-failure
+      delay: 5s
+      max_attempts: 3
+      window: 120s
+
 services:
   unstructured-io:
+    <<: *common-service
     image: downloads.unstructured.io/unstructured-io/unstructured-api:latest
     ports:
       - "8000:8000"
     environment:
       - PORT=8000
-    networks:
-      - app-network
 
   libreoffice:
+    <<: *common-service
     image: docker.io/libreofficedocker/libreoffice-unoserver:3.19
     ports:
       - "2004:2004"
@@ -24,17 +47,15 @@ services:
         delay: 5s
         max_attempts: 3
         window: 120s
-    networks:
-      - app-network
 
   pandoc:
+    <<: *common-service
     build: ./pandoc-service
     ports:
       - "3030:3000"
-    networks:
-      - app-network
 
   gotenberg:
+    <<: *common-service
     image: gotenberg/gotenberg:latest
     ports:
       - "3001:3000"
@@ -43,15 +64,12 @@ services:
       - "--api-port=3000"
       - "--chromium-disable-web-security"
       - "--chromium-allow-file-access-from-files"
-    networks:
-      - app-network
 
   proxy:
+    <<: *common-service
     build: ./proxy-service
     ports:
       - "${APPLITEXTRAC_PORT:-8369}:8369"
-    networks:
-      - app-network
 
 networks:
   app-network:

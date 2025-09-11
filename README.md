@@ -475,6 +475,33 @@ docker exec -it <container_name> /bin/bash
 # Clean up
 ```
 
+### Docker Configuration Optimization
+
+The `docker-compose.yml` file has been optimized using YAML anchors and aliases to reduce duplication:
+
+#### YAML Anchors Used:
+- `&common-service`: Shared network configuration for all services
+- `&restart-policy`: Standardized restart policy for services that need it
+- `&service-template`: Template for services with standard port mapping (defined for future use)
+- `&env-template`: Template for services with standard environment variables (defined for future use)
+
+#### Benefits:
+- **Reduced duplication**: Common configurations are defined once and reused
+- **Easier maintenance**: Changes to shared configurations only need to be made in one place
+- **Consistency**: All services follow the same patterns for networking and basic configuration
+- **Scalability**: Easy to add new services following the established patterns
+
+#### Example Usage:
+```yaml
+# All services inherit the common network configuration
+services:
+  proxy:
+    <<: *common-service  # Inherits networks: [app-network]
+    build: ./proxy-service
+    ports:
+      - "${APPLITEXTRAC_PORT:-8369}:8369"
+```
+
 ### Local Python Development
 
 For local development without containers, you can run the Python services directly using a virtual environment.
