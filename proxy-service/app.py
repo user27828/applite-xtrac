@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import re
 import os
 from datetime import datetime
+from typing import Optional, List
 
 # Import unstructured libraries for JSON to markdown/text conversion
 try:
@@ -392,6 +393,318 @@ async def unstructured_to_html(request: Request, file: UploadFile = File(...)):
         return JSONResponse(status_code=500, content={"error": f"Conversion failed: {str(e)}"})
 
 
+@app.post("/libreoffice-md")
+async def libreoffice_to_markdown(request: Request, file: UploadFile = File(...)):
+    """Convert document to PDF using LibreOffice, then to markdown using Unstructured-IO."""
+    if not UNSTRUCTURED_AVAILABLE:
+        return JSONResponse(status_code=503, content={"error": "Unstructured library not available"})
+
+    try:
+        # Read the uploaded file
+        file_content = await file.read()
+
+        # Step 1: Convert document to PDF using LibreOffice
+        libreoffice_client = request.app.state.libreoffice_client
+        service_url = SERVICES["libreoffice"]
+
+        # Prepare LibreOffice request
+        files = {"file": (file.filename, BytesIO(file_content), file.content_type or "application/octet-stream")}
+        data = {"convert-to": "pdf"}
+
+        libreoffice_response = await libreoffice_client.post(
+            f"{service_url}/request",
+            files=files,
+            data=data
+        )
+
+        if libreoffice_response.status_code != 200:
+            return JSONResponse(status_code=libreoffice_response.status_code,
+                              content={"error": f"LibreOffice conversion failed: {libreoffice_response.text}"})
+
+        # Get the PDF content from LibreOffice response
+        pdf_content = libreoffice_response.content
+
+        # Step 2: Convert PDF to markdown using centralized unstructured function
+        from convert.utils.unstructured_utils import convert_file_with_unstructured_io
+        client = request.app.state.client
+        unstructured_url = SERVICES["unstructured-io"]
+        
+        markdown_content = await convert_file_with_unstructured_io(
+            client=client,
+            service_url=unstructured_url,
+            file_content=pdf_content,
+            filename="converted.pdf",
+            content_type="application/pdf",
+            output_format="md",
+            fix_tables=True
+        )
+
+        # Generate output filename
+        base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
+        output_filename = f"{base_name}.md"
+
+        return StreamingResponse(
+            BytesIO(markdown_content.encode('utf-8')),
+            media_type="text/markdown",
+            headers={"Content-Disposition": f"attachment; filename={output_filename}"}
+        )
+
+    except Exception as e:
+        logger.exception("Error in libreoffice_to_markdown")
+        return JSONResponse(status_code=500, content={"error": f"Conversion failed: {str(e)}"})
+
+@app.post("/weasyprint/html-pdf")
+async def weasyprint_html_to_pdf(
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+    url: Optional[str] = Form(None)
+):
+    """
+    Convert HTML to PDF using WeasyPrint with full parameter control.
+
+    This endpoint provides direct access to WeasyPrint's capabilities without fallbacks.
+    Accepts either a file upload or URL input, plus any WeasyPrint write_pdf() parameters.
+
+    The endpoint automatically handles data transformations:
+    - Uploaded CSS files are saved to temporary files
+    - Stylesheet URLs are validated and passed through directly
+    - CSS strings are passed through as-is
+    - Page configuration CSS is automatically added if no stylesheets provided
+
+    WeasyPrint Parameters (all write_pdf() parameters are supported):
+    - stylesheets: List of CSS objects, URLs, file paths, CSS strings, or UploadFile objects
+    - font_config: Font configuration object (auto-created if not provided)
+    - zoom: Zoom factor for scaling content
+    - presentational_hints: Enable CSS presentational hints
+    - optimize_images: Optimize images for smaller PDF size
+    - jpeg_quality: JPEG compression quality (1-100)
+    - image_quality: General image quality (1-100)
+    - disable_smart_shrinking: Disable smart shrinking
+    - enable_hinting: Enable font hinting
+    - user_agent: User agent for URL fetching (extracted from kwargs)
+    - page_size, orientation, margin_*: Auto-converted to @page CSS if no stylesheets
+    - Any other write_pdf() parameter...
+
+    Examples:
+    - stylesheets=["https://example.com/style.css", ".body { color: red; }"]
+    - stylesheets=[uploaded_file_object]
+    - zoom=1.5, presentational_hints=True
+    """
+    # Import WeasyPrint classes
+    try:
+        from weasyprint import HTML, CSS
+        from weasyprint.text.fonts import FontConfiguration
+        WEASYPRINT_AVAILABLE = True
+    except ImportError:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "WeasyPrint library not available. Please install with: pip install weasyprint"}
+        )
+
+    # Validate input
+    if not file and not url:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Either 'file' or 'url' parameter must be provided"}
+        )
+
+    if file and url:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Cannot provide both 'file' and 'url' parameters"}
+        )
+
+    try:
+        # Import httpx at the top to avoid UnboundLocalError
+        import httpx
+        
+        # Extract all form parameters
+        form_data = await request.form()
+        weasyprint_params = {}
+        
+        # Convert form data to appropriate types
+        for key, value in form_data.items():
+            if key in ['file', 'url']:  # Skip file inputs
+                continue
+                
+            # Handle different parameter types
+            if isinstance(value, str):
+                # Try to parse as boolean
+                if value.lower() in ('true', 'false'):
+                    weasyprint_params[key] = value.lower() == 'true'
+                # Try to parse as number
+                elif value.replace('.', '').isdigit():
+                    weasyprint_params[key] = float(value) if '.' in value else int(value)
+                else:
+                    weasyprint_params[key] = value
+            else:
+                weasyprint_params[key] = value
+
+        html_content = None
+        base_url = None
+
+        if file:
+            # Read uploaded file
+            file_content = await file.read()
+            html_content = file_content.decode('utf-8', errors='replace')
+            base_name = file.filename.rsplit(".", 1)[0] if file.filename and "." in file.filename else "document"
+
+        elif url:
+            # Fetch HTML from URL
+            headers = {}
+            
+            # Extract user_agent from params if provided
+            user_agent = weasyprint_params.pop('user_agent', None)
+            if user_agent:
+                headers["User-Agent"] = user_agent
+
+            async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                html_content = response.text
+                base_url = url
+
+            # Generate base name from URL
+            from urllib.parse import urlparse
+            parsed_url = urlparse(url)
+            base_name = parsed_url.netloc + parsed_url.path.replace('/', '_')
+            if not base_name:
+                base_name = "webpage"
+
+        # Handle data transformations for WeasyPrint parameters
+        weasyprint_kwargs = {}
+        
+        # Process stylesheets parameter if provided
+        if 'stylesheets' in weasyprint_params:
+            stylesheets = weasyprint_params.pop('stylesheets')
+            processed_stylesheets = []
+            
+            # Handle different stylesheet types
+            if isinstance(stylesheets, (list, tuple)):
+                for stylesheet in stylesheets:
+                    if hasattr(stylesheet, 'filename'):  # UploadFile
+                        # Handle uploaded CSS file
+                        if not stylesheet.filename.lower().endswith('.css'):
+                            return JSONResponse(
+                                status_code=400,
+                                content={"error": f"Invalid stylesheet file: {stylesheet.filename}. Only .css files are allowed."}
+                            )
+                        
+                        from convert.utils.temp_file_manager import get_temp_manager
+                        temp_manager = get_temp_manager(service="weasyprint")
+                        
+                        file_content = await stylesheet.read()
+                        temp_file = temp_manager.create_temp_file(
+                            content=file_content,
+                            filename=stylesheet.filename,
+                            extension=".css",
+                            prefix="stylesheet"
+                        )
+                        processed_stylesheets.append(temp_file.path)
+                        
+                    elif isinstance(stylesheet, str):
+                        if stylesheet.startswith(('http://', 'https://')):
+                            # URL - validate and pass through
+                            processed_stylesheets.append(stylesheet)
+                        else:
+                            # CSS string - wrap in CSS object
+                            processed_stylesheets.append(CSS(string=stylesheet))
+                    else:
+                        # Assume it's already a CSS object or file path
+                        processed_stylesheets.append(stylesheet)
+            else:
+                # Single stylesheet - handle as list
+                if hasattr(stylesheets, 'filename'):  # UploadFile
+                    # Handle uploaded CSS file
+                    if not stylesheets.filename.lower().endswith('.css'):
+                        return JSONResponse(
+                            status_code=400,
+                            content={"error": f"Invalid stylesheet file: {stylesheets.filename}. Only .css files are allowed."}
+                        )
+                    
+                    from convert.utils.temp_file_manager import get_temp_manager
+                    temp_manager = get_temp_manager(service="weasyprint")
+                    
+                    file_content = await stylesheets.read()
+                    temp_file = temp_manager.create_temp_file(
+                        content=file_content,
+                        filename=stylesheets.filename,
+                        extension=".css",
+                        prefix="stylesheet"
+                    )
+                    processed_stylesheets = [temp_file.path]
+                    
+                elif isinstance(stylesheets, str):
+                    if stylesheets.startswith(('http://', 'https://')):
+                        # URL - validate and pass through
+                        processed_stylesheets = [stylesheets]
+                    else:
+                        # CSS string - wrap in CSS object
+                        processed_stylesheets = [CSS(string=stylesheets)]
+                else:
+                    # Assume it's already a CSS object or file path
+                    processed_stylesheets = [stylesheets]
+            
+            weasyprint_kwargs['stylesheets'] = processed_stylesheets
+
+        # Add default page CSS if no stylesheets provided
+        if 'stylesheets' not in weasyprint_kwargs:
+            # Extract page configuration from params
+            page_size = weasyprint_params.pop('page_size', 'A4')
+            orientation = weasyprint_params.pop('orientation', 'portrait')
+            margin_top = weasyprint_params.pop('margin_top', '1in')
+            margin_right = weasyprint_params.pop('margin_right', '1in')
+            margin_bottom = weasyprint_params.pop('margin_bottom', '1in')
+            margin_left = weasyprint_params.pop('margin_left', '1in')
+            
+            css_content = f"""
+            @page {{
+                size: {page_size} {orientation};
+                margin-top: {margin_top};
+                margin-right: {margin_right};
+                margin-bottom: {margin_bottom};
+                margin-left: {margin_left};
+            }}
+            """
+            weasyprint_kwargs['stylesheets'] = [css_content]
+
+        # Add default font configuration if not provided
+        if 'font_config' not in weasyprint_params:
+            weasyprint_kwargs['font_config'] = FontConfiguration()
+
+        # Pass through all remaining params to WeasyPrint
+        weasyprint_kwargs.update(weasyprint_params)
+
+        # Create HTML document
+        html_doc = HTML(string=html_content, base_url=base_url)
+
+        # Generate PDF with all processed parameters
+        pdf_bytes = html_doc.write_pdf(**weasyprint_kwargs)
+
+        # Generate output filename
+        output_filename = f"{base_name}.pdf"
+
+        return StreamingResponse(
+            BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename={output_filename}",
+                "X-Conversion-Service": "WEASYPRINT_DIRECT"
+            }
+        )
+
+    except httpx.RequestError as e:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Failed to fetch URL: {str(e)}"}
+        )
+    except Exception as e:
+        logger.exception("Error in weasyprint_html_to_pdf")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"WeasyPrint conversion failed: {str(e)}"}
+        )
+
 @app.api_route("/{service}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
 async def proxy_request(service: str, path: str, request: Request):
     """
@@ -609,63 +922,3 @@ async def proxy_request(service: str, path: str, request: Request):
 
     except httpx.RequestError as e:
         return JSONResponse(status_code=502, content={"error": f"Proxy error: {str(e)}"})
-
-@app.post("/libreoffice-md")
-async def libreoffice_to_markdown(request: Request, file: UploadFile = File(...)):
-    """Convert document to PDF using LibreOffice, then to markdown using Unstructured-IO."""
-    if not UNSTRUCTURED_AVAILABLE:
-        return JSONResponse(status_code=503, content={"error": "Unstructured library not available"})
-
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Step 1: Convert document to PDF using LibreOffice
-        libreoffice_client = request.app.state.libreoffice_client
-        service_url = SERVICES["libreoffice"]
-
-        # Prepare LibreOffice request
-        files = {"file": (file.filename, BytesIO(file_content), file.content_type or "application/octet-stream")}
-        data = {"convert-to": "pdf"}
-
-        libreoffice_response = await libreoffice_client.post(
-            f"{service_url}/request",
-            files=files,
-            data=data
-        )
-
-        if libreoffice_response.status_code != 200:
-            return JSONResponse(status_code=libreoffice_response.status_code,
-                              content={"error": f"LibreOffice conversion failed: {libreoffice_response.text}"})
-
-        # Get the PDF content from LibreOffice response
-        pdf_content = libreoffice_response.content
-
-        # Step 2: Convert PDF to markdown using centralized unstructured function
-        from convert.utils.unstructured_utils import convert_file_with_unstructured_io
-        client = request.app.state.client
-        unstructured_url = SERVICES["unstructured-io"]
-        
-        markdown_content = await convert_file_with_unstructured_io(
-            client=client,
-            service_url=unstructured_url,
-            file_content=pdf_content,
-            filename="converted.pdf",
-            content_type="application/pdf",
-            output_format="md",
-            fix_tables=True
-        )
-
-        # Generate output filename
-        base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
-        output_filename = f"{base_name}.md"
-
-        return StreamingResponse(
-            BytesIO(markdown_content.encode('utf-8')),
-            media_type="text/markdown",
-            headers={"Content-Disposition": f"attachment; filename={output_filename}"}
-        )
-
-    except Exception as e:
-        logger.exception("Error in libreoffice_to_markdown")
-        return JSONResponse(status_code=500, content={"error": f"Conversion failed: {str(e)}"})

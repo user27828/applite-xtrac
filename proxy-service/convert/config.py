@@ -522,6 +522,7 @@ CONVERSION_MATRIX = {
     ],
 
     ("url", "pdf"): [
+        (ConversionService.LOCAL_WEASYPRINT, "URL to PDF with WeasyPrint (high quality)"),
         (ConversionService.GOTENBERG, "URL to PDF conversion with full CSS support"),
     ],
 
@@ -688,7 +689,8 @@ CONVERSION_METHOD_TO_SERVICE_MAP = {
     "ODT Conversion": "LIBREOFFICE",
     "PPTX Conversion": "LIBREOFFICE",
     "File Conversion": "LOCAL",
-    "WeasyPrint PDF": "LOCAL_WEASYPRINT"
+    "WeasyPrint PDF": "LOCAL_WEASYPRINT",
+    "WeasyPrint Direct": "WEASYPRINT_DIRECT"
 }
 
 
