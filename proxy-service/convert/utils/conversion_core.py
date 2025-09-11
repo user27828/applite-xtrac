@@ -54,18 +54,6 @@ except ImportError:
 # Set up logging
 logger = logging.getLogger(__name__)
 
-# Import WeasyPrint for HTML to PDF conversion
-try:
-    from weasyprint import HTML
-    from weasyprint.text.fonts import FontConfiguration
-    WEASYPRINT_AVAILABLE = True
-    logger.info("WeasyPrint successfully imported")
-except ImportError as e:
-    HTML = None
-    FontConfiguration = None
-    WEASYPRINT_AVAILABLE = False
-    logger.warning(f"WeasyPrint import failed: {e}. HTML to PDF conversion will fall back to Gotenberg.")
-
 from ..config import (
     ConversionService,
     PANDOC_FORMAT_MAP,
@@ -700,83 +688,78 @@ async def _convert_file(
                 )
 
             elif service_to_try == ConversionService.LOCAL_WEASYPRINT:
-                # Local WeasyPrint processing for HTML to PDF
+                # Proxy to pyconvert-service for WeasyPrint processing
                 if input_format != "html" or output_format != "pdf":
                     raise create_http_exception(
                         ErrorCode.INVALID_REQUEST,
                         details="LOCAL_WEASYPRINT only supports HTML to PDF conversion",
                         service="local-weasyprint"
                     )
-                
+
                 if not current_file and not current_url:
                     raise create_http_exception(
                         ErrorCode.INVALID_REQUEST,
                         details="LOCAL_WEASYPRINT requires either file upload or URL input",
                         service="local-weasyprint"
                     )
-                
-                # Get HTML content
-                html_content = None
-                if current_file:
-                    await current_file.seek(0)  # Reset file pointer
-                    file_content = await current_file.read()
-                    html_content = file_content.decode('utf-8', errors='replace')
-                    base_name = current_file.filename.rsplit(".", 1)[0] if "." in current_file.filename else "document"
-                elif current_url:
-                    # Fetch HTML content from URL
-                    try:
-                        url_data = await fetch_url_content(current_url)
-                        html_content = url_data['content']
-                        if isinstance(html_content, bytes):
-                            html_content = html_content.decode('utf-8', errors='replace')
+
+                # httpx is already imported globally at the top of the file
+                from ..config import SERVICE_URLS
+
+                try:
+                    # Prepare request to pyconvert-service
+                    pyconvert_url = f"{SERVICE_URLS[ConversionService.LOCAL_WEASYPRINT]}/weasyprint"
+
+                    # Prepare form data
+                    files = {}
+                    data = {}
+
+                    if current_file:
+                        await current_file.seek(0)  # Reset file pointer
+                        file_content = await current_file.read()
+                        files['file'] = (current_file.filename, BytesIO(file_content), current_file.content_type)
+                        base_name = current_file.filename.rsplit(".", 1)[0] if "." in current_file.filename else "document"
+                    elif current_url:
+                        data['url'] = current_url
                         parsed_url = urlparse(current_url)
                         base_name = parsed_url.netloc + parsed_url.path.replace('/', '_')
                         if not base_name:
                             base_name = "url_content"
-                    except Exception as e:
-                        logger.error(f"URL fetch for WeasyPrint failed: {e}")
-                        raise create_http_exception(
-                            ErrorCode.URL_FETCH_FAILED,
-                            details=f"Failed to fetch URL content for PDF conversion: {str(e)}",
-                            service="local-weasyprint"
+
+                    # Make request to pyconvert-service
+                    async with httpx.AsyncClient(timeout=60.0) as client:
+                        response = await client.post(pyconvert_url, files=files, data=data)
+
+                        if response.status_code != 200:
+                            logger.error(f"Pyconvert WeasyPrint service returned {response.status_code}: {response.text[:500]}")
+                            raise create_http_exception(
+                                ErrorCode.CONVERSION_FAILED,
+                                details=f"WeasyPrint conversion failed: {response.text}",
+                                service="local-weasyprint"
+                            )
+
+                        # Generate output filename
+                        output_filename = f"{base_name}.pdf"
+
+                        # Return PDF as StreamingResponse
+                        return StreamingResponse(
+                            BytesIO(response.content),
+                            media_type="application/pdf",
+                            headers={
+                                "Content-Disposition": f"attachment; filename={output_filename}",
+                                "X-Conversion-Service": "LOCAL_WEASYPRINT"
+                            }
                         )
-                
-                # Convert HTML to PDF using WeasyPrint
-                try:
-                    if not WEASYPRINT_AVAILABLE:
-                        raise ImportError("WeasyPrint not available")
-                    
-                    # Create font configuration for better font handling
-                    font_config = FontConfiguration()
-                    
-                    # Create HTML document
-                    html_doc = HTML(string=html_content, base_url=current_url if current_url else None)
-                    
-                    # Generate PDF
-                    pdf_bytes = html_doc.write_pdf(font_config=font_config)
-                    
-                    # Generate output filename
-                    output_filename = f"{base_name}.pdf"
-                    
-                    # Return PDF as StreamingResponse
-                    return StreamingResponse(
-                        BytesIO(pdf_bytes),
-                        media_type="application/pdf",
-                        headers={
-                            "Content-Disposition": f"attachment; filename={output_filename}",
-                            "X-Conversion-Service": "LOCAL_WEASYPRINT"
-                        }
-                    )
-                    
-                except ImportError as e:
-                    logger.error(f"WeasyPrint import failed: {e}")
+
+                except httpx.RequestError as e:
+                    logger.error(f"Pyconvert service request failed: {e}")
                     raise create_http_exception(
                         ErrorCode.SERVICE_UNAVAILABLE,
-                        details="WeasyPrint library not available. Please install with: pip install weasyprint",
+                        details=f"WeasyPrint service unavailable: {str(e)}",
                         service="local-weasyprint"
                     )
                 except Exception as e:
-                    logger.error(f"WeasyPrint conversion failed: {e}")
+                    logger.error(f"WeasyPrint proxy failed: {e}")
                     raise create_http_exception(
                         ErrorCode.CONVERSION_FAILED,
                         details=f"HTML to PDF conversion failed: {str(e)}",

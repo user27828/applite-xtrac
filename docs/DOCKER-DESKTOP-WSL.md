@@ -107,7 +107,7 @@ git clone <repository-url>
 cd applite-xtrac
 
 # Make scripts executable
-chmod +x run.sh test-network-performance.sh
+chmod +x run.sh tests/test-network-performance.sh tests/test-performance.sh
 
 # Start development mode (recommended for development)
 ./run.sh dev
@@ -187,7 +187,7 @@ docker-compose up
 ./run.sh status
 
 # Test network performance
-./test-network-performance.sh
+./tests/test-network-performance.sh
 ```
 
 ## 5. Troubleshooting
@@ -208,7 +208,7 @@ docker-compose up
 ### AppLite Convert Specific Issues
 
 - **Port conflicts**: Check if ports 8000, 2004, 3000, 3001, 8369 are available
-- **Slow responses**: Run `./test-network-performance.sh` to diagnose network issues
+- **Slow responses**: Run `./tests/test-network-performance.sh` to diagnose network issues
 - **Container startup failures**: Check Docker Desktop resource allocation
 - **Network timeouts**: Ensure Docker Desktop networking is properly configured
 
@@ -275,7 +275,7 @@ curl http://localhost:8369/ping
 curl http://localhost:8369/convert/supported
 
 # Monitor performance
-./test-network-performance.sh
+./tests/test-network-performance.sh
 
 # View logs
 ./run.sh logs
@@ -288,5 +288,5 @@ curl http://localhost:8369/convert/supported
 - **Performance**: Enable Docker Desktop's WSL 2 backend for best performance
 - **Updates**: Keep Docker Desktop updated for latest WSL integration improvements
 - **Development**: Use `./run.sh dev` for development with hot reload
-- **Monitoring**: Regularly run `./test-network-performance.sh` to monitor performance
+- **Monitoring**: Regularly run `./tests/test-network-performance.sh` to monitor performance
 - **Cleanup**: Use `./run.sh down` to properly stop all services

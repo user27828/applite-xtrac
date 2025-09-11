@@ -9,7 +9,7 @@ This is a **multi-service document processing API** that acts as a unified gatew
 External Request → Proxy Service (port 8369) → Internal Services
                      ├── /unstructured-io/* → Port 8000 (structure extraction)
                      ├── /libreoffice/* → Port 2004 (office conversions)  
-                     ├── /pandoc/* → Port 3000 (markup conversions)
+                     ├── /pandoc/* → Port 3000 (markup conversions + WeasyPrint)
                      ├── /gotenberg/* → Port 4000 (HTML→PDF, high quality)
                      └── /convert/* → Smart routing to best service
 ```
@@ -45,10 +45,10 @@ python test_runner.py conversion  # Conversion-specific tests
 ### Smart Routing Logic (`/convert/*` endpoints)
 The conversion system in `proxy-service/convert/router.py` implements **service intelligence**:
 
-- **PDF output** → Gotenberg (highest quality for documents)
+- **PDF output** → Gotenberg (highest quality for office documents) or WeasyPrint (highest quality for HTML/CSS rendering)
 - **JSON structure** → Unstructured IO (best semantic extraction) 
 - **DOCX output** → LibreOffice or PyConvert (format-optimized)
-- **URL inputs** → Gotenberg for PDF, Unstructured IO for text/JSON
+- **URL input** → Gotenberg for PDF, Unstructured IO for JSON/Markdown/Text, WeasyPrint for high-quality HTML-to-PDF
 
 ### Configuration Pattern
 Service routing defined in `convert/config.py` via `CONVERSION_MATRIX` with utility functions in `convert/utils/`:

@@ -201,10 +201,10 @@ curl -X POST "http://localhost:8369/unstructured-io/general/v0/general" -F "file
 ### Service Intelligence
 
 Each endpoint automatically selects the optimal service:
-- **PDF Output**: Gotenberg (highest quality for HTML/DOCX/PPTX/XLSX)
+- **PDF Output**: Gotenberg (highest quality for HTML/DOCX/PPTX/XLSX) or WeasyPrint (high-quality HTML/CSS rendering via pyconvert service)
 - **JSON Output**: Unstructured IO (best structure extraction)
 - **DOCX Output**: LibreOffice or Pandoc (format-specific optimization)
-- **URL Input**: Gotenberg for PDF, Unstructured IO for JSON/Markdown/Text
+- **URL Input**: Gotenberg for PDF, Unstructured IO for JSON/Markdown/Text, WeasyPrint for high-quality HTML-to-PDF
 
 ### Additional Endpoints
 
@@ -340,19 +340,36 @@ curl -X POST "http://localhost:8369/libreoffice/request" \
   - **Supported formats**: `pdf`, `docx`, `html`, `txt`, `md`, `tex`
   - **Form data**: `file` (file upload), `output_format` (string), `extra_args` (optional string)
   - **Features**: Automatic cleanup, timeout handling (60s), background file processing
+- `POST /pandoc/weasyprint` - High-quality HTML to PDF conversion using WeasyPrint
+  - **Supported inputs**: HTML files or URLs
+  - **Features**: Full CSS support, custom styling, advanced PDF options
+  - **Parameters**: All WeasyPrint write_pdf() parameters supported
 
 **PyConvert Integration:**
 - Uses [Pandoc](https://pandoc.org/) for universal document conversion
+- Includes [WeasyPrint](https://weasyprint.org/) for high-quality HTML to PDF conversion
 - Supports conversion between markup formats and office documents
 - Includes LaTeX support for high-quality PDF generation
 
-**Sample Request:**
+**Sample Requests:**
 ```bash
-# Convert Markdown to PDF
+# Convert Markdown to PDF (via Pandoc)
 curl -X POST "http://localhost:8369/pandoc/pandoc" \
   -F "file=@document.md" \
   -F "output_format=pdf" \
   -o converted_document.pdf
+
+# Convert HTML to PDF (via WeasyPrint - high quality)
+curl -X POST "http://localhost:8369/pandoc/weasyprint" \
+  -F "file=@document.html" \
+  -F 'stylesheets=["https://example.com/style.css"]' \
+  -o high_quality_document.pdf
+
+# Convert URL to PDF (via WeasyPrint)
+curl -X POST "http://localhost:8369/pandoc/weasyprint" \
+  -F "url=https://example.com" \
+  -F "zoom=1.5" \
+  -o webpage.pdf
 
 # Convert with custom Pandoc arguments
 curl -X POST "http://localhost:8369/pandoc/pandoc" \
@@ -363,7 +380,8 @@ curl -X POST "http://localhost:8369/pandoc/pandoc" \
 ```
 
 **Common Conversions:**
-- Markdown/HTML → PDF (with LaTeX)
+- Markdown/HTML → PDF (with LaTeX via Pandoc)
+- HTML → PDF (with full CSS support via WeasyPrint)
 - DOCX → Markdown/HTML
 - Various markup formats ↔ Office documents
 - Text files with custom formatting

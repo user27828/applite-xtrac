@@ -52,7 +52,7 @@ SERVICE_URLS = {
     ConversionService.PANDOC: "http://pyconvert:3000",
     ConversionService.GOTENBERG: "http://gotenberg:3000",
     ConversionService.LOCAL: None,  # Local processing, no URL needed
-    ConversionService.LOCAL_WEASYPRINT: None  # Local WeasyPrint processing, no URL needed
+    ConversionService.LOCAL_WEASYPRINT: "http://pyconvert:3000"  # WeasyPrint now handled by pyconvert service
 }
 
 

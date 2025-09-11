@@ -168,15 +168,52 @@ async def ping_all():
                     results[service] = {"status": "healthy", "response_code": 404}
                     continue
             elif service == "pyconvert":
+                # Check pyconvert service health and parse detailed health information
                 response = await service_client.get(f"{service_url}/ping")
+                pyconvert_healthy = response.status_code < 400
+                
+                # Parse the enhanced ping response that includes pandoc and weasyprint information
+                if response.status_code == 200:
+                    try:
+                        ping_data = response.json()
+                        # Extract pandoc and weasyprint health from the ping response
+                        pandoc_info = ping_data.get("pandoc", {"status": "unknown", "response_code": 0})
+                        weasyprint_info = ping_data.get("weasyprint", {"status": "unknown", "response_code": 0})
+                        
+                        results[service] = {
+                            "status": "healthy" if pyconvert_healthy else "unhealthy",
+                            "response_code": response.status_code,
+                            "pandoc": pandoc_info,
+                            "weasyprint": weasyprint_info
+                        }
+                    except (ValueError, KeyError):
+                        # Fallback if JSON parsing fails
+                        results[service] = {
+                            "status": "healthy" if pyconvert_healthy else "unhealthy",
+                            "response_code": response.status_code
+                        }
+                else:
+                    # If ping fails, return basic health info
+                    results[service] = {
+                        "status": "healthy" if pyconvert_healthy else "unhealthy",
+                        "response_code": response.status_code
+                    }
             elif service == "gotenberg":
                 # Gotenberg should respond with 200 OK to a GET request to /
                 response = await service_client.get(f"{service_url}/")
-
-            results[service] = {
-                "status": "healthy" if response.status_code < 400 else "unhealthy",
-                "response_code": response.status_code
-            }
+                
+                results[service] = {
+                    "status": "healthy" if response.status_code < 400 else "unhealthy",
+                    "response_code": response.status_code
+                }
+            else:
+                # Default handling for any other services
+                response = await service_client.get(f"{service_url}/")
+                
+                results[service] = {
+                    "status": "healthy" if response.status_code < 400 else "unhealthy",
+                    "response_code": response.status_code
+                }
 
         except httpx.RequestError as e:
             results[service] = {"status": "unreachable", "error": str(e)}
@@ -261,6 +298,22 @@ async def service_ping(service: str, request: Request):
                 return JSONResponse(status_code=503, content={"success": False, "error": f"Service {service} unhealthy (status: {response.status_code})"})
         elif service == "pyconvert":
             response = await ping_client.get(f"http://pyconvert:3000/ping")
+            # Parse the enhanced ping response that includes pandoc information
+            if response.status_code == 200:
+                try:
+                    ping_data = response.json()
+                    # Return the enhanced response with pandoc information
+                    return {
+                        "success": True,
+                        "data": "PONG!",
+                        "service": service,
+                        "pandoc": ping_data.get("pandoc", {"status": "unknown", "response_code": 0})
+                    }
+                except (ValueError, KeyError):
+                    # Fallback if JSON parsing fails
+                    return {"success": True, "data": "PONG!", "service": service}
+            else:
+                return JSONResponse(status_code=503, content={"success": False, "error": f"Service {service} unhealthy (status: {response.status_code})"})
         elif service == "gotenberg":
             # Gotenberg should respond with 200 OK to a GET request to /
             response = await ping_client.get(f"{service_url}/")
@@ -462,14 +515,8 @@ async def weasyprint_html_to_pdf(
     """
     Convert HTML to PDF using WeasyPrint with full parameter control.
 
-    This endpoint provides direct access to WeasyPrint's capabilities without fallbacks.
+    This endpoint proxies requests to the pyconvert-service which handles WeasyPrint conversions.
     Accepts either a file upload or URL input, plus any WeasyPrint write_pdf() parameters.
-
-    The endpoint automatically handles data transformations:
-    - Uploaded CSS files are saved to temporary files
-    - Stylesheet URLs are validated and passed through directly
-    - CSS strings are passed through as-is
-    - Page configuration CSS is automatically added if no stylesheets provided
 
     WeasyPrint Parameters (all write_pdf() parameters are supported):
     - stylesheets: List of CSS objects, URLs, file paths, CSS strings, or UploadFile objects
@@ -490,219 +537,97 @@ async def weasyprint_html_to_pdf(
     - stylesheets=[uploaded_file_object]
     - zoom=1.5, presentational_hints=True
     """
-    # Import WeasyPrint classes
+    # Proxy to pyconvert-service
+    service = "pyconvert"  # pyconvert-service is accessed via /pyconvert/ prefix
+    path = "weasyprint"
+    target_url = f"{SERVICES[service]}/{path}"
+
+    # Get request data - don't read body for multipart forms
+    headers = dict(request.headers)
+    headers.pop("host", None)
+
+    # Extract form data parameters for POST requests
+    query_params = dict(request.query_params)
+    form_params = {}
+    form_data = None
     try:
-        from weasyprint import HTML, CSS
-        from weasyprint.text.fonts import FontConfiguration
-        WEASYPRINT_AVAILABLE = True
-    except ImportError:
-        return JSONResponse(
-            status_code=503,
-            content={"error": "WeasyPrint library not available. Please install with: pip install weasyprint"}
-        )
+        content_type = headers.get("content-type", "").lower()
+        if "multipart/form-data" in content_type:
+            form_data = await request.form()
+            for field_name, field_value in form_data.items():
+                if field_name not in ['file', 'files']:  # Skip file fields
+                    form_params[field_name] = field_value
+            query_params.update(form_params)
+    except Exception as e:
+        logger.warning(f"Failed to extract form parameters in weasyprint proxy: {e}")
 
-    # Validate input
-    if not file and not url:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "Either 'file' or 'url' parameter must be provided"}
-        )
-
-    if file and url:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "Cannot provide both 'file' and 'url' parameters"}
-        )
+    # Use the pyconvert client (same as pandoc service)
+    client: httpx.AsyncClient = app.state.client
 
     try:
-        # Import httpx at the top to avoid UnboundLocalError
-        import httpx
-        
-        # Extract all form parameters
-        form_data = await request.form()
-        weasyprint_params = {}
-        
-        # Convert form data to appropriate types
-        for key, value in form_data.items():
-            if key in ['file', 'url']:  # Skip file inputs
-                continue
-                
-            # Handle different parameter types
-            if isinstance(value, str):
-                # Try to parse as boolean
-                if value.lower() in ('true', 'false'):
-                    weasyprint_params[key] = value.lower() == 'true'
-                # Try to parse as number
-                elif value.replace('.', '').isdigit():
-                    weasyprint_params[key] = float(value) if '.' in value else int(value)
-                else:
-                    weasyprint_params[key] = value
+        # Build and send request to pyconvert-service
+        if form_data is not None:
+            # For multipart data, send as form data
+            files = {}
+            data = {}
+            
+            for field_name, field_value in form_data.items():
+                if hasattr(field_value, 'filename'):  # File upload
+                    files[field_name] = (field_value.filename, await field_value.read(), field_value.content_type)
+                else:  # Regular form field
+                    data[field_name] = field_value
+            
+            resp = await client.post(target_url, files=files, data=data, params=query_params)
+        else:
+            # For other content types, read body
+            body = await request.body()
+            req = client.build_request(method=request.method, url=target_url, headers=headers, content=body, params=query_params)
+            resp = await client.send(req)
+
+        # Check for errors
+        if resp.status_code >= 400:
+            if hasattr(resp, 'aclos'):
+                # Streaming response
+                error_content = await resp.aread()
+                error_text = error_content.decode(resp.encoding or "utf-8", errors="replace")
+                await resp.aclose()
             else:
-                weasyprint_params[key] = value
+                # Regular response
+                error_text = resp.text
 
-        html_content = None
-        base_url = None
+            logger.error(f"WeasyPrint service returned error {resp.status_code}: {error_text[:500]}...")
 
-        if file:
-            # Read uploaded file
-            file_content = await file.read()
-            html_content = file_content.decode('utf-8', errors='replace')
-            base_name = file.filename.rsplit(".", 1)[0] if file.filename and "." in file.filename else "document"
+            return JSONResponse(
+                status_code=resp.status_code,
+                content={"error": f"WeasyPrint conversion failed: {error_text}"}
+            )
 
-        elif url:
-            # Fetch HTML from URL
-            headers = {}
-            
-            # Extract user_agent from params if provided
-            user_agent = weasyprint_params.pop('user_agent', None)
-            if user_agent:
-                headers["User-Agent"] = user_agent
+        # Handle response based on type
+        headers = {k: v for k, v in resp.headers.items() if k.lower() not in HOP_BY_HOP}
 
-            async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
-                response = await client.get(url)
-                response.raise_for_status()
-                html_content = response.text
-                base_url = url
+        if hasattr(resp, 'aclos'):
+            # Streaming response
+            async def _stream_and_close(r):
+                try:
+                    async for chunk in r.aiter_bytes():
+                        yield chunk
+                finally:
+                    await r.aclose()
 
-            # Generate base name from URL
-            from urllib.parse import urlparse
-            parsed_url = urlparse(url)
-            base_name = parsed_url.netloc + parsed_url.path.replace('/', '_')
-            if not base_name:
-                base_name = "webpage"
-
-        # Handle data transformations for WeasyPrint parameters
-        weasyprint_kwargs = {}
-        
-        # Process stylesheets parameter if provided
-        if 'stylesheets' in weasyprint_params:
-            stylesheets = weasyprint_params.pop('stylesheets')
-            processed_stylesheets = []
-            
-            # Handle different stylesheet types
-            if isinstance(stylesheets, (list, tuple)):
-                for stylesheet in stylesheets:
-                    if hasattr(stylesheet, 'filename'):  # UploadFile
-                        # Handle uploaded CSS file
-                        if not stylesheet.filename.lower().endswith('.css'):
-                            return JSONResponse(
-                                status_code=400,
-                                content={"error": f"Invalid stylesheet file: {stylesheet.filename}. Only .css files are allowed."}
-                            )
-                        
-                        from convert.utils.temp_file_manager import get_temp_manager
-                        temp_manager = get_temp_manager(service="weasyprint")
-                        
-                        file_content = await stylesheet.read()
-                        temp_file = temp_manager.create_temp_file(
-                            content=file_content,
-                            filename=stylesheet.filename,
-                            extension=".css",
-                            prefix="stylesheet"
-                        )
-                        processed_stylesheets.append(temp_file.path)
-                        
-                    elif isinstance(stylesheet, str):
-                        if stylesheet.startswith(('http://', 'https://')):
-                            # URL - validate and pass through
-                            processed_stylesheets.append(stylesheet)
-                        else:
-                            # CSS string - wrap in CSS object
-                            processed_stylesheets.append(CSS(string=stylesheet))
-                    else:
-                        # Assume it's already a CSS object or file path
-                        processed_stylesheets.append(stylesheet)
-            else:
-                # Single stylesheet - handle as list
-                if hasattr(stylesheets, 'filename'):  # UploadFile
-                    # Handle uploaded CSS file
-                    if not stylesheets.filename.lower().endswith('.css'):
-                        return JSONResponse(
-                            status_code=400,
-                            content={"error": f"Invalid stylesheet file: {stylesheets.filename}. Only .css files are allowed."}
-                        )
-                    
-                    from convert.utils.temp_file_manager import get_temp_manager
-                    temp_manager = get_temp_manager(service="weasyprint")
-                    
-                    file_content = await stylesheets.read()
-                    temp_file = temp_manager.create_temp_file(
-                        content=file_content,
-                        filename=stylesheets.filename,
-                        extension=".css",
-                        prefix="stylesheet"
-                    )
-                    processed_stylesheets = [temp_file.path]
-                    
-                elif isinstance(stylesheets, str):
-                    if stylesheets.startswith(('http://', 'https://')):
-                        # URL - validate and pass through
-                        processed_stylesheets = [stylesheets]
-                    else:
-                        # CSS string - wrap in CSS object
-                        processed_stylesheets = [CSS(string=stylesheets)]
-                else:
-                    # Assume it's already a CSS object or file path
-                    processed_stylesheets = [stylesheets]
-            
-            weasyprint_kwargs['stylesheets'] = processed_stylesheets
-
-        # Add default page CSS if no stylesheets provided
-        if 'stylesheets' not in weasyprint_kwargs:
-            # Extract page configuration from params
-            page_size = weasyprint_params.pop('page_size', 'A4')
-            orientation = weasyprint_params.pop('orientation', 'portrait')
-            margin_top = weasyprint_params.pop('margin_top', '1in')
-            margin_right = weasyprint_params.pop('margin_right', '1in')
-            margin_bottom = weasyprint_params.pop('margin_bottom', '1in')
-            margin_left = weasyprint_params.pop('margin_left', '1in')
-            
-            css_content = f"""
-            @page {{
-                size: {page_size} {orientation};
-                margin-top: {margin_top};
-                margin-right: {margin_right};
-                margin-bottom: {margin_bottom};
-                margin-left: {margin_left};
-            }}
-            """
-            weasyprint_kwargs['stylesheets'] = [css_content]
-
-        # Add default font configuration if not provided
-        if 'font_config' not in weasyprint_params:
-            weasyprint_kwargs['font_config'] = FontConfiguration()
-
-        # Pass through all remaining params to WeasyPrint
-        weasyprint_kwargs.update(weasyprint_params)
-
-        # Create HTML document
-        html_doc = HTML(string=html_content, base_url=base_url)
-
-        # Generate PDF with all processed parameters
-        pdf_bytes = html_doc.write_pdf(**weasyprint_kwargs)
-
-        # Generate output filename
-        output_filename = f"{base_name}.pdf"
-
-        return StreamingResponse(
-            BytesIO(pdf_bytes),
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": f"attachment; filename={output_filename}",
-                "X-Conversion-Service": "WEASYPRINT_DIRECT"
-            }
-        )
-
+            return StreamingResponse(_stream_and_close(resp), status_code=resp.status_code, headers=headers)
+        else:
+            # Regular response
+            return Response(content=resp.content, status_code=resp.status_code, headers=headers)
     except httpx.RequestError as e:
         return JSONResponse(
-            status_code=400,
-            content={"error": f"Failed to fetch URL: {str(e)}"}
+            status_code=502,
+            content={"error": f"WeasyPrint service unavailable: {str(e)}"}
         )
     except Exception as e:
-        logger.exception("Error in weasyprint_html_to_pdf")
+        logger.exception("Error proxying to weasyprint service")
         return JSONResponse(
             status_code=500,
-            content={"error": f"WeasyPrint conversion failed: {str(e)}"}
+            content={"error": f"Proxy error: {str(e)}"}
         )
 
 @app.api_route("/{service}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])

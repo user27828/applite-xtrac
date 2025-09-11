@@ -63,6 +63,7 @@ This document provides a comprehensive overview of supported file formats across
 | **Unstructured IO** | Document structure extraction | PDF, DOCX, DOC, ODT, PPTX, PPT, XLSX, CSV, TSV, EML, MSG, RTF, EPUB, HTML, XML, PNG, JPG, HEIC, TXT | JSON (structure extraction) |
 | **LibreOffice** | Office document conversion | Extensive office formats (DOC, DOCX, XLS, XLSX, PPT, PPTX, ODT, ODS, ODP, etc.) | PDF, HTML, DOCX, ODT, and many others |
 | **Pandoc** | Universal document conversion | Markdown, HTML, LaTeX, DOCX, ODT, RST, AsciiDoc, and 40+ formats | PDF, HTML, DOCX, LaTeX, Markdown, and 50+ formats |
+| **WeasyPrint** | High-quality HTML to PDF conversion | HTML, URLs | PDF (with full CSS support) |
 | **Gotenberg** | HTML and office document to PDF conversion | HTML, URLs, DOCX, XLSX, PPTX, and other office formats | PDF |
 
 ## Master Format Support Matrix
@@ -543,10 +544,10 @@ curl http://localhost:8369/convert/supported
 
 Each endpoint automatically selects the optimal service:
 
-- **PDF Output**: Gotenberg (highest quality for HTML/DOCX/PPTX/XLSX)
+- **PDF Output**: Gotenberg (highest quality for office documents) or WeasyPrint (highest quality for HTML/CSS rendering)
 - **JSON Output**: Unstructured IO (best structure extraction)
-- **DOCX Output**: LibreOffice or Pandoc (format-specific optimization)
-- **URL Input**: Gotenberg for PDF, Unstructured IO for JSON/Markdown/Text/HTML
+- **DOCX Output**: LibreOffice (office formats) or Pandoc (markup formats)
+- **URL Input**: Gotenberg for PDF, Unstructured IO for JSON/Markdown/Text, WeasyPrint for high-quality HTML-to-PDF
 - **Markdown/LaTeX**: Pandoc (native support)
 - **Legacy Formats**: LibreOffice (broadest compatibility)
 - **URL to HTML**: Local service (direct content fetching)

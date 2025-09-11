@@ -6,12 +6,31 @@ RUN apk add --no-cache python3 py3-pip
 # Install libmagic (required for python-magic)
 RUN apk add --no-cache libmagic file
 
+# Install system dependencies for WeasyPrint
+RUN apk add --no-cache \
+    cairo \
+    cairo-dev \
+    pango \
+    pango-dev \
+    gdk-pixbuf \
+    gdk-pixbuf-dev \
+    libffi-dev \
+    jpeg-dev \
+    libxml2-dev \
+    libxslt-dev \
+    zlib-dev \
+    fontconfig \
+    ttf-dejavu \
+    ttf-liberation \
+    ttf-freefont
+
 # Create virtual environment
 RUN python3 -m venv /opt/venv
 
 # Activate virtual environment and install packages
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install fastapi uvicorn python-multipart python-magic
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install -r /tmp/requirements.txt
 
 # Create app directory
 WORKDIR /app
