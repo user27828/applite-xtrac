@@ -68,8 +68,8 @@ from .utils.conversion_core import (
 from .utils.conversion_chaining import chain_conversions, ConversionStep
 from .utils.special_handlers import process_presentation_to_html
 
-# Import URL conversion manager
-from .utils.url_conversion_manager import URLConversionManager
+# Import URL processing module
+from .utils.url_processor import URLProcessor
 from .utils.error_handling import create_http_exception, ErrorCode, validate_format_parameter
 
 # Set up logging
@@ -100,7 +100,7 @@ async def convert_url_dynamic(request: Request, output_format: str, url: str = F
         )
     
     # Use dedicated URL manager to determine input format and prepare conversion
-    url_manager = URLConversionManager()
+    url_manager = URLProcessor()
     conversion_input = await url_manager.process_url_conversion(url, output_format, user_agent=user_agent)
     
     # Get detected input format
@@ -190,7 +190,7 @@ async def get_url_conversion_info_endpoint(input_format: str, output_format: str
     if url:
         # Add URL-specific information if URL is provided
         try:
-            url_manager = URLConversionManager()
+            url_manager = URLProcessor()
             path_info = url_manager.get_optimal_conversion_path(url, output_format)
             info["url_analysis"] = {
                 "detected_format": path_info["detected_format"],
@@ -236,7 +236,7 @@ async def _validate_url_common(url: str):
     """
     try:
         # Use the new URL manager to validate and analyze the URL
-        url_manager = URLConversionManager()
+        url_manager = URLProcessor()
         
         # Try to process the URL to see if it's valid
         conversion_input = await url_manager.process_url_conversion(url, "html")

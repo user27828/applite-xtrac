@@ -20,7 +20,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 #     detect_content_format,
 #     URLFetchError
 # )
-from convert.utils.url_conversion_manager import URLConversionManager
+from convert.utils.url_processor import URLProcessor
 
 
 @pytest.mark.asyncio
@@ -33,7 +33,7 @@ async def test_basic_url_fetch():
         "https://httpbin.org/json",  # JSON content
     ]
 
-    url_manager = URLConversionManager()
+    url_manager = URLProcessor()
     
     for url in test_urls:
         try:
@@ -59,7 +59,7 @@ async def test_temp_file_creation():
     print("\n=== Testing Temp File Creation ===")
 
     url = "https://httpbin.org/html"
-    url_manager = URLConversionManager()
+    url_manager = URLProcessor()
     
     try:
         print(f"Fetching to temp file: {url}")
@@ -95,7 +95,7 @@ async def test_conversion_preparation():
         ("https://httpbin.org/html", "json"),
     ]
 
-    url_manager = URLConversionManager()
+    url_manager = URLProcessor()
     
     for url, output_format in test_cases:
         try:
@@ -128,7 +128,7 @@ async def test_validation():
         ("", False),                        # Empty
     ]
 
-    url_manager = URLConversionManager()
+    url_manager = URLProcessor()
     
     for url, should_be_valid in test_urls:
         try:
@@ -154,7 +154,7 @@ async def test_url_fetch_with_custom_user_agent():
     test_url = "https://httpbin.org/user-agent"
     custom_user_agent = "TestBot/1.0 (Custom User Agent Test)"
 
-    url_manager = URLConversionManager()
+    url_manager = URLProcessor()
     
     try:
         print(f"\nFetching: {test_url}")

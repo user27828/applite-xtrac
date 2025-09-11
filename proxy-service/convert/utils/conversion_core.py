@@ -64,8 +64,7 @@ from .conversion_lookup import (
     get_all_conversions,
     DYNAMIC_SERVICE_URLS
 )
-from .url_conversion_manager import ConversionInput
-from .url_fetcher import fetch_url_content
+from .url_processor import ConversionInput, fetch_url_content
 from .error_handling import create_http_exception, ErrorCode, handle_conversion_error, handle_service_error
 
 # Import unified MIME type detector
@@ -114,7 +113,7 @@ async def _convert_file(
     request: Request,
     file: Optional[UploadFile] = None,
     url: Optional[str] = None,
-    url_input: Optional['ConversionInput'] = None,
+    url_input: Optional[Any] = None,
     input_format: str = "",
     output_format: str = "",
     service: Optional[ConversionService] = None,
@@ -153,14 +152,14 @@ async def _convert_file(
     
     # Handle legacy URL input by converting to new format
     if url and not url_input:
-        from .url_conversion_manager import URLConversionManager
-        url_manager = URLConversionManager()
+        from .url_processor import URLProcessor
+        url_manager = URLProcessor()
         url_input = await url_manager.process_url_conversion(url, output_format)
     
     # Handle same-format conversions specially
     if url_input and hasattr(url_input, 'metadata') and url_input.metadata.get('passthrough_conversion'):
         # For passthrough conversions, fetch the URL content and return it directly
-        from .url_fetcher import fetch_url_content
+        from .url_processor import fetch_url_content
         
         try:
             # Fetch the URL content
