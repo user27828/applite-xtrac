@@ -31,6 +31,9 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+# Import unified MIME detector
+from .mime_detector import get_mime_type as get_unified_mime_type, get_format_from_mime_type
+
 logger = logging.getLogger(__name__)
 
 # Configuration
@@ -267,8 +270,8 @@ def get_content_type_from_url(url: str) -> str:
     parsed = urlparse(url)
     path = unquote(parsed.path)
 
-    # Try to guess from file extension
-    content_type, _ = mimetypes.guess_type(path)
+    # Try to guess from file extension using unified detector
+    content_type = get_unified_mime_type(filename=path)
 
     if content_type:
         return content_type
@@ -496,20 +499,20 @@ def detect_content_format(content: bytes, content_type: str, url: str) -> str:
         # Store for potential use
         detected_mime = content_type_lower
     
-    # Method 2: Use python-magic for content-based detection (most reliable)
-    if MAGIC_AVAILABLE and content:
+    # Method 2: Use unified MIME detector for content-based detection (most reliable)
+    if not detected_mime and content:
         try:
-            # Use magic to detect MIME type from content
-            magic_mime = magic.from_buffer(content, mime=True)
-            if magic_mime and magic_mime in MIME_TYPE_MAPPING:
-                return MIME_TYPE_MAPPING[magic_mime]
+            # Use unified MIME detector with content
+            unified_mime = get_unified_mime_type(content=content, filename=url)
+            if unified_mime and unified_mime in MIME_TYPE_MAPPING:
+                return MIME_TYPE_MAPPING[unified_mime]
             
-            # If magic detected something different, use it
-            if magic_mime and magic_mime != detected_mime:
-                detected_mime = magic_mime
+            # If unified detector found something different, use it
+            if unified_mime and unified_mime != detected_mime:
+                detected_mime = unified_mime
                 
         except Exception as e:
-            logger.debug(f"Magic detection failed: {e}")
+            logger.debug(f"Unified MIME detection failed: {e}")
     
     # Method 3: Use mimetypes for extension-based detection
     if not detected_mime:
@@ -517,14 +520,14 @@ def detect_content_format(content: bytes, content_type: str, url: str) -> str:
             parsed = urlparse(url)
             path = unquote(parsed.path)
             
-            # Use mimetypes to guess from extension
-            guessed_mime, _ = mimetypes.guess_type(path)
+            # Use unified MIME detector to guess from extension
+            guessed_mime = get_unified_mime_type(filename=path)
             if guessed_mime:
                 detected_mime = guessed_mime
                 if guessed_mime in MIME_TYPE_MAPPING:
                     return MIME_TYPE_MAPPING[guessed_mime]
         except Exception as e:
-            logger.debug(f"Mimetypes detection failed: {e}")
+            logger.debug(f"MIME detection failed: {e}")
     
     # Method 4: Check our extension mapping as fallback
     if not detected_mime:

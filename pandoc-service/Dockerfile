@@ -16,8 +16,9 @@ RUN pip install fastapi uvicorn python-multipart python-magic
 # Create app directory
 WORKDIR /app
 
-# Copy the API script
+# Copy the API script and utils directory
 COPY app.py /app/app.py
+COPY utils/ /app/utils/
 
 # Expose port
 EXPOSE 3000

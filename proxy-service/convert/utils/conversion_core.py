@@ -8,7 +8,6 @@ and utility functions that were moved from router.py to keep the router clean.
 import logging
 import httpx
 import re
-import mimetypes
 from typing import Optional, Dict, Any
 from urllib.parse import urlparse
 from io import BytesIO
@@ -69,12 +68,16 @@ from .url_conversion_manager import ConversionInput
 from .url_fetcher import fetch_url_content
 from .error_handling import create_http_exception, ErrorCode, handle_conversion_error, handle_service_error
 
+# Import unified MIME type detector
+from .mime_detector import get_mime_type as get_unified_mime_type
+
 # Set up logging
 logger = logging.getLogger(__name__)
 
+# Legacy function - now uses unified MIME detector
 def get_mime_type(extension: str) -> str:
     """
-    Get MIME type for a file extension using Python's mimetypes module.
+    Get MIME type for a file extension using unified detection.
     
     Args:
         extension: File extension without the dot (e.g., 'pdf', 'docx')
@@ -82,21 +85,7 @@ def get_mime_type(extension: str) -> str:
     Returns:
         MIME type string, or default fallback if not found
     """
-    if not extension:
-        return "application/octet-stream"
-    
-    # Use mimetypes.guess_type for standard MIME type detection
-    mime_type, _ = mimetypes.guess_type(f"file.{extension}")
-    
-    if mime_type:
-        # Handle special case for tex files - mimetypes returns text/x-tex
-        # but we want application/x-tex for consistency
-        if extension == "tex" and mime_type == "text/x-tex":
-            return "application/x-tex"
-        return mime_type
-    
-    # Fallback for unknown extensions
-    return f"application/{extension}"
+    return get_unified_mime_type(extension=extension)
 
 async def _get_service_client(service: ConversionService, request: Request) -> httpx.AsyncClient:
     """Get the appropriate HTTP client for a service."""
