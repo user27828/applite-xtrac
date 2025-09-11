@@ -36,7 +36,7 @@ SERVICE_DIRS = {
     "unstructured": "unstructured",
     "gotenberg": "gotenberg",
     "libreoffice": "libreoffice",
-    "url_fetcher": "url_fetcher",
+    "url_fetcher": "url_processor",
     "conversion": "conversion"
 }
 
@@ -513,7 +513,7 @@ def generate_temp_filename(url: str, content_type: str = None) -> str:
     Legacy function for URL-based filename generation.
     Use TempFileManager.generate_filename() instead.
     """
-    manager = get_temp_manager("url_fetcher")
+    manager = get_temp_manager("url_processor")
     return manager.generate_filename(original_filename=url, extension=None)
 
 

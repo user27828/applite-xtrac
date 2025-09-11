@@ -102,7 +102,7 @@ SERVICE_URL_CONFIGS = {
     - `conversion_core.py` → Core conversion execution
     - `special_handlers.py` → Custom conversion handlers
     - `unstructured_utils.py` → Unstructured IO utilities
-    - `url_fetcher.py` & `url_helpers.py` → URL processing
+    - `url_processor.py` → Consolidated URL processing
   - `router.py` → FastAPI route handlers
 - `proxy-service/convert/_local_/` → Local conversion implementations
 - `proxy-service/convert/validate/` → Format validation and testing

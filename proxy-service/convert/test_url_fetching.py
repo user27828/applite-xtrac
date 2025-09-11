@@ -14,12 +14,6 @@ import pytest
 # Add the convert module to the path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# from convert.utils.url_fetcher import (
-#     fetch_url_content,
-#     fetch_url_to_temp_file,
-#     detect_content_format,
-#     URLFetchError
-# )
 from convert.utils.url_processor import URLProcessor
 
 
