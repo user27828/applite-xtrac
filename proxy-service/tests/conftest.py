@@ -4,6 +4,7 @@ Shared test configuration and fixtures for proxy-service tests.
 
 import pytest
 import asyncio
+import os
 from pathlib import Path
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
@@ -13,6 +14,27 @@ import json
 from typing import Dict, List, Generator, Union, Callable
 
 from app import app
+
+
+# ===== PYTEST CONFIGURATION =====
+
+def pytest_addoption(parser):
+    """Add command line options for pytest."""
+    parser.addoption(
+        "--applite-log-level",
+        action="store",
+        default=None,
+        help="Set applite-xtrac logging level for tests (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
+    )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def configure_test_logging(request):
+    """Configure logging for tests based on command line options."""
+    log_level = request.config.getoption("--applite-log-level")
+    if log_level:
+        os.environ['LOG_LEVEL'] = log_level.upper()
+    # If no --applite-log-level specified, the logging config will default to WARNING in test environment
 
 
 # ===== FIXTURE FACTORIES =====

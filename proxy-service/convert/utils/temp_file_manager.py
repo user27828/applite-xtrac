@@ -21,7 +21,10 @@ from typing import Optional, List, Union, Dict, Any, AsyncContextManager, Contex
 from contextlib import asynccontextmanager, contextmanager
 import weakref
 
-logger = logging.getLogger(__name__)
+# Import centralized logging configuration
+from .logging_config import get_logger
+
+logger = get_logger()
 
 # Default temporary directory
 DEFAULT_TEMP_DIR = "/tmp/applite-xtrac"

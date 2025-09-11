@@ -484,6 +484,13 @@ run_all_tests() {
 # Run conversion tests specifically
 run_conversion_tests() {
     local proxy_dir="proxy-service"
+    local extra_args=""
+    
+    # Collect any additional arguments after the first one
+    if [ $# -gt 0 ]; then
+        shift  # Remove the first argument (test type)
+        extra_args="$*"
+    fi
     
     if [ ! -d "$proxy_dir" ]; then
         log_error "Proxy service directory '$proxy_dir' not found"
@@ -512,7 +519,7 @@ run_conversion_tests() {
     
     # Run the specific test method that shows all conversion results
     if ./venv/bin/python -c "import pytest" 2>/dev/null; then
-        ./venv/bin/python -m pytest tests/integration/test_conversions.py::TestConversionEndpoints::test_all_file_conversions -v -s --tb=short || log_error "Conversion tests failed"
+        ./venv/bin/python -m pytest tests/integration/test_conversions.py::TestConversionEndpoints::test_all_file_conversions -v -s --tb=short $extra_args || log_error "Conversion tests failed"
     else
         log_warning "pytest not found in virtual environment, running basic Python tests..."
         ./venv/bin/python -m unittest tests.integration.test_conversions.TestConversionEndpoints.test_all_file_conversions -v || log_error "Basic conversion tests failed"
@@ -647,10 +654,11 @@ main() {
             run_tests "all"
             ;;
         "test:conversion")
-            run_tests "conversion"
+            # Pass any additional arguments to the test function
+            run_conversion_tests "$@" 
             ;;
         "test:url")
-            run_tests "url"
+            run_url_tests
             ;;
         "update")
             update_images
@@ -680,6 +688,7 @@ main() {
             echo "  status|health|ps   Check service health"
             echo "  test         Run all tests"
             echo "  test:conversion    Run conversion integration tests"
+            echo "                     Use --applite-log-level=INFO to show debug messages"
             echo "  test:url           Run URL fetching tests"
             exit 1
             ;;

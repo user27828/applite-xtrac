@@ -18,8 +18,11 @@ except ImportError:
     magic = None
     MAGIC_AVAILABLE = False
 
+# Import centralized logging configuration
+from .logging_config import get_logger
+
 # Set up logging
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 # Comprehensive MIME type mappings for common document formats
 MIME_TYPE_MAPPINGS = {

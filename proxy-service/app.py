@@ -35,9 +35,12 @@ from convert.utils.http_client import (
     lifespan_http_clients
 )
 
+# Import centralized logging configuration
+from convert.utils.logging_config import get_logger
+
 
 # Set up logging
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 # Hop-by-hop headers that shouldn't be forwarded
 HOP_BY_HOP = {

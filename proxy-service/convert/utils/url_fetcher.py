@@ -41,7 +41,10 @@ from .temp_file_manager import (
     cleanup_temp_file
 )
 
-logger = logging.getLogger(__name__)
+# Import centralized logging configuration
+from .logging_config import get_logger
+
+logger = get_logger()
 
 # Configuration
 DEFAULT_TIMEOUT = 30
