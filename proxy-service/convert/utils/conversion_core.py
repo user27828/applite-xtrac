@@ -51,6 +51,21 @@ except ImportError:
     dict_to_elements = None
     UNSTRUCTURED_AVAILABLE = False
 
+# Set up logging
+logger = logging.getLogger(__name__)
+
+# Import WeasyPrint for HTML to PDF conversion
+try:
+    from weasyprint import HTML
+    from weasyprint.text.fonts import FontConfiguration
+    WEASYPRINT_AVAILABLE = True
+    logger.info("WeasyPrint successfully imported")
+except ImportError as e:
+    HTML = None
+    FontConfiguration = None
+    WEASYPRINT_AVAILABLE = False
+    logger.warning(f"WeasyPrint import failed: {e}. HTML to PDF conversion will fall back to Gotenberg.")
+
 from ..config import (
     ConversionService,
     PANDOC_FORMAT_MAP,
@@ -78,9 +93,6 @@ from .temp_file_manager import (
     cleanup_temp_files,
     cleanup_temp_file
 )
-
-# Set up logging
-logger = logging.getLogger(__name__)
 
 # Legacy function - now uses unified MIME detector
 def get_mime_type(extension: str) -> str:
@@ -652,7 +664,10 @@ async def _convert_file(
                         return StreamingResponse(
                             BytesIO(content.encode('utf-8')),
                             media_type="text/html",
-                            headers={"Content-Disposition": f"attachment; filename={output_filename}"}
+                            headers={
+                                "Content-Disposition": f"attachment; filename={output_filename}",
+                                "X-Conversion-Service": "LOCAL"
+                            }
                         )
                     except Exception as e:
                         logger.error(f"URL to HTML conversion failed: {e}")
@@ -678,8 +693,95 @@ async def _convert_file(
                 return StreamingResponse(
                     BytesIO(content.encode('utf-8')),
                     media_type=media_type,
-                    headers={"Content-Disposition": f"attachment; filename={output_filename}"}
+                    headers={
+                        "Content-Disposition": f"attachment; filename={output_filename}",
+                        "X-Conversion-Service": "LOCAL"
+                    }
                 )
+
+            elif service_to_try == ConversionService.LOCAL_WEASYPRINT:
+                # Local WeasyPrint processing for HTML to PDF
+                if input_format != "html" or output_format != "pdf":
+                    raise create_http_exception(
+                        ErrorCode.INVALID_REQUEST,
+                        details="LOCAL_WEASYPRINT only supports HTML to PDF conversion",
+                        service="local-weasyprint"
+                    )
+                
+                if not current_file and not current_url:
+                    raise create_http_exception(
+                        ErrorCode.INVALID_REQUEST,
+                        details="LOCAL_WEASYPRINT requires either file upload or URL input",
+                        service="local-weasyprint"
+                    )
+                
+                # Get HTML content
+                html_content = None
+                if current_file:
+                    await current_file.seek(0)  # Reset file pointer
+                    file_content = await current_file.read()
+                    html_content = file_content.decode('utf-8', errors='replace')
+                    base_name = current_file.filename.rsplit(".", 1)[0] if "." in current_file.filename else "document"
+                elif current_url:
+                    # Fetch HTML content from URL
+                    try:
+                        url_data = await fetch_url_content(current_url)
+                        html_content = url_data['content']
+                        if isinstance(html_content, bytes):
+                            html_content = html_content.decode('utf-8', errors='replace')
+                        parsed_url = urlparse(current_url)
+                        base_name = parsed_url.netloc + parsed_url.path.replace('/', '_')
+                        if not base_name:
+                            base_name = "url_content"
+                    except Exception as e:
+                        logger.error(f"URL fetch for WeasyPrint failed: {e}")
+                        raise create_http_exception(
+                            ErrorCode.URL_FETCH_FAILED,
+                            details=f"Failed to fetch URL content for PDF conversion: {str(e)}",
+                            service="local-weasyprint"
+                        )
+                
+                # Convert HTML to PDF using WeasyPrint
+                try:
+                    if not WEASYPRINT_AVAILABLE:
+                        raise ImportError("WeasyPrint not available")
+                    
+                    # Create font configuration for better font handling
+                    font_config = FontConfiguration()
+                    
+                    # Create HTML document
+                    html_doc = HTML(string=html_content, base_url=current_url if current_url else None)
+                    
+                    # Generate PDF
+                    pdf_bytes = html_doc.write_pdf(font_config=font_config)
+                    
+                    # Generate output filename
+                    output_filename = f"{base_name}.pdf"
+                    
+                    # Return PDF as StreamingResponse
+                    return StreamingResponse(
+                        BytesIO(pdf_bytes),
+                        media_type="application/pdf",
+                        headers={
+                            "Content-Disposition": f"attachment; filename={output_filename}",
+                            "X-Conversion-Service": "LOCAL_WEASYPRINT"
+                        }
+                    )
+                    
+                except ImportError as e:
+                    logger.error(f"WeasyPrint import failed: {e}")
+                    raise create_http_exception(
+                        ErrorCode.SERVICE_UNAVAILABLE,
+                        details="WeasyPrint library not available. Please install with: pip install weasyprint",
+                        service="local-weasyprint"
+                    )
+                except Exception as e:
+                    logger.error(f"WeasyPrint conversion failed: {e}")
+                    raise create_http_exception(
+                        ErrorCode.CONVERSION_FAILED,
+                        details=f"HTML to PDF conversion failed: {str(e)}",
+                        service="local-weasyprint"
+                    )
 
             else:
                 raise create_http_exception(

@@ -40,7 +40,8 @@ def get_dynamic_service_urls():
         ConversionService.LIBREOFFICE: urls.get("libreoffice"),
         ConversionService.PANDOC: urls.get("pandoc"),
         ConversionService.GOTENBERG: urls.get("gotenberg"),
-        ConversionService.LOCAL: None
+        ConversionService.LOCAL: None,
+        ConversionService.LOCAL_WEASYPRINT: None
     }
 
 

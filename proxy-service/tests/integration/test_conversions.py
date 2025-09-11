@@ -331,6 +331,11 @@ class TestConversionEndpoints:
 
     def _determine_conversion_method(self, response, output_ext: str) -> str:
         """Determine the conversion method based on response analysis."""
+        # Check for custom service header first
+        conversion_service = response.headers.get("X-Conversion-Service")
+        if conversion_service == "LOCAL_WEASYPRINT":
+            return "WeasyPrint PDF"
+        
         content_type = response.headers.get("content-type", "").lower()
 
         if output_ext == "pdf":

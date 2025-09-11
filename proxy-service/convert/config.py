@@ -27,6 +27,10 @@ SERVICE_URL_CONFIGS = {
     "gotenberg": {
         "docker": "http://gotenberg:3000",
         "local": "http://localhost:3001"
+    },
+    "local-weasyprint": {
+        "docker": "http://localhost:8369",
+        "local": "http://localhost:8369"
     }
 }
 
@@ -38,6 +42,7 @@ class ConversionService(Enum):
     PANDOC = "pandoc"
     GOTENBERG = "gotenberg"
     LOCAL = "local"
+    LOCAL_WEASYPRINT = "local-weasyprint"
 
 
 # Service URL mappings (should match main app)
@@ -46,7 +51,8 @@ SERVICE_URLS = {
     ConversionService.LIBREOFFICE: "http://libreoffice:2004",
     ConversionService.PANDOC: "http://pandoc:3000",
     ConversionService.GOTENBERG: "http://gotenberg:3000",
-    ConversionService.LOCAL: None  # Local processing, no URL needed
+    ConversionService.LOCAL: None,  # Local processing, no URL needed
+    ConversionService.LOCAL_WEASYPRINT: None  # Local WeasyPrint processing, no URL needed
 }
 
 
@@ -131,6 +137,7 @@ CONVERSION_MATRIX = {
     ],
 
     ("html", "pdf"): [
+        (ConversionService.LOCAL_WEASYPRINT, "High-quality HTML to PDF with WeasyPrint"),
         (ConversionService.GOTENBERG, "High-fidelity HTML to PDF with CSS support"),
         (ConversionService.PANDOC, "Good for simple HTML"),
         (ConversionService.LIBREOFFICE, "Basic HTML support"),
@@ -674,13 +681,14 @@ CONVERSION_METHOD_TO_SERVICE_MAP = {
     "Markdown Conversion": "PANDOC",
     "DOCX Conversion": "LIBREOFFICE",
     "HTML Conversion": "LIBREOFFICE",
-    "PDF Generation": "GOTENBERG",
+    "PDF Generation": "GOTENBERG",  # Default for PDF, but could be LOCAL_WEASYPRINT
     "Text Extraction": "UNSTRUCTURED_IO",
     "XLSX Conversion": "LIBREOFFICE",
     "RTF Conversion": "LIBREOFFICE",
     "ODT Conversion": "LIBREOFFICE",
     "PPTX Conversion": "LIBREOFFICE",
-    "File Conversion": "LOCAL"
+    "File Conversion": "LOCAL",
+    "WeasyPrint PDF": "LOCAL_WEASYPRINT"
 }
 
 
