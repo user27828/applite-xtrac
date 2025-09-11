@@ -33,6 +33,13 @@ from urllib3.util.retry import Retry
 
 # Import unified MIME detector
 from .mime_detector import get_mime_type as get_unified_mime_type, get_format_from_mime_type
+from .temp_file_manager import (
+    get_temp_manager,
+    TempFileManager,
+    TempFileInfo,
+    cleanup_temp_files,
+    cleanup_temp_file
+)
 
 logger = logging.getLogger(__name__)
 
@@ -314,7 +321,7 @@ def generate_temp_filename(url: str, content_type: str = None) -> str:
 
 async def save_content_to_temp_file(content: bytes, filename: str) -> str:
     """
-    Save content to a temporary file.
+    Save content to a temporary file using the centralized manager.
 
     Args:
         content: The content to save
@@ -323,18 +330,9 @@ async def save_content_to_temp_file(content: bytes, filename: str) -> str:
     Returns:
         The path to the saved file
     """
-    temp_path = os.path.join(TEMP_DIR, filename)
-
-    try:
-        with open(temp_path, 'wb') as f:
-            f.write(content)
-
-        logger.info(f"Saved content to temporary file: {temp_path}")
-        return temp_path
-
-    except Exception as e:
-        logger.error(f"Failed to save content to temp file: {e}")
-        raise URLFetchError(f"Failed to save content: {str(e)}")
+    manager = get_temp_manager("url_fetcher")
+    temp_file = manager.create_temp_file(content=content, filename=filename)
+    return temp_file.path
 
 
 async def fetch_url_to_temp_file(url: str, timeout: int = DEFAULT_TIMEOUT, use_scrapy: bool = False, user_agent: Optional[str] = None) -> Tuple[str, Dict[str, Any]]:
@@ -359,250 +357,85 @@ async def fetch_url_to_temp_file(url: str, timeout: int = DEFAULT_TIMEOUT, use_s
     content_type = fetch_result.get('content_type', '')
     filename = generate_temp_filename(url, content_type)
 
-    # Save to temp file
-    temp_path = await save_content_to_temp_file(fetch_result['content'], filename)
+    # Save to temp file using centralized manager
+    manager = get_temp_manager("url_fetcher")
+    temp_file = manager.create_temp_file(content=fetch_result['content'], filename=filename)
 
-    return temp_path, fetch_result
-
-
-def cleanup_temp_file(file_path: str):
-    """Clean up a temporary file."""
-    try:
-        if os.path.exists(file_path):
-            os.remove(file_path)
-            logger.info(f"Cleaned up temporary file: {file_path}")
-    except Exception as e:
-        logger.warning(f"Failed to cleanup temp file {file_path}: {e}")
+    return temp_file.path, fetch_result
 
 
-async def cleanup_temp_files_async(file_paths: list):
-    """Clean up multiple temporary files asynchronously."""
-    for path in file_paths:
-        cleanup_temp_file(path)
-
-
-class TempFileManager:
-    """Context manager for temporary file management."""
-
-    def __init__(self):
-        self.temp_files = []
-
-    def add_file(self, file_path: str):
-        """Add a file to be managed."""
-        self.temp_files.append(file_path)
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Clean up all managed files."""
-        await cleanup_temp_files_async(self.temp_files)
-        self.temp_files.clear()
-
-
-# MIME type to format mapping
-MIME_TYPE_MAPPING = {
-    # Web formats
-    'text/html': 'html',
-    'application/xhtml+xml': 'html',
-    'text/xml': 'xml',
-    'application/xml': 'xml',
-    'application/json': 'json',
-    'text/plain': 'txt',
-    'text/markdown': 'md',
-    
-    # Document formats
-    'application/pdf': 'pdf',
-    'application/msword': 'doc',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-    'application/vnd.ms-excel': 'xls',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
-    'application/vnd.ms-powerpoint': 'ppt',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
-    'application/rtf': 'rtf',
-    'text/rtf': 'rtf',
-    
-    # OpenDocument formats
-    'application/vnd.oasis.opendocument.text': 'odt',
-    'application/vnd.oasis.opendocument.spreadsheet': 'ods',
-    'application/vnd.oasis.opendocument.presentation': 'odp',
-    
-    # Other formats
-    'application/epub+zip': 'epub',
-    'application/x-tex': 'tex',
-    'application/x-latex': 'tex',
-    'text/x-tex': 'tex',
-    'text/x-latex': 'tex',
-    
-    # Email formats
-    'message/rfc822': 'eml',
-    'application/vnd.ms-outlook': 'msg',
-    
-    # Apple formats
-    'application/vnd.apple.pages': 'pages',
-    'application/vnd.apple.numbers': 'numbers',
-    'application/vnd.apple.keynote': 'key',
-}
-
-# File extension to format mapping (fallback)
-EXTENSION_MAPPING = {
-    '.html': 'html', '.htm': 'html',
-    '.xml': 'xml',
-    '.json': 'json',
-    '.txt': 'txt', '.text': 'txt',
-    '.md': 'md', '.markdown': 'md',
-    '.pdf': 'pdf',
-    '.doc': 'doc',
-    '.docx': 'docx',
-    '.xls': 'xls',
-    '.xlsx': 'xlsx',
-    '.ppt': 'ppt',
-    '.pptx': 'pptx',
-    '.rtf': 'rtf',
-    '.odt': 'odt',
-    '.ods': 'ods',
-    '.odp': 'odp',
-    '.epub': 'epub',
-    '.tex': 'tex', '.latex': 'tex',
-    '.eml': 'eml',
-    '.msg': 'msg',
-    '.pages': 'pages',
-    '.numbers': 'numbers',
-    '.key': 'key',
-}
-
-
-# Utility functions for integration with conversion pipeline
-def detect_content_format(content: bytes, content_type: str, url: str) -> str:
+def detect_content_format(content: bytes, content_type: str = '', url: str = '') -> str:
     """
-    Detect the content format from content, content-type, and URL using libraries.
-    
-    Uses python-magic for content-based detection, mimetypes for extension detection,
-    and comprehensive mappings for format conversion.
+    Detect the actual content format from content, content-type, and URL.
+
+    This function uses multiple detection methods with priority:
+    1. Content-based detection (using python-magic if available)
+    2. Content-type header analysis
+    3. URL-based detection as fallback
 
     Args:
         content: The raw content bytes
-        content_type: The content-type header
-        url: The original URL
+        content_type: Content-Type header value
+        url: The source URL (for fallback detection)
 
     Returns:
-        Detected format (e.g., 'html', 'pdf', 'txt', etc.)
+        Detected format string (e.g., 'pdf', 'docx', 'html')
     """
-    detected_mime = None
-    
-    # Method 1: Use content-type header if available
-    if content_type:
-        content_type_lower = content_type.lower().split(';')[0].strip()  # Remove charset, etc.
-        if content_type_lower in MIME_TYPE_MAPPING:
-            return MIME_TYPE_MAPPING[content_type_lower]
-        
-        # Store for potential use
-        detected_mime = content_type_lower
-    
-    # Method 2: Use unified MIME detector for content-based detection (most reliable)
-    if not detected_mime and content:
-        try:
-            # Use unified MIME detector with content
-            unified_mime = get_unified_mime_type(content=content, filename=url)
-            if unified_mime and unified_mime in MIME_TYPE_MAPPING:
-                return MIME_TYPE_MAPPING[unified_mime]
-            
-            # If unified detector found something different, use it
-            if unified_mime and unified_mime != detected_mime:
-                detected_mime = unified_mime
-                
-        except Exception as e:
-            logger.debug(f"Unified MIME detection failed: {e}")
-    
-    # Method 3: Use mimetypes for extension-based detection
-    if not detected_mime:
-        try:
-            parsed = urlparse(url)
-            path = unquote(parsed.path)
-            
-            # Use unified MIME detector to guess from extension
-            guessed_mime = get_unified_mime_type(filename=path)
-            if guessed_mime:
-                detected_mime = guessed_mime
-                if guessed_mime in MIME_TYPE_MAPPING:
-                    return MIME_TYPE_MAPPING[guessed_mime]
-        except Exception as e:
-            logger.debug(f"MIME detection failed: {e}")
-    
-    # Method 4: Check our extension mapping as fallback
-    if not detected_mime:
-        try:
-            parsed = urlparse(url)
-            path = unquote(parsed.path).lower()
-            
-            for ext, fmt in EXTENSION_MAPPING.items():
-                if path.endswith(ext):
-                    return fmt
-        except Exception as e:
-            logger.debug(f"Extension mapping failed: {e}")
-    
-    # Method 5: Try to map detected MIME type to our formats
-    if detected_mime:
-        # Try partial matches for common patterns
-        detected_lower = detected_mime.lower()
-        
-        # Check for common MIME type patterns
-        if 'html' in detected_lower:
-            return 'html'
-        elif 'pdf' in detected_lower:
-            return 'pdf'
-        elif 'json' in detected_lower:
-            return 'json'
-        elif 'xml' in detected_lower:
-            return 'xml'
-        elif 'text' in detected_lower:
-            return 'txt'
-        elif 'msword' in detected_lower:
-            return 'doc'
-        elif 'wordprocessingml' in detected_lower:
-            return 'docx'
-        elif 'excel' in detected_lower or 'spreadsheetml' in detected_lower:
-            return 'xlsx'
-        elif 'powerpoint' in detected_lower or 'presentationml' in detected_lower:
-            return 'pptx'
-        elif 'opendocument.text' in detected_lower:
-            return 'odt'
-        elif 'opendocument.spreadsheet' in detected_lower:
-            return 'ods'
-        elif 'opendocument.presentation' in detected_lower:
-            return 'odp'
-        elif 'rtf' in detected_lower:
-            return 'rtf'
-        elif 'epub' in detected_lower:
-            return 'epub'
-        elif 'tex' in detected_lower or 'latex' in detected_lower:
-            return 'tex'
-    
-    # Final fallback: default to HTML for web content
-    logger.debug(f"Could not detect format for URL: {url}, content_type: {content_type}, detected_mime: {detected_mime}")
-    return 'html'
+    try:
+        # Method 1: Content-based detection using python-magic
+        if MAGIC_AVAILABLE and content:
+            try:
+                detected_mime = magic.from_buffer(content, mime=True)
+                if detected_mime:
+                    detected_format = get_format_from_mime_type(detected_mime)
+                    if detected_format:
+                        logger.debug(f"Content-based detection: {detected_format} (MIME: {detected_mime})")
+                        return detected_format
+            except Exception as e:
+                logger.debug(f"Magic content detection failed: {e}")
 
+        # Method 2: Content-type header analysis
+        if content_type:
+            detected_format = get_format_from_mime_type(content_type)
+            if detected_format:
+                logger.debug(f"Content-type detection: {detected_format} (MIME: {content_type})")
+                return detected_format
 
-def should_use_url_fetch(service: str, input_format: str, has_url_input: bool = False) -> bool:
-    """
-    Determine if URL fetching should be used for a service and format.
+        # Method 3: URL-based detection as fallback
+        if url:
+            url_content_type = get_content_type_from_url(url)
+            if url_content_type:
+                detected_format = get_format_from_mime_type(url_content_type)
+                if detected_format:
+                    logger.debug(f"URL-based detection: {detected_format} (MIME: {url_content_type})")
+                    return detected_format
 
-    Args:
-        service: The service name
-        input_format: The input format
-        has_url_input: Whether the input is a URL (not a file)
+        # Method 4: Basic content analysis for common formats
+        if content:
+            # Check for PDF signature
+            if content.startswith(b'%PDF-'):
+                logger.debug("Content analysis: pdf (PDF signature detected)")
+                return 'pdf'
 
-    Returns:
-        True if URL fetching should be used
-    """
-    # Services that don't support direct URL input
-    services_needing_fetch = {'unstructured-io', 'libreoffice', 'pandoc'}
-    
-    # If we have URL input and the service doesn't support direct URLs, we need to fetch
-    if has_url_input and service in services_needing_fetch:
-        return True
-    
-    # For file inputs, only fetch if it's a format that typically comes from URLs
-    # and the service doesn't support direct processing
-    url_formats = {'html', 'auto'}
-    return service in services_needing_fetch and input_format in url_formats
+            # Check for common HTML patterns
+            content_str = content[:1024].decode('utf-8', errors='ignore').lower()
+            if '<html' in content_str or '<!doctype html' in content_str:
+                logger.debug("Content analysis: html (HTML tags detected)")
+                return 'html'
+
+            # Check for JSON
+            try:
+                import json
+                json.loads(content_str.strip())
+                logger.debug("Content analysis: json (valid JSON detected)")
+                return 'json'
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # Default fallback
+        logger.debug("Using default format: html")
+        return 'html'
+
+    except Exception as e:
+        logger.warning(f"Content format detection failed: {e}")
+        return 'html'  # Safe default

@@ -71,6 +71,15 @@ from .error_handling import create_http_exception, ErrorCode, handle_conversion_
 # Import unified MIME type detector
 from .mime_detector import get_mime_type as get_unified_mime_type
 
+# Import centralized temp file manager
+from .temp_file_manager import (
+    get_temp_manager,
+    TempFileManager,
+    TempFileInfo,
+    cleanup_temp_files,
+    cleanup_temp_file
+)
+
 # Set up logging
 logger = logging.getLogger(__name__)
 

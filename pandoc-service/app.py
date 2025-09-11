@@ -1,7 +1,6 @@
 from fastapi import FastAPI, UploadFile, Form, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 import subprocess
-import tempfile
 import os
 import shutil
 
@@ -16,6 +15,14 @@ except ImportError:
 
 # Import unified MIME detector
 from utils.mime_detector import get_mime_type as get_unified_mime_type
+
+# Import centralized temp file manager
+from utils.temp_file_manager import (
+    get_temp_manager,
+    TempFileManager,
+    TempFileInfo,
+    cleanup_temp_files
+)
 
 app = FastAPI()
 
@@ -49,12 +56,27 @@ async def convert_file(
     if output_format not in allowed_formats:
         raise HTTPException(status_code=400, detail=f"Unsupported output format: {output_format}")
 
-    # Create temp files
-    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as input_file:
-        shutil.copyfileobj(file.file, input_file)
-        input_path = input_file.name
+    # Create temp files using centralized manager
+    manager = get_temp_manager()
 
-    output_path = input_path + f".{output_format}"
+    # Read file content
+    file_content = await file.read()
+
+    # Create input temp file
+    input_temp = manager.create_temp_file(
+        content=file_content,
+        extension=os.path.splitext(file.filename)[1],
+        prefix="pandoc_input"
+    )
+    input_path = input_temp.path
+
+    # Create output temp file path
+    output_filename = f"{os.path.splitext(file.filename)[0]}.{output_format}"
+    output_temp = manager.create_temp_file(
+        filename=output_filename,
+        prefix="pandoc_output"
+    )
+    output_path = output_temp.path
 
     try:
         # Special handling for LaTeX to PDF conversion
@@ -118,19 +140,11 @@ async def convert_file(
                 raise HTTPException(status_code=500, detail=f"Pandoc error: {result.stderr}")
 
         # Get MIME type using comprehensive detection
-        media_type = get_mime_type(output_path, output_format)
+        media_type = get_unified_mime_type(filename=output_path, expected_format=output_format)
 
-        # Return the converted file and schedule cleanup after response
-        def _cleanup(paths):
-            for p in paths:
-                try:
-                    if os.path.exists(p):
-                        os.unlink(p)
-                except Exception:
-                    pass
-
-        background_tasks.add_task(_cleanup, [input_path, output_path])
-
+        # Return the converted file
+        # Note: Files will be automatically cleaned up by the temp file manager
+        # when the manager goes out of scope or when explicitly cleaned up
         return FileResponse(
             output_path,
             media_type=media_type,
@@ -142,9 +156,6 @@ async def convert_file(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        # If exception occurred before scheduling cleanup, try to remove files here
-        try:
-            if os.path.exists(input_path):
-                os.unlink(input_path)
-        except Exception:
-            pass
+        # Ensure cleanup happens even if an exception occurs
+        # The temp file manager will handle this automatically
+        pass

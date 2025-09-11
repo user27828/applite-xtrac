@@ -429,9 +429,13 @@ run_tests() {
             log_info "Running conversion tests..."
             run_conversion_tests
             ;;
+        "url")
+            log_info "Running URL tests..."
+            run_url_tests
+            ;;
         *)
             log_error "Unknown test type: $test_type"
-            log_info "Available test types: all, conversion"
+            log_info "Available test types: all, conversion, url"
             exit 1
             ;;
     esac
@@ -515,6 +519,46 @@ run_conversion_tests() {
     fi
     
     log_success "Conversion tests completed"
+}
+
+# Run URL tests specifically
+run_url_tests() {
+    local proxy_dir="proxy-service"
+    
+    if [ ! -d "$proxy_dir" ]; then
+        log_error "Proxy service directory '$proxy_dir' not found"
+        exit 1
+    fi
+    
+    cd "$proxy_dir"
+    
+    # Check if Python environment exists
+    if [ ! -d "venv" ]; then
+        log_warning "Virtual environment not found. Creating one..."
+        python3 -m venv venv
+        source venv/bin/activate
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+    else
+        source venv/bin/activate
+        # Check if pytest is available, install dev requirements if not
+        if ! ./venv/bin/python -c "import pytest" 2>/dev/null; then
+            log_info "Installing development dependencies..."
+            pip install -r requirements-dev.txt
+        fi
+    fi
+    
+    log_info "Running URL fetching tests..."
+    
+    # Run the URL fetching tests
+    if ./venv/bin/python -c "import pytest" 2>/dev/null; then
+        ./venv/bin/python -m pytest convert/test_url_fetching.py -v -s --tb=short || log_error "URL tests failed"
+    else
+        log_warning "pytest not found in virtual environment, running basic Python tests..."
+        ./venv/bin/python -m unittest convert.test_url_fetching -v || log_error "Basic URL tests failed"
+    fi
+    
+    log_success "URL tests completed"
 }
 
 # Check and activate Python virtual environment
@@ -605,6 +649,9 @@ main() {
         "test:conversion")
             run_tests "conversion"
             ;;
+        "test:url")
+            run_tests "url"
+            ;;
         "update")
             update_images
             ;;
@@ -616,7 +663,7 @@ main() {
             ;;
         *)
             log_error "Unknown command: $command"
-            echo "Usage: $0 {activate|up|down|stop|start|start:d|status|ps|logs|restart|build|dev|dev:stop|update|resources|health|test|test:conversion}"
+            echo "Usage: $0 {activate|up|down|stop|start|start:d|status|ps|logs|restart|build|dev|dev:stop|update|resources|health|test|test:conversion|test:url}"
             echo ""
             echo "Commands:"
             echo "  activate     Check and activate Python virtual environment"
@@ -633,6 +680,7 @@ main() {
             echo "  status|health|ps   Check service health"
             echo "  test         Run all tests"
             echo "  test:conversion    Run conversion integration tests"
+            echo "  test:url           Run URL fetching tests"
             exit 1
             ;;
     esac

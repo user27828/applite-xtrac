@@ -10,6 +10,9 @@ from typing import Optional, Tuple, Dict, Any
 from io import BytesIO
 from fastapi import HTTPException
 
+# Import centralized temp file manager
+from ..utils.temp_file_manager import get_temp_manager
+
 import pandas as pd
 import xlrd
 import openpyxl
@@ -148,42 +151,38 @@ class LocalConversionFactory:
                 if not NUMBERS_PARSER_AVAILABLE or not Document:
                     raise HTTPException(status_code=503, detail="Numbers file support requires the 'numbers-parser' package. Please install it with: pip install numbers-parser")
                 
-                # Save to temporary file for numbers-parser
-                import tempfile
-                import os
-                with tempfile.NamedTemporaryFile(suffix='.numbers', delete=False) as temp_file:
-                    temp_file.write(file_content)
-                    temp_file_path = temp_file.name
+                # Save to temporary file for numbers-parser using centralized manager
+                manager = get_temp_manager("conversion")
+                temp_file = manager.create_temp_file(
+                    content=file_content,
+                    extension='.numbers',
+                    prefix="numbers_conversion"
+                )
+                temp_file_path = temp_file.path
+
+                # Parse Numbers file
+                doc = Document(temp_file_path)
+                # Get the first sheet (or we could iterate through all sheets)
+                if len(doc.sheets) == 0:
+                    raise HTTPException(status_code=400, detail="Numbers file contains no sheets")
                 
-                try:
-                    # Parse Numbers file
-                    doc = Document(temp_file_path)
-                    # Get the first sheet (or we could iterate through all sheets)
-                    if len(doc.sheets) == 0:
-                        raise HTTPException(status_code=400, detail="Numbers file contains no sheets")
-                    
-                    sheet = doc.sheets[0]
-                    
-                    # Convert to DataFrame
+                sheet = doc.sheets[0]
+                
+                # Convert to DataFrame
+                data = []
+                headers = []
+                
+                # Get headers from first row if it exists
+                if len(sheet.rows) > 0:
+                    headers = [str(cell.value) if cell.value is not None else f"Column_{i}" for i, cell in enumerate(sheet.rows[0])]
+                    data = [[cell.value for cell in row] for row in sheet.rows[1:]]
+                else:
+                    # Empty sheet
+                    headers = ["Column_0"]
                     data = []
-                    headers = []
-                    
-                    # Get headers from first row if it exists
-                    if len(sheet.rows) > 0:
-                        headers = [str(cell.value) if cell.value is not None else f"Column_{i}" for i, cell in enumerate(sheet.rows[0])]
-                        data = [[cell.value for cell in row] for row in sheet.rows[1:]]
-                    else:
-                        # Empty sheet
-                        headers = ["Column_0"]
-                        data = []
-                    
-                    df = pd.DataFrame(data, columns=headers)
-                    
-                finally:
-                    # Clean up temp file
-                    if os.path.exists(temp_file_path):
-                        os.unlink(temp_file_path)
                 
+                df = pd.DataFrame(data, columns=headers)
+
                 return df
             else:
                 raise HTTPException(status_code=400, detail="Unsupported spreadsheet file format")
