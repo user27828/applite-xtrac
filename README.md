@@ -769,7 +769,7 @@ The codebase is organized into the following key modules:
 - `conversion_core.py`: Core conversion execution and service client management
 - `special_handlers.py`: Custom conversion handlers for special cases
 - `unstructured_utils.py`: Unstructured IO specific utilities
-- `url_fetcher.py` & `url_helpers.py`: Consolidated URL fetching and processing utilities
+- `url_processory.py`: Consolidated URL fetching and processing utilities
 
 **Router (`convert/router.py`)**:
 - FastAPI route handlers for all `/convert/*` endpoints
