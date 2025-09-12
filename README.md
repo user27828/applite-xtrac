@@ -13,9 +13,9 @@ or LLM pipelines.
 
 - **Unstructured IO** (`/unstructured-io`): Document structure extraction and processing using the official Unstructured API
 - **LibreOffice Unoserver** (`/libreoffice`): Document conversion using LibreOffice headless server
-- **PyConvert API** (`/pandoc`): Document format conversion with PDF support via FastAPI service
+- **PyConvert API** (`/pyconvert`): Document format conversion with PDF support via FastAPI service (includes Pandoc, WeasyPrint, and Mammoth)
 - **Gotenberg** (`/gotenberg`): High-fidelity HTML to PDF conversion, including support for URLs and office documents
-- **\<Local Proxy\>**: In addition to handling proxying for the other services, this container has some smaller or manually-defined conversion services.
+- **Local Proxy**: In addition to handling proxying for the other services, this container has some smaller or manually-defined conversion services.
 
 ## Architecture
 
@@ -27,8 +27,8 @@ Proxying to these containers aims to preserve the original functionality of the 
 
 - `/unstructured-io/*` → Unstructured IO API (port 8000)
 - `/libreoffice/*` → LibreOffice API (port 2004)
-- `/pandoc/*` → PyConvert API (port 3000)
-- `/gotenberg/*` → Gotenberg API (port 4000)
+- `/pyconvert/*` → PyConvert API (port 3030)
+- `/gotenberg/*` → Gotenberg API (port 3001)
 
 **Helper endpoints**:
 
@@ -60,7 +60,7 @@ Proxying to these containers aims to preserve the original functionality of the 
 
 **Internal Network:**
 - Services communicate via the `app-network` bridge network
-- Individual service ports (8000, 2004, 3000, 4000) are not accessible externally
+- Individual service ports (8000, 2004, 3030, 3001) are not accessible externally
 - All external requests must go through the proxy service
 
 ## Conversion Endpoints
@@ -230,7 +230,7 @@ curl http://localhost:8369/ping-all
 # Individual service health checks
 curl http://localhost:8369/unstructured-io/ping
 curl http://localhost:8369/libreoffice/ping
-curl http://localhost:8369/pandoc/ping
+curl http://localhost:8369/pyconvert/ping
 curl http://localhost:8369/gotenberg/ping
 ```
 
@@ -239,6 +239,9 @@ curl http://localhost:8369/gotenberg/ping
 For easier management, use the provided script:
 
 ```bash
+# Activate Python virtual environment
+./run.sh activate
+
 # Start services
 ./run.sh start
 ./run.sh up
@@ -251,10 +254,33 @@ For easier management, use the provided script:
 ./run.sh build
 
 # View logs
-./run.sh logs
+./run.sh logs <service>
 
 # Check status
 ./run.sh status
+./run.sh health
+./run.sh ps
+
+# Restart services
+./run.sh restart
+./run.sh restartd
+
+# Development mode (recommended for development)
+./run.sh dev
+
+# Stop development mode
+./run.sh dev:stop
+
+# Run tests
+./run.sh test
+./run.sh test:conversion
+./run.sh test:url
+
+# Update Docker images
+./run.sh update
+
+# Show resource usage
+./run.sh resources
 
 # Stop services
 ./run.sh stop
@@ -335,44 +361,52 @@ curl -X POST "http://localhost:8369/libreoffice/request" \
 - And many other office document format conversions
 
 ### PyConvert
-- `GET /pandoc/ping` - PyConvert health check (uses `/ping` endpoint)
-- `POST /pandoc/pandoc` - Document conversion
+- `GET /pyconvert/ping` - PyConvert health check (uses `/ping` endpoint)
+- `POST /pyconvert/pandoc` - Document conversion using Pandoc
   - **Supported formats**: `pdf`, `docx`, `html`, `txt`, `md`, `tex`
   - **Form data**: `file` (file upload), `output_format` (string), `extra_args` (optional string)
   - **Features**: Automatic cleanup, timeout handling (60s), background file processing
-- `POST /pandoc/weasyprint` - High-quality HTML to PDF conversion using WeasyPrint
-  - **Supported inputs**: HTML files or URLs
+- `POST /pyconvert/weasyprint` - High-quality HTML to PDF conversion using WeasyPrint
+  - **Supported inputs**: HTML files, URLs
   - **Features**: Full CSS support, custom styling, advanced PDF options
   - **Parameters**: All WeasyPrint write_pdf() parameters supported
+- `POST /pyconvert/mammoth` - DOCX to HTML conversion using Mammoth
+  - **Features**: Semantic HTML conversion, style preservation, clean output
 
 **PyConvert Integration:**
 - Uses [Pandoc](https://pandoc.org/) for universal document conversion
 - Includes [WeasyPrint](https://weasyprint.org/) for high-quality HTML to PDF conversion
+- Includes [Mammoth](https://github.com/mwilliamson/mammoth.js) for DOCX to HTML conversion
 - Supports conversion between markup formats and office documents
 - Includes LaTeX support for high-quality PDF generation
 
 **Sample Requests:**
 ```bash
 # Convert Markdown to PDF (via Pandoc)
-curl -X POST "http://localhost:8369/pandoc/pandoc" \
+curl -X POST "http://localhost:8369/pyconvert/pandoc" \
   -F "file=@document.md" \
   -F "output_format=pdf" \
   -o converted_document.pdf
 
 # Convert HTML to PDF (via WeasyPrint - high quality)
-curl -X POST "http://localhost:8369/pandoc/weasyprint" \
+curl -X POST "http://localhost:8369/pyconvert/weasyprint" \
   -F "file=@document.html" \
   -F 'stylesheets=["https://example.com/style.css"]' \
   -o high_quality_document.pdf
 
 # Convert URL to PDF (via WeasyPrint)
-curl -X POST "http://localhost:8369/pandoc/weasyprint" \
+curl -X POST "http://localhost:8369/pyconvert/weasyprint" \
   -F "url=https://example.com" \
   -F "zoom=1.5" \
   -o webpage.pdf
 
+# Convert DOCX to HTML (via Mammoth)
+curl -X POST "http://localhost:8369/pyconvert/mammoth" \
+  -F "file=@document.docx" \
+  -o document.html
+
 # Convert with custom Pandoc arguments
-curl -X POST "http://localhost:8369/pandoc/pandoc" \
+curl -X POST "http://localhost:8369/pyconvert/pandoc" \
   -F "file=@document.md" \
   -F "output_format=pdf" \
   -F 'extra_args=--pdf-engine=pdflatex --variable geometry:margin=1in' \
@@ -493,15 +527,37 @@ docker exec -it <container_name> /bin/bash
 # Clean up
 ```
 
+### Development Workflow
+
+```bash
+# Start development mode (recommended)
+./run.sh dev
+
+# View logs for specific service
+./run.sh logs proxy
+./run.sh logs pyconvert
+./run.sh logs gotenberg
+
+# Run tests
+./run.sh test
+./run.sh test:conversion
+
+# Check service status
+./run.sh status
+
+# Stop development mode
+./run.sh dev:stop
+```
+
 ### Docker Configuration Optimization
 
 The `docker-compose.yml` file has been optimized using YAML anchors and aliases to reduce duplication:
 
 #### YAML Anchors Used:
 - `&common-service`: Shared network configuration for all services
-- `&restart-policy`: Standardized restart policy for services that need it
 - `&service-template`: Template for services with standard port mapping (defined for future use)
 - `&env-template`: Template for services with standard environment variables (defined for future use)
+- `&restart-policy`: Standardized restart policy for services that need it
 
 #### Benefits:
 - **Reduced duplication**: Common configurations are defined once and reused
@@ -548,7 +604,7 @@ For local development without containers, you can run the Python services direct
 
    # Run pyconvert service (in another terminal)
    cd pyconvert-service
-   uvicorn app:app --host 0.0.0.0 --port 3000
+   uvicorn app:app --host 0.0.0.0 --port 3030
    ```
 
 **Note:** 
@@ -748,63 +804,14 @@ libreoffice:
 
 - **Dark Mode Documentation**: The `/docs` endpoint automatically enables dark mode for better readability
 - **Comprehensive Health Checks**: Real-time monitoring of all services with detailed status reporting
-- **Full PDF Support**: PDF generation capabilities through Pandoc with LaTeX support
-- **Multi-Format Conversion**: Support for PDF, DOCX, HTML, TXT, MD, and TEX formats
+- **Full PDF Support**: PDF generation capabilities through Pandoc with LaTeX support, WeasyPrint with CSS support, and Gotenberg
+- **Multi-Format Conversion**: Support for PDF, DOCX, HTML, TXT, MD, TEX, and JSON formats
+- **Advanced HTML Processing**: WeasyPrint integration for high-quality HTML to PDF with full CSS support
+- **DOCX Processing**: Mammoth integration for semantic DOCX to HTML conversion
 - **Security**: Docker container isolation for enhanced security
 - **Streaming Responses**: Efficient handling of large file transfers
 - **Automatic Cleanup**: Background file cleanup for temporary processing files
 - **Timeout Protection**: Configurable timeouts (60s for conversions, 10s for general requests, 5s for health checks)
 - **Error Handling**: Comprehensive error handling with appropriate HTTP status codes
-
-## License
-
-This project is licensed under the Apache 2.0 License.
-
-## Format Support
-
-For comprehensive information about supported file formats, conversion capabilities, and identified gaps across all services, see [docs/FORMATS.md](docs/FORMATS.md).
-
-This document includes:
-- Detailed format support matrices for all services
-- Conversion workflows and recommendations
-- Identified gaps and limitations
-- Future enhancement opportunities
-
-### Code Organization
-
-The codebase is organized into the following key modules:
-
-**Core Configuration (`convert/config.py`)**:
-- `CONVERSION_MATRIX`: Defines all supported conversion pairs and their service routing
-- `SERVICE_URL_CONFIGS`: Service endpoint configurations for Docker vs local development
-- `SPECIAL_HANDLERS`: Registry for custom conversion logic
-- `ConversionService`: Enum defining available conversion services
-
-**Utility Modules (`convert/utils/`)**:
-- `conversion_lookup.py`: Functions for looking up conversion methods and service URLs
-- `conversion_chaining.py`: Logic for multi-step chained conversions
-- `conversion_core.py`: Core conversion execution and service client management
-- `special_handlers.py`: Custom conversion handlers for special cases
-- `unstructured_utils.py`: Unstructured IO specific utilities
-- `url_processory.py`: Consolidated URL fetching and processing utilities
-
-**Router (`convert/router.py`)**:
-- FastAPI route handlers for all `/convert/*` endpoints
-- Automatic service routing based on input/output format pairs
-- Special case handling for complex conversions
-
-### Special Case Handling
-
-The system includes advanced special case handling for complex conversions:
-
-**Presentation Formats (KEY/ODP → HTML)**:
-- Automatic intermediate conversion (KEY/ODP → PPTX → JSON → HTML)
-- Consolidated logic in `utils/special_handlers.py`
-- Eliminates code duplication between different presentation formats
-- Supports both Apple Keynote (.key) and OpenDocument Presentation (.odp) formats
-
-**Handler Registry System**:
-- Extensible `SPECIAL_HANDLERS` registry in `config.py`
-- Easy to add new special conversion logic
-- Clean separation of standard vs special conversions
-- Automatic delegation based on conversion matrix configuration
+- **URL Processing**: Direct URL to format conversion with content fetching and format detection
+- **Development Mode**: Local development with hot reload and container integration

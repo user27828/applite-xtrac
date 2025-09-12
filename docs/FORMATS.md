@@ -65,6 +65,7 @@ This document provides a comprehensive overview of supported file formats across
 | **Pandoc** | Universal document conversion | Markdown, HTML, LaTeX, DOCX, ODT, RST, AsciiDoc, and 40+ formats | PDF, HTML, DOCX, LaTeX, Markdown, and 50+ formats |
 | **WeasyPrint** | High-quality HTML to PDF conversion | HTML, URLs | PDF (with full CSS support) |
 | **Gotenberg** | HTML and office document to PDF conversion | HTML, URLs, DOCX, XLSX, PPTX, and other office formats | PDF |
+| **Mammoth** | DOCX to HTML conversion | DOCX | HTML (semantic conversion) |
 
 ## Master Format Support Matrix
 
@@ -193,17 +194,17 @@ This document provides a comprehensive overview of supported file formats across
 ## Output Format Support
 
 ### Primary Output Formats
-| Format | Unstructured IO | LibreOffice | Pandoc | Gotenberg |
-|--------|----------------|-------------|--------|-----------|
-| PDF | ❌ | ✅ | ✅ | ✅ |
-| HTML | ❌ | ✅ | ✅ | ✅ |
-| DOCX | ❌ | ✅ | ✅ | ❌ |
-| ODT | ❌ | ✅ | ✅ | ❌ |
-| Markdown | ❌ | ❌ | ✅ | ❌ |
-| LaTeX | ❌ | ❌ | ✅ | ❌ |
-| Plain Text | ❌ | ✅ | ✅ | ❌ |
-| JSON | ✅ | ❌ | ❌ | ❌ |
-| XLSX | ❌ | ❌ | ❌ | ✅ |
+| Format | Unstructured IO | LibreOffice | Pandoc | Gotenberg | WeasyPrint | Mammoth |
+|--------|----------------|-------------|--------|-----------|------------|---------|
+| PDF | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| HTML | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ |
+| DOCX | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| ODT | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Markdown | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| LaTeX | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| Plain Text | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| JSON | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| XLSX | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
 
 ### Specialized Output Formats
 | Format | Service | Notes |
@@ -351,7 +352,7 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 | `docx-pdf` | Gotenberg | DOCX to PDF |
 | `pptx-pdf` | Gotenberg | PPTX to PDF |
 | `ppt-pdf` | LibreOffice | PPT to PDF |
-| `html-pdf` | Gotenberg | HTML to PDF |
+| `html-pdf` | Gotenberg/WeasyPrint | HTML to PDF (Gotenberg for basic, WeasyPrint for CSS) |
 | `md-pdf` | Pandoc | Markdown to PDF |
 | `tex-pdf` | Pandoc | LaTeX to PDF |
 | `latex-pdf` | Pandoc | LaTeX to PDF |
@@ -364,6 +365,9 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 | `numbers-pdf` | LibreOffice | Numbers to PDF |
 | `odp-pdf` | LibreOffice | ODP to PDF |
 | `epub-pdf` | LibreOffice | EPUB to PDF |
+| `pages-pdf` | LibreOffice | Apple Pages to PDF |
+| `key-pdf` | LibreOffice | Apple Keynote to PDF |
+| `url-pdf` | Gotenberg/WeasyPrint | URL to PDF |
 
 ### JSON Structure Extraction
 
@@ -408,6 +412,7 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 | `pages-docx` | LibreOffice | Apple Pages to DOCX |
 | `latex-docx` | Pandoc | LaTeX to DOCX |
 | `tex-docx` | Pandoc | LaTeX to DOCX |
+| `url-docx` | LibreOffice/Pandoc | URL to DOCX |
 
 ### PPTX Output Conversions
 
@@ -435,7 +440,7 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 
 | Input → HTML | Primary Service | Description |
 |--------------|----------------|-------------|
-| `docx-html` | LibreOffice | DOCX to HTML |
+| `docx-html` | LibreOffice/Mammoth | DOCX to HTML (LibreOffice for basic, Mammoth for semantic) |
 | `pdf-html` | LibreOffice | PDF to HTML |
 | `md-html` | Pandoc | Markdown to HTML |
 | `tex-html` | Pandoc | LaTeX to HTML |
@@ -443,13 +448,16 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 | `rtf-html` | LibreOffice | RTF to HTML |
 | `txt-html` | LibreOffice | Text to HTML |
 | `odt-html` | LibreOffice | ODT to HTML |
-| `pages-html` | LibreOffice | Apple Pages to HTML |
 | `xlsx-html` | LibreOffice | XLSX to HTML |
 | `xls-html` | LibreOffice | XLS to HTML |
 | `numbers-html` | LibreOffice | Numbers to HTML |
 | `ppt-html` | LibreOffice | PPT to HTML |
 | `pptx-html` | LibreOffice | PPTX to HTML |
-| `odp-html` | LibreOffice | ODP to HTML (chained: ODP → PPTX → HTML) |
+| `odp-html` | LibreOffice | ODP to HTML |
+| `ods-html` | LibreOffice | ODS to HTML |
+| `pages-html` | LibreOffice | Apple Pages to HTML |
+| `key-html` | LibreOffice | Apple Keynote to HTML |
+| `url-html` | Local | URL to HTML |
 
 ### LaTeX Output Conversions
 
@@ -544,13 +552,14 @@ curl http://localhost:8369/convert/supported
 
 Each endpoint automatically selects the optimal service:
 
-- **PDF Output**: Gotenberg (highest quality for office documents) or WeasyPrint (highest quality for HTML/CSS rendering)
+- **PDF Output**: Gotenberg (highest quality for office documents) or WeasyPrint (highest quality for HTML/CSS rendering) or LibreOffice (fallback)
 - **JSON Output**: Unstructured IO (best structure extraction)
 - **DOCX Output**: LibreOffice (office formats) or Pandoc (markup formats)
-- **URL Input**: Gotenberg for PDF, Unstructured IO for JSON/Markdown/Text, WeasyPrint for high-quality HTML-to-PDF
+- **HTML Output**: Mammoth (DOCX for semantic conversion) or LibreOffice (other office formats) or Pandoc (markup formats)
 - **Markdown/LaTeX**: Pandoc (native support)
 - **Legacy Formats**: LibreOffice (broadest compatibility)
-- **URL to HTML**: Local service (direct content fetching)
+- **URL Input**: Gotenberg for PDF, Unstructured IO for JSON/Markdown/Text, WeasyPrint for high-quality HTML-to-PDF
+- **Text Processing**: Unstructured IO (structure extraction) or LibreOffice/Pandoc (format conversion)
 
 ---
 

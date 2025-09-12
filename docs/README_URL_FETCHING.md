@@ -10,6 +10,11 @@ The URL fetching system bridges the gap between services that support direct URL
 2. **Multi-Service Integration** - Works with all conversion services (Gotenberg, Unstructured-IO, LibreOffice, PyConvert)
 3. **Robust Error Handling** - Comprehensive timeout, retry, and error recovery mechanisms
 4. **Performance Optimization** - Connection pooling, caching, and resource management
+5. **User-Agent Customization** - Support for custom User-Agent strings
+6. **Content Validation** - Automatic format detection and validation
+7. **Size Limits** - Configurable file size limits (50MB default)
+8. **Timeout Handling** - Configurable request timeouts (30s default)
+9. **Retry Logic** - Exponential backoff for transient failures
 
 ## Features
 
@@ -36,10 +41,16 @@ The URL fetching system bridges the gap between services that support direct URL
 
 ## Supported URL Conversions
 
+### Dynamic URL Conversions
+The API supports dynamic URL conversion to any supported output format:
+
+**Pattern**: `POST /convert/url-{output_format}`
+**Supported Output Formats**: `pdf`, `json`, `md`, `txt`, `html`, `docx`, `xlsx`, etc.
+
 ### URL to PDF Conversions
 | Endpoint | Primary Service | Description | Use Case |
 |----------|----------------|-------------|----------|
-| `POST /convert/url-pdf` | Gotenberg | URL to PDF with full CSS support | Web page archiving, reports |
+| `POST /convert/url-pdf` | Gotenberg/WeasyPrint | URL to PDF with full CSS support | Web page archiving, reports |
 | `POST /convert/url-pdf` | LibreOffice | Fallback for complex pages | Backup conversion method |
 
 ### URL to JSON Conversions
@@ -60,42 +71,57 @@ The URL fetching system bridges the gap between services that support direct URL
 | `POST /convert/url-txt` | Unstructured IO | URL to plain text | Text extraction |
 | `POST /convert/url-txt` | LibreOffice | Fallback text extraction | Alternative processing |
 
+### URL to HTML Conversions
+| Endpoint | Primary Service | Description | Use Case |
+|----------|----------------|-------------|----------|
+| `POST /convert/url-html` | Local | URL to HTML content fetching | Direct HTML access |
+
+### Other URL Conversions
+| Endpoint | Primary Service | Description | Use Case |
+|----------|----------------|-------------|----------|
+| `POST /convert/url-docx` | LibreOffice/Pandoc | URL to DOCX conversion | Document creation |
+| `POST /convert/url-xlsx` | LibreOffice | URL to XLSX conversion | Spreadsheet creation |
+
 ## Usage Examples
 
-### Convert Web Page to PDF
+### Dynamic URL Conversion
 
+#### Convert Web Page to Any Format
 ```bash
+# Convert URL to PDF
 curl -X POST "http://localhost:8369/convert/url-pdf" \
   -F "url=https://example.com" \
   -o webpage.pdf
-```
 
-### Extract Web Content Structure
-
-```bash
-curl -X POST "http://localhost:8369/convert/url-json" \
-  -F "url=https://example.com/article" \
-  -o content-structure.json
-```
-
-### Convert Web Article to Markdown
-
-```bash
+# Convert URL to Markdown
 curl -X POST "http://localhost:8369/convert/url-md" \
-  -F "url=https://example.com/blog-post" \
+  -F "url=https://example.com/article" \
   -o article.md
-```
 
-### Extract Plain Text from Web Page
+# Convert URL to JSON structure
+curl -X POST "http://localhost:8369/convert/url-json" \
+  -F "url=https://example.com" \
+  -o content-structure.json
 
-```bash
+# Convert URL to plain text
 curl -X POST "http://localhost:8369/convert/url-txt" \
-  -F "url=https://example.com/document" \
-  -o document.txt
+  -F "url=https://example.com" \
+  -o webpage.txt
+
+# Convert URL to HTML
+curl -X POST "http://localhost:8369/convert/url-html" \
+  -F "url=https://example.com" \
+  -o webpage.html
+
+# Convert URL to DOCX
+curl -X POST "http://localhost:8369/convert/url-docx" \
+  -F "url=https://example.com" \
+  -o webpage.docx
 ```
 
-### Convert URL with Custom User-Agent
+### Advanced URL Conversion with Custom Options
 
+#### Convert URL with Custom User-Agent
 ```bash
 # Use a custom User-Agent string for sites that require specific identification
 curl -X POST "http://localhost:8369/convert/url-pdf" \
@@ -108,6 +134,43 @@ curl -X POST "http://localhost:8369/convert/url-html" \
   -F "url=https://example.com/mobile-page" \
   -F "user_agent=Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15" \
   -o mobile-page.html
+```
+
+### URL Validation and Information
+
+#### Validate URL for Conversion
+```bash
+# POST method
+curl -X POST "http://localhost:8369/convert/validate-url" \
+  -d "url=https://example.com"
+
+# GET method
+curl "http://localhost:8369/convert/validate-url?url=https://example.com"
+```
+
+#### Get URL Conversion Information
+```bash
+curl "http://localhost:8369/convert/url-info/html-pdf"
+```
+
+### Error Handling Examples
+
+#### Handle Timeout Errors
+```bash
+# URLs that take too long to load
+curl -X POST "http://localhost:8369/convert/url-pdf" \
+  -F "url=https://slow-site.com" \
+  -o slow-site.pdf
+# Returns: {"error": "URL fetch timeout", "details": "Request exceeded 30s timeout"}
+```
+
+#### Handle Size Limit Errors
+```bash
+# URLs with very large content
+curl -X POST "http://localhost:8369/convert/url-pdf" \
+  -F "url=https://large-file-site.com" \
+  -o large-file.pdf
+# Returns: {"error": "Content too large", "details": "File size 75MB exceeds 50MB limit"}
 ```
 
 ## Configuration
@@ -125,17 +188,27 @@ URL_FETCH_USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.
 # The user_agent parameter can be passed to any /convert/url-* endpoint:
 # curl -X POST "http://localhost:8369/convert/url-pdf" -F "url=https://example.com" -F "user_agent=Your Custom User Agent"
 # If not provided, the default browser-like User-Agent is used
+
+# Service-specific timeouts
+HTTPX_CONNECT_TIMEOUT="5.0"    # Connection timeout
+HTTPX_POOL_TIMEOUT="3.0"       # Pool timeout
+HTTPX_READ_TIMEOUT="30.0"      # Read timeout
+
+# Network optimization
+DISABLE_IPV6="true"            # Force IPv4 only
+DOCKER_NETWORK_MODE="bridge"   # Network mode
 ```
 
 ### Content Type Detection
 
 The system automatically detects content types and routes to appropriate services:
 
-- **HTML pages** → Gotenberg (PDF), Unstructured IO (JSON/MD/TXT)
+- **HTML pages** → Gotenberg (PDF), WeasyPrint (high-quality PDF), Unstructured IO (JSON/MD/TXT)
 - **PDF links** → Unstructured IO (structure extraction)
 - **Office documents** → LibreOffice/PyConvert (format conversion)
 - **Images** → Limited support (metadata extraction only)
 - **Plain text** → Direct processing
+- **Unknown types** → Attempt conversion with fallback services
 
 ## Error Handling
 
