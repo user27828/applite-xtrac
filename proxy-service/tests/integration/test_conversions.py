@@ -334,7 +334,7 @@ class TestConversionEndpoints:
         """Determine the conversion method based on response analysis."""
         # Check for custom service header first
         conversion_service = response.headers.get("X-Conversion-Service")
-        if conversion_service == "LOCAL_WEASYPRINT":
+        if conversion_service == "WEASYPRINT":
             return "WeasyPrint PDF"
         
         content_type = response.headers.get("content-type", "").lower()

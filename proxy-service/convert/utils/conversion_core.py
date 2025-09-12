@@ -690,20 +690,20 @@ async def _convert_file(
                     }
                 )
 
-            elif service_to_try == ConversionService.LOCAL_WEASYPRINT:
+            elif service_to_try == ConversionService.WEASYPRINT:
                 # Proxy to pyconvert-service for WeasyPrint processing
                 if input_format != "html" or output_format != "pdf":
                     raise create_http_exception(
                         ErrorCode.INVALID_REQUEST,
-                        details="LOCAL_WEASYPRINT only supports HTML to PDF conversion",
-                        service="local-weasyprint"
+                        details="WEASYPRINT only supports HTML to PDF conversion",
+                        service="weasyprint"
                     )
 
                 if not current_file and not current_url:
                     raise create_http_exception(
                         ErrorCode.INVALID_REQUEST,
-                        details="LOCAL_WEASYPRINT requires either file upload or URL input",
-                        service="local-weasyprint"
+                        details="WEASYPRINT requires either file upload or URL input",
+                        service="weasyprint"
                     )
 
                 # httpx is already imported globally at the top of the file
@@ -711,7 +711,7 @@ async def _convert_file(
 
                 try:
                     # Prepare request to pyconvert-service
-                    pyconvert_url = f"{SERVICE_URLS[ConversionService.LOCAL_WEASYPRINT]}/weasyprint"
+                    pyconvert_url = f"{SERVICE_URLS[ConversionService.WEASYPRINT]}/weasyprint"
 
                     # Prepare form data
                     files = {}
@@ -738,7 +738,7 @@ async def _convert_file(
                             raise create_http_exception(
                                 ErrorCode.CONVERSION_FAILED,
                                 details=f"WeasyPrint conversion failed: {response.text}",
-                                service="local-weasyprint"
+                                service="weasyprint"
                             )
 
                         # Generate output filename
@@ -750,7 +750,7 @@ async def _convert_file(
                             media_type="application/pdf",
                             headers={
                                 "Content-Disposition": f"attachment; filename={output_filename}",
-                                "X-Conversion-Service": "LOCAL_WEASYPRINT"
+                                "X-Conversion-Service": "WEASYPRINT"
                             }
                         )
 
@@ -759,14 +759,14 @@ async def _convert_file(
                     raise create_http_exception(
                         ErrorCode.SERVICE_UNAVAILABLE,
                         details=f"WeasyPrint service unavailable: {str(e)}",
-                        service="local-weasyprint"
+                        service="weasyprint"
                     )
                 except Exception as e:
                     logger.error(f"WeasyPrint proxy failed: {e}")
                     raise create_http_exception(
                         ErrorCode.CONVERSION_FAILED,
                         details=f"HTML to PDF conversion failed: {str(e)}",
-                        service="local-weasyprint"
+                        service="weasyprint"
                     )
 
             elif service_to_try == ConversionService.MAMMOTH:

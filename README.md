@@ -5,9 +5,9 @@ This project provides a unified API gateway for multiple document processing ser
 ## Goals
 
 1. To extract the best semantic representation of common documents and output it for ETL
-or LLM pipelines.  
+or LLM pipelines.
+1. To convert well-structured, formatted, and supported formats to PDF (via Gotenberg).  Our emphasis is HTML>PDF, but many other inputs are supported.
 1. To convert between popular formats or at least to popular formats from outdated or unpopular ones (right `.pages`!?).  
-2. To convert well-structured, formatted, and supported formats to PDF (via Gotenberg).  Our emphasis is HTML>PDF, but many other inputs are supported.
 
 ## Services
 

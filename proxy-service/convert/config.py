@@ -28,7 +28,7 @@ SERVICE_URL_CONFIGS = {
         "docker": "http://gotenberg:3000",
         "local": "http://localhost:3001"
     },
-    "local-weasyprint": {
+    "weasyprint": {
         "docker": "http://localhost:8369",
         "local": "http://localhost:8369"
     }
@@ -42,7 +42,7 @@ class ConversionService(Enum):
     PANDOC = "pandoc"
     GOTENBERG = "gotenberg"
     LOCAL = "local"
-    LOCAL_WEASYPRINT = "local-weasyprint"
+    WEASYPRINT = "weasyprint"
     MAMMOTH = "mammoth"
 
 
@@ -53,7 +53,7 @@ SERVICE_URLS = {
     ConversionService.PANDOC: "http://pyconvert:3000",
     ConversionService.GOTENBERG: "http://gotenberg:3000",
     ConversionService.LOCAL: None,  # Local processing, no URL needed
-    ConversionService.LOCAL_WEASYPRINT: "http://pyconvert:3000",  # WeasyPrint now handled by pyconvert service
+    ConversionService.WEASYPRINT: "http://pyconvert:3000",  # WeasyPrint now handled by pyconvert service
     ConversionService.MAMMOTH: "http://pyconvert:3000",  # Mammoth handled by pyconvert service
 }
 
@@ -140,7 +140,7 @@ CONVERSION_MATRIX = {
     ],
 
     ("html", "pdf"): [
-        (ConversionService.LOCAL_WEASYPRINT, "High-quality HTML to PDF with WeasyPrint"),
+        (ConversionService.WEASYPRINT, "High-quality HTML to PDF with WeasyPrint"),
         (ConversionService.GOTENBERG, "High-fidelity HTML to PDF with CSS support"),
         (ConversionService.PANDOC, "Good for simple HTML"),
         (ConversionService.LIBREOFFICE, "Basic HTML support"),
@@ -525,7 +525,7 @@ CONVERSION_MATRIX = {
     ],
 
     ("url", "pdf"): [
-        (ConversionService.LOCAL_WEASYPRINT, "URL to PDF with WeasyPrint (high quality)"),
+        (ConversionService.WEASYPRINT, "URL to PDF with WeasyPrint (high quality)"),
         (ConversionService.GOTENBERG, "URL to PDF conversion with full CSS support"),
     ],
 
@@ -685,14 +685,14 @@ CONVERSION_METHOD_TO_SERVICE_MAP = {
     "Markdown Conversion": "PANDOC",
     "DOCX Conversion": "LIBREOFFICE",
     "HTML Conversion": "LIBREOFFICE",
-    "PDF Generation": "GOTENBERG",  # Default for PDF, but could be LOCAL_WEASYPRINT
+    "PDF Generation": "GOTENBERG",  # Default for PDF, but could be WEASYPRINT
     "Text Extraction": "UNSTRUCTURED_IO",
     "XLSX Conversion": "LIBREOFFICE",
     "RTF Conversion": "LIBREOFFICE",
     "ODT Conversion": "LIBREOFFICE",
     "PPTX Conversion": "LIBREOFFICE",
     "File Conversion": "LOCAL",
-    "WeasyPrint PDF": "LOCAL_WEASYPRINT",
+    "WeasyPrint PDF": "WEASYPRINT",
     "WeasyPrint Direct": "WEASYPRINT_DIRECT"
 }
 
