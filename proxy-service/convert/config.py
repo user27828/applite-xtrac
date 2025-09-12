@@ -44,6 +44,7 @@ class ConversionService(Enum):
     LOCAL = "local"
     WEASYPRINT = "weasyprint"
     MAMMOTH = "mammoth"
+    HTML4DOCX = "html4docx"
 
 
 # Service URL mappings (should match main app)
@@ -55,6 +56,7 @@ SERVICE_URLS = {
     ConversionService.LOCAL: None,  # Local processing, no URL needed
     ConversionService.WEASYPRINT: "http://pyconvert:3000",  # WeasyPrint now handled by pyconvert service
     ConversionService.MAMMOTH: "http://pyconvert:3000",  # Mammoth handled by pyconvert service
+    ConversionService.HTML4DOCX: "http://pyconvert:3000",  # html4docx handled by pyconvert service
 }
 
 
@@ -124,6 +126,7 @@ CONVERSION_MATRIX = {
     ("html", "docx"): [
         (ConversionService.LIBREOFFICE, "HTML to Word"),
         (ConversionService.PANDOC, "HTML to Word"),
+        (ConversionService.HTML4DOCX, "HTML to DOCX using html4docx"),
     ],
 
     ("html", "odt"): [

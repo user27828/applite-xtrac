@@ -42,7 +42,8 @@ def get_dynamic_service_urls():
         ConversionService.GOTENBERG: urls.get("gotenberg"),
         ConversionService.LOCAL: None,
         ConversionService.WEASYPRINT: urls.get("pyconvert"),  # pyconvert
-        ConversionService.MAMMOTH: urls.get("pyconvert")  # pyconvert
+        ConversionService.MAMMOTH: urls.get("pyconvert"),  # pyconvert
+        ConversionService.HTML4DOCX: urls.get("pyconvert")  # pyconvert
     }
 
 

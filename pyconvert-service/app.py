@@ -48,6 +48,9 @@ async def ping():
     # Get mammoth health
     mammoth_healthy, mammoth_status = await check_mammoth_health()
     
+    # Get html4docx health
+    html4docx_healthy, html4docx_status = await check_html4docx_health()
+    
     return {
         "success": True,
         "data": "PONG!",
@@ -62,6 +65,10 @@ async def ping():
         "mammoth": {
             "status": "healthy" if mammoth_healthy else "unhealthy",
             "response_code": mammoth_status
+        },
+        "html4docx": {
+            "status": "healthy" if html4docx_healthy else "unhealthy",
+            "response_code": html4docx_status
         }
     }
 
@@ -91,6 +98,15 @@ async def ping_weasyprint():
         return {"success": True, "data": "PONG!", "service": "weasyprint"}
     else:
         raise HTTPException(status_code=503, detail=f"WeasyPrint service unhealthy (status: {status})")
+
+@app.get("/html4docx/ping")
+async def ping_html4docx():
+    """Check html4docx service health."""
+    healthy, status = await check_html4docx_health()
+    if healthy:
+        return {"success": True, "data": "PONG!", "service": "html4docx"}
+    else:
+        raise HTTPException(status_code=503, detail=f"html4docx service unhealthy (status: {status})")
 
 async def check_pandoc_health() -> tuple[bool, int]:
     """
@@ -131,6 +147,22 @@ async def check_mammoth_health() -> tuple[bool, int]:
     try:
         # Simple import test
         import mammoth
+        return True, 200
+    except ImportError:
+        return False, 503
+    except Exception:
+        return False, 503
+
+async def check_html4docx_health() -> tuple[bool, int]:
+    """
+    Check html4docx service health by testing if html4docx is available.
+    
+    Returns:
+        tuple: (is_healthy: bool, status_code: int)
+    """
+    try:
+        # Simple import test
+        import html4docx
         return True, 200
     except ImportError:
         return False, 503
@@ -547,6 +579,139 @@ async def mammoth_docx_to_html(
             detail=f"Mammoth conversion failed: {str(e)}"
         )
 
+@app.post("/html4docx")
+async def html4docx_html_to_docx(
+    request: Request,
+    file: UploadFile = File(...),
+    url: str = Form(None)
+):
+    """
+    Convert HTML to DOCX using html4docx.
+
+    This endpoint provides direct access to html4docx's conversion functionality.
+    Accepts either a file upload or URL input and converts HTML to DOCX format.
+
+    html4docx Parameters (all parameters are passed directly to html4docx):
+    - Any form parameters are passed as kwargs to html4docx functions
+
+    Examples:
+    - Basic conversion: Upload a .html file
+    - URL conversion: url=https://example.com
+    """
+    # Import html4docx classes
+    try:
+        from html4docx import HtmlToDocx
+        HTML4DOCX_AVAILABLE = True
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="html4docx library not available. Please install with: pip install html4docx"
+        )
+
+    # Validate input
+    if not file and not url:
+        raise HTTPException(
+            status_code=400,
+            detail="Either 'file' or 'url' parameter must be provided"
+        )
+
+    if file and url:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot provide both 'file' and 'url' parameters"
+        )
+
+    try:
+        # Extract all form parameters
+        form_data = await request.form()
+        html4docx_params = {}
+
+        # Convert form data to appropriate types
+        for key, value in form_data.items():
+            if key in ['file', 'url']:  # Skip file inputs
+                continue
+
+            # Skip None or empty values
+            if value is None or value == '':
+                continue
+
+            # Handle different parameter types
+            if isinstance(value, str):
+                # Try to parse as boolean
+                if value.lower() in ('true', 'false'):
+                    html4docx_params[key] = value.lower() == 'true'
+                # Try to parse as number
+                elif value.replace('.', '').isdigit():
+                    html4docx_params[key] = float(value) if '.' in value else int(value)
+                else:
+                    html4docx_params[key] = value
+            else:
+                html4docx_params[key] = value
+
+        html_content = None
+        base_name = None
+
+        if file:
+            # Read uploaded file
+            file_content = await file.read()
+            html_content = file_content.decode('utf-8', errors='replace')
+            base_name = file.filename.rsplit(".", 1)[0] if file.filename and "." in file.filename else "document"
+
+        elif url:
+            # Fetch HTML from URL
+            headers = {}
+
+            # Extract user_agent from params if provided
+            user_agent = html4docx_params.pop('user_agent', None)
+            if user_agent:
+                headers["User-Agent"] = user_agent
+
+            async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                html_content = response.text
+
+            # Generate base name from URL
+            from urllib.parse import urlparse
+            parsed_url = urlparse(url)
+            base_name = parsed_url.netloc + parsed_url.path.replace('/', '_')
+            if not base_name:
+                base_name = "webpage"
+
+        # Create html4docx converter
+        converter = HtmlToDocx()
+
+        # Convert HTML to DOCX using parse_html_string method
+        docx_document = converter.parse_html_string(html_content)
+        
+        # Save to BytesIO to get the bytes
+        docx_bytes_io = BytesIO()
+        docx_document.save(docx_bytes_io)
+        docx_bytes = docx_bytes_io.getvalue()
+
+        # Generate output filename
+        output_filename = f"{base_name}.docx"
+
+        return StreamingResponse(
+            BytesIO(docx_bytes),
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={
+                "Content-Disposition": f"attachment; filename={output_filename}",
+                "X-Conversion-Service": "HTML4DOCX_HTML_DOCX"
+            }
+        )
+
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to fetch URL: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"html4docx conversion failed: {str(e)}"
+        )
+
 @app.get("/test-health")
 async def test_health():
     """Test individual health checks."""
@@ -572,5 +737,12 @@ async def test_health():
         results["mammoth"] = {"healthy": mammoth_healthy, "status": mammoth_status}
     except Exception as e:
         results["mammoth"] = {"error": str(e)}
+    
+    # Test html4docx
+    try:
+        html4docx_healthy, html4docx_status = await check_html4docx_health()
+        results["html4docx"] = {"healthy": html4docx_healthy, "status": html4docx_status}
+    except Exception as e:
+        results["html4docx"] = {"error": str(e)}
     
     return {"results": results}

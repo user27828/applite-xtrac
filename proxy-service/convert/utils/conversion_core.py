@@ -844,6 +844,90 @@ async def _convert_file(
                         service="mammoth"
                     )
 
+            elif service_to_try == ConversionService.HTML4DOCX:
+                # Proxy to pyconvert-service for html4docx processing
+                if input_format != "html" or output_format != "docx":
+                    raise create_http_exception(
+                        ErrorCode.INVALID_REQUEST,
+                        details="HTML4DOCX only supports HTML to DOCX conversion",
+                        service="html4docx"
+                    )
+
+                if not current_file and not current_url:
+                    raise create_http_exception(
+                        ErrorCode.INVALID_REQUEST,
+                        details="HTML4DOCX requires either file upload or URL input",
+                        service="html4docx"
+                    )
+
+                # httpx is already imported globally at the top of the file
+                from ..config import SERVICE_URLS
+
+                try:
+                    # Prepare request to pyconvert-service
+                    pyconvert_url = f"{SERVICE_URLS[ConversionService.HTML4DOCX]}/html4docx"
+
+                    # Prepare form data
+                    files = {}
+                    data = {}
+
+                    if current_file:
+                        await current_file.seek(0)  # Reset file pointer
+                        file_content = await current_file.read()
+                        files['file'] = (current_file.filename, BytesIO(file_content), current_file.content_type)
+                        base_name = current_file.filename.rsplit(".", 1)[0] if "." in current_file.filename else "document"
+                    elif current_url:
+                        data['url'] = current_url
+                        parsed_url = urlparse(current_url)
+                        base_name = parsed_url.netloc + parsed_url.path.replace('/', '_')
+                        if not base_name:
+                            base_name = "url_content"
+
+                    # Add extra parameters if provided
+                    if extra_params:
+                        for key, value in extra_params.items():
+                            data[key] = str(value)
+
+                    # Make request to pyconvert-service
+                    async with httpx.AsyncClient(timeout=60.0) as client:
+                        response = await client.post(pyconvert_url, files=files, data=data)
+
+                        if response.status_code != 200:
+                            logger.error(f"Pyconvert html4docx service returned {response.status_code}: {response.text[:500]}")
+                            raise create_http_exception(
+                                ErrorCode.CONVERSION_FAILED,
+                                details=f"html4docx conversion failed: {response.text}",
+                                service="html4docx"
+                            )
+
+                        # Generate output filename
+                        output_filename = f"{base_name}.docx"
+
+                        # Return DOCX as StreamingResponse
+                        return StreamingResponse(
+                            BytesIO(response.content),
+                            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            headers={
+                                "Content-Disposition": f"attachment; filename={output_filename}",
+                                "X-Conversion-Service": "HTML4DOCX"
+                            }
+                        )
+
+                except httpx.RequestError as e:
+                    logger.error(f"Pyconvert service request failed: {e}")
+                    raise create_http_exception(
+                        ErrorCode.SERVICE_UNAVAILABLE,
+                        details=f"html4docx service unavailable: {str(e)}",
+                        service="html4docx"
+                    )
+                except Exception as e:
+                    logger.error(f"html4docx proxy failed: {e}")
+                    raise create_http_exception(
+                        ErrorCode.CONVERSION_FAILED,
+                        details=f"HTML to DOCX conversion failed: {str(e)}",
+                        service="html4docx"
+                    )
+
             else:
                 raise create_http_exception(
                     ErrorCode.INTERNAL_ERROR,

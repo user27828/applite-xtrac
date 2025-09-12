@@ -372,11 +372,14 @@ curl -X POST "http://localhost:8369/libreoffice/request" \
   - **Parameters**: All WeasyPrint write_pdf() parameters supported
 - `POST /pyconvert/mammoth` - DOCX to HTML conversion using Mammoth
   - **Features**: Semantic HTML conversion, style preservation, clean output
+- `POST /pyconvert/html4docx` - HTML to DOCX conversion using html4docx
+  - **Features**: HTML formatting preservation, table support, list conversion, style mapping
 
 **PyConvert Integration:**
 - Uses [Pandoc](https://pandoc.org/) for universal document conversion
 - Includes [WeasyPrint](https://weasyprint.org/) for high-quality HTML to PDF conversion
 - Includes [Mammoth](https://github.com/mwilliamson/mammoth.js) for DOCX to HTML conversion
+- Includes [html4docx](https://github.com/ReddyKilowatt/html-for-docx) for HTML to DOCX conversion
 - Supports conversion between markup formats and office documents
 - Includes LaTeX support for high-quality PDF generation
 
@@ -405,6 +408,11 @@ curl -X POST "http://localhost:8369/pyconvert/mammoth" \
   -F "file=@document.docx" \
   -o document.html
 
+# Convert HTML to DOCX (via html4docx)
+curl -X POST "http://localhost:8369/pyconvert/html4docx" \
+  -F "file=@document.html" \
+  -o document.docx
+
 # Convert with custom Pandoc arguments
 curl -X POST "http://localhost:8369/pyconvert/pandoc" \
   -F "file=@document.md" \
@@ -416,6 +424,7 @@ curl -X POST "http://localhost:8369/pyconvert/pandoc" \
 **Common Conversions:**
 - Markdown/HTML → PDF (with LaTeX via Pandoc)
 - HTML → PDF (with full CSS support via WeasyPrint)
+- HTML → DOCX (with formatting preservation via html4docx)
 - DOCX → Markdown/HTML
 - Various markup formats ↔ Office documents
 - Text files with custom formatting
@@ -427,7 +436,7 @@ curl -X POST "http://localhost:8369/pyconvert/pandoc" \
 - `POST /gotenberg/forms/libreoffice/convert` - Office document to PDF conversion
 
 **Gotenberg Integration:**
-- Uses [Gotenberg](https://gotenberg.dev/) for high-quality PDF generation from HTML, URLs, and office documents
+- Uses [Gotenberg](https://gotenberg.dev/)** for high-quality PDF generation from HTML, URLs, and office documents
 - Powered by Chromium for accurate HTML/CSS rendering
 - Supports LibreOffice for office document conversion
 - Stateless API design for scalability
@@ -800,18 +809,54 @@ libreoffice:
 - No performance impact on individual conversions
 - Prevents memory accumulation that causes system instability
 
-## Features
+## Credits & Acknowledgments
 
-- **Dark Mode Documentation**: The `/docs` endpoint automatically enables dark mode for better readability
-- **Comprehensive Health Checks**: Real-time monitoring of all services with detailed status reporting
-- **Full PDF Support**: PDF generation capabilities through Pandoc with LaTeX support, WeasyPrint with CSS support, and Gotenberg
-- **Multi-Format Conversion**: Support for PDF, DOCX, HTML, TXT, MD, TEX, and JSON formats
-- **Advanced HTML Processing**: WeasyPrint integration for high-quality HTML to PDF with full CSS support
-- **DOCX Processing**: Mammoth integration for semantic DOCX to HTML conversion
-- **Security**: Docker container isolation for enhanced security
-- **Streaming Responses**: Efficient handling of large file transfers
-- **Automatic Cleanup**: Background file cleanup for temporary processing files
-- **Timeout Protection**: Configurable timeouts (60s for conversions, 10s for general requests, 5s for health checks)
-- **Error Handling**: Comprehensive error handling with appropriate HTTP status codes
-- **URL Processing**: Direct URL to format conversion with content fetching and format detection
-- **Development Mode**: Local development with hot reload and container integration
+This project leverages several excellent open-source libraries and services. We extend our gratitude to the developers and maintainers of these projects:
+
+### Core Dependencies
+
+#### Python Libraries
+- **[FastAPI](https://fastapi.tiangolo.com/)** - Modern, fast web framework for building APIs with Python 3.7+
+- **[Uvicorn](https://www.uvicorn.org/)** - Lightning-fast ASGI server implementation
+- **[httpx](https://www.python-httpx.org/)** - Fully featured HTTP client for Python 3
+- **[python-multipart](https://github.com/andrew-d/python-multipart)** - Streaming multipart/form-data parser
+- **[python-magic](https://github.com/ahupp/python-magic)** - File type identification using libmagic
+
+#### Document Processing Libraries
+- **[Unstructured](https://unstructured.io/)** - Open-source library for preprocessing and cleaning unstructured data
+- **[WeasyPrint](https://weasyprint.org/)** - Converts HTML/CSS documents to PDF
+- **[Mammoth](https://github.com/mwilliamson/python-mammoth)** - Convert DOCX files to HTML and vice versa
+- **[html-for-docx](https://github.com/ReddyKilowatt/html-for-docx)** - Convert HTML to DOCX with formatting preservation
+- **[Pandoc](https://pandoc.org/)** - Universal document converter
+
+#### Data Processing Libraries
+- **[pandas](https://pandas.pydata.org/)** - Powerful data structures for data analysis
+- **[xlrd](https://xlrd.readthedocs.io/)** - Library for reading data from Excel files
+- **[openpyxl](https://openpyxl.readthedocs.io/)** - Python library to read/write Excel 2010 xlsx/xlsm files
+- **[odfpy](https://github.com/eea/odfpy)** - Python API for OpenDocument format
+- **[numbers-parser](https://github.com/masaccio/numbers-parser)** - Parse Apple Numbers files
+
+#### Web Scraping Libraries
+- **[Scrapy](https://scrapy.org/)** - Fast high-level web crawling and web scraping framework
+- **[scrapy-user-agents](https://github.com/cnu/scrapy-user-agents)** - Random user agent middleware for Scrapy
+
+### External Services & Containers
+
+#### Document Processing Services
+- **[Unstructured IO API](https://github.com/Unstructured-IO/unstructured-api)** - REST API for document processing and data extraction
+- **[LibreOffice Unoserver](https://github.com/unoconv/unoserver)** - LibreOffice-based document conversion server
+- **[Gotenberg](https://gotenberg.dev/)** - Docker-powered stateless API for converting HTML, Markdown and Office documents to PDF
+- **[Pandoc Server](https://github.com/jgm/pandoc)** - Universal markup converter with web service wrapper
+
+#### Container Infrastructure
+- **[Docker](https://www.docker.com/)** - Container platform for packaging and running applications
+- **[Docker Compose](https://docs.docker.com/compose/)** - Tool for defining and running multi-container Docker applications
+
+### License Acknowledgments
+
+This project uses libraries under various open-source licenses including MIT, Apache 2.0, BSD, and GPL. Please refer to the individual project repositories for specific license information.
+
+---
+
+💓Love,
+User27828

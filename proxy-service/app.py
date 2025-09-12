@@ -129,9 +129,61 @@ async def favicon():
 # Service URLs - with fallback mechanism for different environments
 SERVICES = get_service_urls()
 
+async def ping_pyconvert_service(service_name: str) -> JSONResponse:
+    """
+    Utility function to ping individual pyconvert services.
+    
+    Args:
+        service_name: Name of the service to ping (mammoth, weasyprint, html4docx, pandoc)
+    
+    Returns:
+        JSONResponse with ping result
+    """
+    client: httpx.AsyncClient = app.state.client
+    try:
+        response = await client.get(f"{SERVICES['pyconvert']}/{service_name}/ping")
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return JSONResponse(
+                status_code=503, 
+                content={
+                    "success": False, 
+                    "error": f"{service_name.title()} service unhealthy (status: {response.status_code})"
+                }
+            )
+    except httpx.RequestError as e:
+        return JSONResponse(
+            status_code=503, 
+            content={
+                "success": False, 
+                "error": f"{service_name.title()} service unreachable"
+            }
+        )
+
 @app.get("/ping")
 async def general_ping():
     return {"success": True, "data": "PONG!"}
+
+@app.get("/mammoth/ping")
+async def ping_mammoth():
+    """Check Mammoth service health."""
+    return await ping_pyconvert_service("mammoth")
+
+@app.get("/weasyprint/ping")
+async def ping_weasyprint():
+    """Check WeasyPrint service health."""
+    return await ping_pyconvert_service("weasyprint")
+
+@app.get("/html4docx/ping")
+async def ping_html4docx():
+    """Check html4docx service health."""
+    return await ping_pyconvert_service("html4docx")
+
+@app.get("/pandoc/ping")
+async def ping_pandoc():
+    """Check Pandoc service health."""
+    return await ping_pyconvert_service("pandoc")
 
 @app.get("/ping-all")
 async def ping_all():
@@ -180,13 +232,15 @@ async def ping_all():
                         pandoc_info = ping_data.get("pandoc", {"status": "unknown", "response_code": 0})
                         weasyprint_info = ping_data.get("weasyprint", {"status": "unknown", "response_code": 0})
                         mammoth_info = ping_data.get("mammoth", {"status": "unknown", "response_code": 0})
+                        html4docx_info = ping_data.get("html4docx", {"status": "unknown", "response_code": 0})
                         
                         results[service] = {
                             "status": "healthy" if pyconvert_healthy else "unhealthy",
                             "response_code": response.status_code,
                             "pandoc": pandoc_info,
                             "weasyprint": weasyprint_info,
-                            "mammoth": mammoth_info
+                            "mammoth": mammoth_info,
+                            "html4docx": html4docx_info
                         }
                     except (ValueError, KeyError):
                         # Fallback if JSON parsing fails
@@ -311,7 +365,8 @@ async def service_ping(service: str, request: Request):
                         "service": service,
                         "pandoc": ping_data.get("pandoc", {"status": "unknown", "response_code": 0}),
                         "weasyprint": ping_data.get("weasyprint", {"status": "unknown", "response_code": 0}),
-                        "mammoth": ping_data.get("mammoth", {"status": "unknown", "response_code": 0})
+                        "mammoth": ping_data.get("mammoth", {"status": "unknown", "response_code": 0}),
+                        "html4docx": ping_data.get("html4docx", {"status": "unknown", "response_code": 0})
                     }
                 except (ValueError, KeyError):
                     # Fallback if JSON parsing fails
@@ -750,6 +805,119 @@ async def mammoth_docx_to_html(
         )
     except Exception as e:
         logger.exception("Error proxying to mammoth service")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Proxy error: {str(e)}"}
+        )
+
+@app.post("/html4docx/html-docx")
+async def html4docx_html_to_docx(
+    request: Request,
+    file: UploadFile = File(...),
+    url: Optional[str] = Form(None)
+):
+    """
+    Convert HTML to DOCX using html4docx.
+
+    This endpoint proxies requests to the pyconvert-service which handles html4docx conversions.
+    Accepts either a file upload or URL input and converts it to DOCX format.
+
+    html4docx Parameters:
+    - url: URL to fetch HTML from (alternative to file upload)
+    - Any other parameters are passed through to html4docx
+
+    Examples:
+    - Basic conversion: Upload a .html file
+    - URL conversion: url=https://example.com
+    """
+    # Proxy to pyconvert-service
+    service = "pyconvert"  # pyconvert-service is accessed via /pyconvert/ prefix
+    path = "html4docx"
+    target_url = f"{SERVICES[service]}/{path}"
+
+    # Get request data - don't read body for multipart forms
+    headers = dict(request.headers)
+    headers.pop("host", None)
+
+    # Extract form data parameters for POST requests
+    query_params = dict(request.query_params)
+    form_params = {}
+    form_data = None
+    try:
+        content_type = headers.get("content-type", "").lower()
+        if "multipart/form-data" in content_type:
+            form_data = await request.form()
+            for field_name, field_value in form_data.items():
+                if field_name not in ['file', 'files']:  # Skip file fields
+                    form_params[field_name] = field_value
+            query_params.update(form_params)
+    except Exception as e:
+        logger.warning(f"Failed to extract form parameters in html4docx proxy: {e}")
+
+    # Use the pyconvert client (same as pandoc service)
+    client: httpx.AsyncClient = app.state.client
+
+    try:
+        # Build and send request to pyconvert-service
+        if form_data is not None:
+            # For multipart data, send as form data
+            files = {}
+            data = {}
+            
+            for field_name, field_value in form_data.items():
+                if hasattr(field_value, 'filename'):  # File upload
+                    files[field_name] = (field_value.filename, await field_value.read(), field_value.content_type)
+                else:  # Regular form field
+                    data[field_name] = field_value
+            
+            resp = await client.post(target_url, files=files, data=data, params=query_params)
+        else:
+            # For other content types, read body
+            body = await request.body()
+            req = client.build_request(method=request.method, url=target_url, headers=headers, content=body, params=query_params)
+            resp = await client.send(req)
+
+        # Check for errors
+        if resp.status_code >= 400:
+            if hasattr(resp, 'aclos'):
+                # Streaming response
+                error_content = await resp.aread()
+                error_text = error_content.decode(resp.encoding or "utf-8", errors="replace")
+                await resp.aclose()
+            else:
+                # Regular response
+                error_text = resp.text
+
+            logger.error(f"html4docx service returned error {resp.status_code}: {error_text[:500]}...")
+
+            return JSONResponse(
+                status_code=resp.status_code,
+                content={"error": f"html4docx conversion failed: {error_text}"}
+            )
+
+        # Handle response based on type
+        headers = {k: v for k, v in resp.headers.items() if k.lower() not in HOP_BY_HOP}
+
+        if hasattr(resp, 'aclos'):
+            # Streaming response
+            async def _stream_and_close(r):
+                try:
+                    async for chunk in r.aiter_bytes():
+                        yield chunk
+                finally:
+                    await r.aclose()
+
+            return StreamingResponse(_stream_and_close(resp), status_code=resp.status_code, headers=headers)
+        else:
+            # Regular response
+            return Response(content=resp.content, status_code=resp.status_code, headers=headers)
+    except httpx.RequestError as e:
+        return JSONResponse(
+            status_code=502,
+            content={"error": f"html4docx service unavailable: {str(e)}"}
+        )
+    except Exception as e:
+        logger.exception("Error proxying to html4docx service")
         return JSONResponse(
             status_code=500,
             content={"error": f"Proxy error: {str(e)}"}

@@ -66,6 +66,7 @@ This document provides a comprehensive overview of supported file formats across
 | **WeasyPrint** | High-quality HTML to PDF conversion | HTML, URLs | PDF (with full CSS support) |
 | **Gotenberg** | HTML and office document to PDF conversion | HTML, URLs, DOCX, XLSX, PPTX, and other office formats | PDF |
 | **Mammoth** | DOCX to HTML conversion | DOCX | HTML (semantic conversion) |
+| **html4docx** | HTML to DOCX conversion | HTML | DOCX (with formatting preservation) |
 
 ## Master Format Support Matrix
 
