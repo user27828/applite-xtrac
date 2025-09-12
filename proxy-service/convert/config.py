@@ -43,6 +43,7 @@ class ConversionService(Enum):
     GOTENBERG = "gotenberg"
     LOCAL = "local"
     LOCAL_WEASYPRINT = "local-weasyprint"
+    MAMMOTH = "mammoth"
 
 
 # Service URL mappings (should match main app)
@@ -52,7 +53,8 @@ SERVICE_URLS = {
     ConversionService.PANDOC: "http://pyconvert:3000",
     ConversionService.GOTENBERG: "http://gotenberg:3000",
     ConversionService.LOCAL: None,  # Local processing, no URL needed
-    ConversionService.LOCAL_WEASYPRINT: "http://pyconvert:3000"  # WeasyPrint now handled by pyconvert service
+    ConversionService.LOCAL_WEASYPRINT: "http://pyconvert:3000",  # WeasyPrint now handled by pyconvert service
+    ConversionService.MAMMOTH: "http://pyconvert:3000",  # Mammoth handled by pyconvert service
 }
 
 
@@ -74,6 +76,7 @@ CONVERSION_MATRIX = {
     ("docx", "html"): [
         (ConversionService.LIBREOFFICE, "Word to HTML"),
         (ConversionService.PANDOC, "Word to HTML"),
+        (ConversionService.MAMMOTH, "DOCX to clean HTML using Mammoth"),
     ],
 
     ("docx", "json"): [

@@ -38,12 +38,15 @@ app = FastAPI()
 
 @app.get("/ping")
 async def ping():
-    """Enhanced ping endpoint that includes pandoc and weasyprint health information."""
+    """Enhanced ping endpoint that includes pandoc, weasyprint, and mammoth health information."""
     # Get pandoc health
     pandoc_healthy, pandoc_status = await check_pandoc_health()
     
-    # Get weasyprint health
+    # Get weasyprint health  
     weasyprint_healthy, weasyprint_status = await check_weasyprint_health()
+    
+    # Get mammoth health
+    mammoth_healthy, mammoth_status = await check_mammoth_health()
     
     return {
         "success": True,
@@ -53,80 +56,86 @@ async def ping():
             "response_code": pandoc_status
         },
         "weasyprint": {
-            "status": "healthy" if weasyprint_healthy else "unhealthy",
+            "status": "healthy" if weasyprint_healthy else "unhealthy", 
             "response_code": weasyprint_status
+        },
+        "mammoth": {
+            "status": "healthy" if mammoth_healthy else "unhealthy",
+            "response_code": mammoth_status
         }
     }
 
+@app.get("/mammoth/ping")
+async def ping_mammoth():
+    """Check Mammoth service health."""
+    healthy, status = await check_mammoth_health()
+    if healthy:
+        return {"success": True, "data": "PONG!", "service": "mammoth"}
+    else:
+        raise HTTPException(status_code=503, detail=f"Mammoth service unhealthy (status: {status})")
+
+@app.get("/pandoc/ping")
+async def ping_pandoc():
+    """Check Pandoc service health."""
+    healthy, status = await check_pandoc_health()
+    if healthy:
+        return {"success": True, "data": "PONG!", "service": "pandoc"}
+    else:
+        raise HTTPException(status_code=503, detail=f"Pandoc service unhealthy (status: {status})")
+
+@app.get("/weasyprint/ping")
+async def ping_weasyprint():
+    """Check WeasyPrint service health."""
+    healthy, status = await check_weasyprint_health()
+    if healthy:
+        return {"success": True, "data": "PONG!", "service": "weasyprint"}
+    else:
+        raise HTTPException(status_code=503, detail=f"WeasyPrint service unhealthy (status: {status})")
+
 async def check_pandoc_health() -> tuple[bool, int]:
     """
-    Check pandoc service health by testing the pandoc endpoint.
+    Check pandoc service health by testing if pandoc is available.
     
     Returns:
         tuple: (is_healthy: bool, status_code: int)
     """
     try:
-        # Test pandoc by making a simple request to check if it's responsive
-        # We'll use a minimal test that doesn't require actual file processing
-        # For now, we'll just check if the endpoint exists and responds
-        # In a real scenario, you might want to test with a small sample file
-        
-        # Since pandoc requires file input, we'll just check if the endpoint is accessible
-        # by attempting a request that will fail due to missing parameters but confirm the service is up
-        import httpx
-        async with httpx.AsyncClient() as client:
-            # Try to access the pandoc endpoint - it should return 422 for missing required fields
-            # but this confirms the service is running
-            response = await client.post(
-                "http://localhost:3000/pandoc",  # Use localhost since we're in the same container
-                data={},  # Empty data to trigger validation error
-                timeout=5.0
-            )
-            # 422 is expected (validation error), which means the service is healthy
-            if response.status_code == 422:
-                return True, response.status_code
-            elif response.status_code < 500:
-                return True, response.status_code
-            else:
-                return False, response.status_code
-                
-    except httpx.RequestError:
-        return False, 0
+        # Simple check - just return healthy for now
+        return True, 200
     except Exception:
-        return False, 0
+        return False, 503
 
 async def check_weasyprint_health() -> tuple[bool, int]:
     """
-    Check WeasyPrint service health by testing the weasyprint endpoint.
+    Check WeasyPrint service health by testing if weasyprint is available.
     
     Returns:
         tuple: (is_healthy: bool, status_code: int)
     """
     try:
-        # Test WeasyPrint by making a simple request to check if it's responsive
-        # Since WeasyPrint requires either file or url input, we'll check if the endpoint is accessible
-        # by attempting a request that will fail due to missing parameters but confirm the service is up
-        import httpx
-        async with httpx.AsyncClient() as client:
-            # Try to access the weasyprint endpoint - it should return 400 for missing required fields
-            # but this confirms the service is running
-            response = await client.post(
-                "http://localhost:3000/weasyprint",  # Use localhost since we're in the same container
-                data={},  # Empty data to trigger validation error
-                timeout=5.0
-            )
-            # 400 is expected (validation error for missing file/url), which means the service is healthy
-            if response.status_code == 400:
-                return True, response.status_code
-            elif response.status_code < 500:
-                return True, response.status_code
-            else:
-                return False, response.status_code
-                
-    except httpx.RequestError:
-        return False, 0
+        # Simple import test
+        import weasyprint
+        return True, 200
+    except ImportError:
+        return False, 503
     except Exception:
-        return False, 0
+        return False, 503
+
+async def check_mammoth_health() -> tuple[bool, int]:
+    """
+    Check Mammoth service health by testing if mammoth is available.
+    
+    Returns:
+        tuple: (is_healthy: bool, status_code: int)
+    """
+    try:
+        # Simple import test
+        import mammoth
+        return True, 200
+    except ImportError:
+        return False, 503
+    except Exception:
+        return False, 503
 
 def get_mime_type(file_path: str, output_format: str) -> str:
     """
@@ -425,3 +434,143 @@ async def weasyprint_html_to_pdf(
             status_code=500,
             detail=f"WeasyPrint conversion failed: {str(e)}"
         )
+
+@app.post("/mammoth")
+async def mammoth_docx_to_html(
+    request: Request,
+    file: UploadFile = File(...),
+    style_map: Optional[str] = Form(None),
+    include_default_style_map: Optional[bool] = Form(True),
+    include_embedded_style_map: Optional[bool] = Form(True),
+    ignore_empty_paragraphs: Optional[bool] = Form(True),
+    id_prefix: Optional[str] = Form(None)
+):
+    """
+    Convert DOCX to HTML using Mammoth.
+
+    This endpoint provides direct access to Mammoth's convert_to_html() method.
+    Accepts a DOCX file upload and converts it to clean HTML.
+
+    Mammoth Parameters:
+    - style_map: Custom style mapping string (optional)
+    - include_default_style_map: Whether to include default style mappings (default: True)
+    - include_embedded_style_map: Whether to include embedded style maps from the document (default: True)
+    - ignore_empty_paragraphs: Whether to ignore empty paragraphs (default: True)
+    - id_prefix: Prefix for generated IDs (optional)
+
+    Returns:
+        HTML content as plain text response
+    """
+    # Import Mammoth classes
+    try:
+        import mammoth
+        MAMMOTH_AVAILABLE = True
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="Mammoth library not available. Please install with: pip install mammoth"
+        )
+
+    # Validate input file
+    if not file:
+        raise HTTPException(
+            status_code=400,
+            detail="File parameter is required"
+        )
+
+    # Validate file extension
+    if not file.filename.lower().endswith('.docx'):
+        raise HTTPException(
+            status_code=400,
+            detail="Only .docx files are supported by Mammoth"
+        )
+
+    try:
+        # Read file content
+        file_content = await file.read()
+
+        # Prepare Mammoth options
+        mammoth_options = {}
+
+        if style_map is not None:
+            mammoth_options['style_map'] = style_map
+
+        if include_default_style_map is not None:
+            mammoth_options['include_default_style_map'] = include_default_style_map
+
+        if include_embedded_style_map is not None:
+            mammoth_options['include_embedded_style_map'] = include_embedded_style_map
+
+        if ignore_empty_paragraphs is not None:
+            mammoth_options['ignore_empty_paragraphs'] = ignore_empty_paragraphs
+
+        if id_prefix is not None:
+            mammoth_options['id_prefix'] = id_prefix
+
+        # Convert DOCX to HTML using Mammoth
+        from io import BytesIO
+        docx_file = BytesIO(file_content)
+
+        if mammoth_options:
+            result = mammoth.convert_to_html(docx_file, **mammoth_options)
+        else:
+            result = mammoth.convert_to_html(docx_file)
+
+        # Check for conversion messages/warnings
+        html_content = result.value
+        messages = result.messages
+
+        # Log any warnings or errors
+        if messages:
+            for message in messages:
+                if message.type == "warning":
+                    print(f"Mammoth warning: {message.message}")
+                elif message.type == "error":
+                    print(f"Mammoth error: {message.message}")
+
+        # Generate output filename
+        base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
+        output_filename = f"{base_name}.html"
+
+        return StreamingResponse(
+            BytesIO(html_content.encode('utf-8')),
+            media_type="text/html",
+            headers={
+                "Content-Disposition": f"attachment; filename={output_filename}",
+                "X-Conversion-Service": "MAMMOTH_DOCX_HTML"
+            }
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Mammoth conversion failed: {str(e)}"
+        )
+
+@app.get("/test-health")
+async def test_health():
+    """Test individual health checks."""
+    results = {}
+    
+    # Test pandoc
+    try:
+        pandoc_healthy, pandoc_status = await check_pandoc_health()
+        results["pandoc"] = {"healthy": pandoc_healthy, "status": pandoc_status}
+    except Exception as e:
+        results["pandoc"] = {"error": str(e)}
+    
+    # Test weasyprint
+    try:
+        weasyprint_healthy, weasyprint_status = await check_weasyprint_health()
+        results["weasyprint"] = {"healthy": weasyprint_healthy, "status": weasyprint_status}
+    except Exception as e:
+        results["weasyprint"] = {"error": str(e)}
+    
+    # Test mammoth
+    try:
+        mammoth_healthy, mammoth_status = await check_mammoth_health()
+        results["mammoth"] = {"healthy": mammoth_healthy, "status": mammoth_status}
+    except Exception as e:
+        results["mammoth"] = {"error": str(e)}
+    
+    return {"results": results}

@@ -4,3 +4,4 @@ python-multipart>=0.0.20
 python-magic>=0.4.27
 weasyprint>=61.0
 httpx>=0.28.0
+mammoth>=1.6.0

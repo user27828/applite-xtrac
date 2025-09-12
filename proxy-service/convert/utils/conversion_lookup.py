@@ -41,7 +41,8 @@ def get_dynamic_service_urls():
         ConversionService.PANDOC: urls.get("pyconvert"),
         ConversionService.GOTENBERG: urls.get("gotenberg"),
         ConversionService.LOCAL: None,
-        ConversionService.LOCAL_WEASYPRINT: urls.get("pyconvert")  # WeasyPrint now handled by pyconvert service
+        ConversionService.LOCAL_WEASYPRINT: urls.get("pyconvert"),  # WeasyPrint now handled by pyconvert service
+        ConversionService.MAMMOTH: urls.get("pyconvert")  # Mammoth handled by pyconvert service
     }
 
 
