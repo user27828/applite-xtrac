@@ -6,8 +6,8 @@ This project provides a unified API gateway for multiple document processing ser
 
 1. To extract the best semantic representation of common documents and output it for ETL
 or LLM pipelines.
-1. To convert well-structured, formatted, and supported formats to PDF (via Gotenberg).  Our emphasis is HTML>PDF, but many other inputs are supported.
-1. To convert between popular formats or at least to popular formats from outdated or unpopular ones (right `.pages`!?).  
+1. To convert well-structured and formatted HTML to PDF (via Gotenberg) or docx (via Unoserver, Pandoc, or html4docx).  Although these are the emphasis, many other input and output formats are supported.
+2. To convert between popular formats or at least to popular formats from outdated or unpopular ones (right `.pages`!?).
 
 ## Services
 
@@ -38,7 +38,7 @@ Proxying to these containers aims to preserve the original functionality of the 
 - `/{service}/ping` → Service-specific health check
 - `/docs` → API documentation
 
-**Chained endpoints**: (uses multiple services or transforms service input/output)
+**Chained endpoints for services**: (uses multiple services or transforms service input/output)
 
 - `/unstructured-io-md` → Normal Unstructured IO input file with markdown output
 - `/unstructured-io-txt` → Normal Unstructured IO input file with text output
@@ -139,7 +139,7 @@ curl http://localhost:8369/convert/info/docx-pdf
 
 ### Dynamic Endpoint Pattern
 
-The API supports dynamic endpoints for any supported conversion pair using the pattern `/{input_format}-{output_format}`:
+The API supports dynamic endpoints for any supported conversion pair using the pattern `/convert/{input_format}-{output_format}`:
 
 **Supported Dynamic Conversions:**
 - `POST /convert/{input_format}-{output_format}` - Convert files between any supported formats
