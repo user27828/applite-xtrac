@@ -29,8 +29,8 @@ SERVICE_URL_CONFIGS = {
         "local": "http://localhost:3001"
     },
     "weasyprint": {
-        "docker": "http://localhost:8369",
-        "local": "http://localhost:8369"
+        "docker": "http://pyconvert:3000",
+        "local": "http://localhost:3030"
     }
 }
 
@@ -168,8 +168,8 @@ CONVERSION_MATRIX = {
     ],
 
     ("html", "pdf"): [
-        (ConversionService.PYMUPDF, "PDF to HTML using PyMuPDF"),
-        (ConversionService.UNSTRUCTURED_IO, "PDF to HTML structure extraction"),
+        (ConversionService.WEASYPRINT, "HTML to PDF using WeasyPrint"),
+        (ConversionService.GOTENBERG, "HTML to PDF using Gotenberg"),
     ],
 
     ("html", "tex"): [
