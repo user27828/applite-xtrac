@@ -927,7 +927,14 @@ async def html4docx_html_to_docx(
 async def beautifulsoup_html_to_html(
     request: Request,
     file: Optional[UploadFile] = File(None),
-    url: Optional[str] = Form(None)
+    url: Optional[str] = Form(None),
+    parser: Optional[str] = Form("html.parser"),
+    prettify: Optional[bool] = Form(True),
+    remove_scripts: Optional[bool] = Form(True),
+    remove_styles: Optional[bool] = Form(False),
+    remove_comments: Optional[bool] = Form(True),
+    extract_title: Optional[bool] = Form(False),
+    extract_text: Optional[bool] = Form(False)
 ):
     """
     Clean HTML using BeautifulSoup with full parameter control.
@@ -935,7 +942,7 @@ async def beautifulsoup_html_to_html(
     This endpoint proxies requests to the pyconvert-service which handles BeautifulSoup HTML cleaning.
     Accepts either a file upload or URL input, plus any BeautifulSoup processing parameters.
 
-    BeautifulSoup Parameters (passed via form data or query parameters):
+    BeautifulSoup Parameters:
     - parser: HTML parser to use (default: "html.parser", options: "html.parser", "lxml", "html5lib")
     - prettify: Whether to format the HTML nicely (default: True)
     - remove_scripts: Whether to remove <script> tags (default: True)
