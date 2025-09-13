@@ -74,7 +74,7 @@ return create_error_response(404, "SERVICE_UNAVAILABLE", service="pandoc")
 **Critical**: Remove hop-by-hop headers via `HOP_BY_HOP` set in `app.py` when forwarding requests between services.
 
 ### URL Fetching Integration
-The system includes Scrapy-based URL fetching (see `docs/README_URL_FETCHING.md`). URL conversions automatically handle:
+The system includes Scrapy-based URL fetching (see `docs/URL_FETCHING.md`). URL conversions automatically handle:
 - Content extraction → Unstructured IO
 - PDF generation → Gotenberg
 - Custom headers and authentication
