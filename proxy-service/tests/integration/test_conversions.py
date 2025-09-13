@@ -9,11 +9,9 @@ import pytest
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Optional
-from fastapi.testclient import TestClient
+from typing import Dict
 from datetime import datetime
 import asyncio
-import httpx
 
 # Import validation functionality
 from convert.validate import validate_file, ValidationError
@@ -74,7 +72,7 @@ class TestConversionEndpoints:
 
     def _test_conversion_endpoint(
         self,
-        client: TestClient,
+        client,  # Integration client (not TestClient)
         endpoint: str,
         input_file_path: Path,
         input_ext: str,
@@ -257,7 +255,7 @@ class TestConversionEndpoints:
 
     async def _run_sync_test(
         self,
-        client: TestClient,
+        client,  # Integration client (not TestClient)
         endpoint: str,
         input_file_path: Path,
         input_ext: str,
@@ -336,6 +334,14 @@ class TestConversionEndpoints:
         conversion_service = response.headers.get("X-Conversion-Service")
         if conversion_service == "WEASYPRINT":
             return "WeasyPrint PDF"
+        elif conversion_service == "BEAUTIFULSOUP":
+            return "BeautifulSoup HTML Clean"
+        elif conversion_service == "MAMMOTH":
+            return "Mammoth DOCX to HTML"
+        elif conversion_service == "HTML4DOCX":
+            return "HTML4DOCX Conversion"
+        elif conversion_service == "LOCAL":
+            return "File Conversion"
         
         content_type = response.headers.get("content-type", "").lower()
 
@@ -374,8 +380,8 @@ class TestConversionEndpoints:
 
         return method_map.get(output_ext, "File Conversion")
 
-    def test_all_file_conversions(self, client: TestClient, testable_conversions, output_data_dir):
-        """Test all available file conversion combinations."""
+    def test_all_file_conversions(self, integration_client, testable_conversions, output_data_dir):
+        """Test all available file conversion combinations using real service integration."""
         print(f"\n🧪 Testing {len(testable_conversions)} conversion combinations...")
         
         if len(testable_conversions) == 0:
@@ -408,7 +414,7 @@ class TestConversionEndpoints:
                 continue
 
             result = self._test_conversion_endpoint(
-                client=client,
+                client=integration_client,
                 endpoint=endpoint,
                 input_file_path=sample_file["path"],
                 input_ext=input_ext,
@@ -463,8 +469,8 @@ class TestConversionEndpoints:
         print(f"\n💾 Results saved to: {results_file}")
 
     @pytest.mark.asyncio
-    async def test_all_file_conversions_async(self, client: TestClient, testable_conversions, output_data_dir):
-        """Test all available file conversion combinations asynchronously (up to 5 concurrent)."""
+    async def test_all_file_conversions_async(self, integration_client, testable_conversions, output_data_dir):
+        """Test all available file conversion combinations asynchronously (up to 5 concurrent) using real service integration."""
         print(f"\n🧪 Testing {len(testable_conversions)} conversion combinations asynchronously...")
         
         if len(testable_conversions) == 0:
@@ -488,34 +494,33 @@ class TestConversionEndpoints:
             return
 
         # Run async conversions with concurrency limit
-        # Adjust semaphore value based on your server capacity and network conditions
-        # Lower values (2-3) may perform better for I/O intensive workloads
-        # Higher values (5-10) may help with high-latency network requests
-        max_concurrent = 3  # Configurable concurrency limit
-        semaphore = asyncio.Semaphore(max_concurrent)
-        async with httpx.AsyncClient(base_url="http://testserver") as async_client:
-            tasks = []
-            for conversion in valid_conversions:
-                task = asyncio.create_task(
-                    self._run_sync_test(
-                        client,
-                        conversion["endpoint"],
-                        conversion["sample_file"]["path"],
-                        conversion["input_extension"],
-                        conversion["output_extension"],
-                        output_data_dir
-                    )
+        # Note: Currently running all tasks concurrently without semaphore limiting
+        # Adjust max_concurrent value based on your server capacity and network conditions
+        max_concurrent = 3  # Configurable concurrency limit (currently for reference only)
+        
+        # For integration tests, integration_client handles the HTTP calls directly
+        tasks = []
+        for conversion in valid_conversions:
+            task = asyncio.create_task(
+                self._run_sync_test(
+                    integration_client,
+                    conversion["endpoint"],
+                    conversion["sample_file"]["path"],
+                    conversion["input_extension"],
+                    conversion["output_extension"],
+                    output_data_dir
                 )
-                tasks.append(task)
+            )
+            tasks.append(task)
             
-            # Run all tasks concurrently
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Process results
-            passed_count = 0
-            failed_count = 0
-            
-            for result in results:
+        # Run all tasks concurrently
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results
+        passed_count = 0
+        failed_count = 0
+        
+        for result in results:
                 if isinstance(result, Exception):
                     print(f"❌ Async task failed with exception: {result}")
                     failed_count += 1

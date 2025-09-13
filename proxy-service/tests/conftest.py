@@ -145,6 +145,38 @@ async def async_client():
         yield ac
 
 
+@pytest.fixture(scope="session")
+def integration_client():
+    """
+    HTTP client for true integration tests that connects to the actual running proxy service.
+    This bypasses TestClient isolation and allows testing against real services.
+    """
+    import httpx
+    import os
+    
+    # Get proxy service URL from environment or use default
+    proxy_url = os.getenv("APPLITEXTRAC_URL", "http://localhost:8369")
+    
+    # Create a simple HTTP client that mimics TestClient interface
+    class IntegrationTestClient:
+        def __init__(self, base_url: str):
+            self.base_url = base_url.rstrip('/')
+            
+        def post(self, url: str, **kwargs):
+            """Make a POST request to the proxy service."""
+            full_url = f"{self.base_url}{url}"
+            with httpx.Client(timeout=30.0) as client:
+                return client.post(full_url, **kwargs)
+                
+        def get(self, url: str, **kwargs):
+            """Make a GET request to the proxy service.""" 
+            full_url = f"{self.base_url}{url}"
+            with httpx.Client(timeout=30.0) as client:
+                return client.get(full_url, **kwargs)
+    
+    return IntegrationTestClient(proxy_url)
+
+
 # Directory fixtures
 @pytest.fixture(scope="session")
 def temp_dir():
