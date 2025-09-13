@@ -479,7 +479,10 @@ async def _convert_file(
                     return StreamingResponse(
                         BytesIO(content.encode('utf-8')),
                         media_type=media_type,
-                        headers={"Content-Disposition": f"attachment; filename={output_filename}"}
+                        headers={
+                            "Content-Disposition": f"attachment; filename={output_filename}",
+                            "X-Conversion-Service": "UNSTRUCTURED_IO"
+                        }
                     )
                 else:
                     # For JSON output or other formats, use the service directly
@@ -1168,7 +1171,10 @@ async def _convert_file(
             return StreamingResponse(
                 BytesIO(response.content),
                 media_type=content_type,
-                headers={"Content-Disposition": f"attachment; filename={output_filename}"}
+                headers={
+                    "Content-Disposition": f"attachment; filename={output_filename}",
+                    "X-Conversion-Service": service_to_try.value
+                }
             )
 
         except httpx.RequestError as e:

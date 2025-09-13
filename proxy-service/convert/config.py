@@ -350,8 +350,8 @@ CONVERSION_MATRIX = {
     ],
 
     ("pages", "json"): [
-        [ConversionService.LIBREOFFICE, "pages", "docx", "Convert Apple Pages to DOCX using LibreOffice"],
-        [ConversionService.UNSTRUCTURED_IO, "docx", "json", "Convert DOCX to JSON using Unstructured IO"]
+        [ConversionService.LIBREOFFICE, "pages", "html", "Convert Apple Pages to DOCX using LibreOffice"],
+        [ConversionService.UNSTRUCTURED_IO, "html", "json", "Convert DOCX to JSON using Unstructured IO"]
     ],
 
     ("pages", "md"): [

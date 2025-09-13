@@ -266,7 +266,10 @@ async def chain_conversions(
     return StreamingResponse(
         BytesIO(current_content),
         media_type=final_content_type,
-        headers={"Content-Disposition": f"attachment; filename={final_filename}"}
+        headers={
+            "Content-Disposition": f"attachment; filename={final_filename}",
+            "X-Conversion-Service": f"CHAINED_{conversion_steps[-1].service.value}"
+        }
     )
 
 
