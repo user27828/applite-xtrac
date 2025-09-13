@@ -51,6 +51,9 @@ async def ping():
     # Get html4docx health
     html4docx_healthy, html4docx_status = await check_html4docx_health()
     
+    # Get BeautifulSoup health
+    beautifulsoup_healthy, beautifulsoup_status = await check_beautifulsoup_health()
+    
     return {
         "success": True,
         "data": "PONG!",
@@ -69,6 +72,10 @@ async def ping():
         "html4docx": {
             "status": "healthy" if html4docx_healthy else "unhealthy",
             "response_code": html4docx_status
+        },
+        "beautifulsoup": {
+            "status": "healthy" if beautifulsoup_healthy else "unhealthy",
+            "response_code": beautifulsoup_status
         }
     }
 
@@ -107,6 +114,15 @@ async def ping_html4docx():
         return {"success": True, "data": "PONG!", "service": "html4docx"}
     else:
         raise HTTPException(status_code=503, detail=f"html4docx service unhealthy (status: {status})")
+
+@app.get("/beautifulsoup/ping")
+async def ping_beautifulsoup():
+    """Check BeautifulSoup service health."""
+    healthy, status = await check_beautifulsoup_health()
+    if healthy:
+        return {"success": True, "data": "PONG!", "service": "beautifulsoup"}
+    else:
+        raise HTTPException(status_code=503, detail=f"BeautifulSoup service unhealthy (status: {status})")
 
 async def check_pandoc_health() -> tuple[bool, int]:
     """
@@ -163,6 +179,22 @@ async def check_html4docx_health() -> tuple[bool, int]:
     try:
         # Simple import test
         import html4docx
+        return True, 200
+    except ImportError:
+        return False, 503
+    except Exception:
+        return False, 503
+
+async def check_beautifulsoup_health() -> tuple[bool, int]:
+    """
+    Check BeautifulSoup service health by testing if beautifulsoup4 is available.
+    
+    Returns:
+        tuple: (is_healthy: bool, status_code: int)
+    """
+    try:
+        # Simple import test
+        from bs4 import BeautifulSoup
         return True, 200
     except ImportError:
         return False, 503
@@ -712,6 +744,151 @@ async def html4docx_html_to_docx(
             detail=f"html4docx conversion failed: {str(e)}"
         )
 
+@app.post("/beautifulsoup")
+async def beautifulsoup_html_clean(
+    request: Request,
+    file: UploadFile = File(...),
+    url: str = Form(None),
+    parser: str = Form("html.parser"),
+    prettify: bool = Form(True),
+    remove_scripts: bool = Form(True),
+    remove_styles: bool = Form(False),
+    remove_comments: bool = Form(True),
+    extract_title: bool = Form(False),
+    extract_text: bool = Form(False)
+):
+    """
+    Clean and process HTML using BeautifulSoup.
+
+    This endpoint provides HTML cleaning and processing capabilities using BeautifulSoup.
+    Accepts either a file upload or URL input and applies various cleaning operations.
+
+    BeautifulSoup Parameters:
+    - parser: HTML parser to use (default: "html.parser", options: "html.parser", "lxml", "html5lib")
+    - prettify: Whether to format the HTML nicely (default: True)
+    - remove_scripts: Whether to remove <script> tags (default: True)
+    - remove_styles: Whether to remove <style> tags (default: False)
+    - remove_comments: Whether to remove HTML comments (default: True)
+    - extract_title: Whether to return only the page title (default: False)
+    - extract_text: Whether to return only the text content (default: False)
+
+    Returns:
+        Cleaned HTML content or extracted text/title based on parameters
+    """
+    # Import BeautifulSoup classes
+    try:
+        from bs4 import BeautifulSoup, Comment
+        BEAUTIFULSOUP_AVAILABLE = True
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="BeautifulSoup library not available. Please install with: pip install beautifulsoup4"
+        )
+
+    # Validate input
+    if not file and not url:
+        raise HTTPException(
+            status_code=400,
+            detail="Either 'file' or 'url' parameter must be provided"
+        )
+
+    if file and url:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot provide both 'file' and 'url' parameters"
+        )
+
+    try:
+        html_content = None
+        base_name = None
+
+        if file:
+            # Read uploaded file
+            file_content = await file.read()
+            html_content = file_content.decode('utf-8', errors='replace')
+            base_name = file.filename.rsplit(".", 1)[0] if file.filename and "." in file.filename else "document"
+
+        elif url:
+            # Fetch HTML from URL
+            headers = {}
+
+            async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                html_content = response.text
+
+            # Generate base name from URL
+            from urllib.parse import urlparse
+            parsed_url = urlparse(url)
+            base_name = parsed_url.netloc + parsed_url.path.replace('/', '_')
+            if not base_name:
+                base_name = "webpage"
+
+        # Parse HTML with BeautifulSoup
+        soup = BeautifulSoup(html_content, parser)
+
+        # Apply cleaning operations
+        if remove_scripts:
+            # Remove all script tags
+            for script in soup.find_all('script'):
+                script.decompose()
+
+        if remove_styles:
+            # Remove all style tags
+            for style in soup.find_all('style'):
+                style.decompose()
+
+        if remove_comments:
+            # Remove all HTML comments
+            for comment in soup.find_all(text=lambda text: isinstance(text, Comment)):
+                comment.extract()
+
+        # Handle special extraction modes
+        if extract_title:
+            # Extract only the title
+            title_tag = soup.find('title')
+            if title_tag:
+                result_content = title_tag.get_text().strip()
+            else:
+                result_content = "No title found"
+            media_type = "text/plain"
+            output_filename = f"{base_name}_title.txt"
+
+        elif extract_text:
+            # Extract only the text content
+            result_content = soup.get_text(separator='\n', strip=True)
+            media_type = "text/plain"
+            output_filename = f"{base_name}_text.txt"
+
+        else:
+            # Return cleaned HTML
+            if prettify:
+                result_content = soup.prettify()
+            else:
+                result_content = str(soup)
+            media_type = "text/html"
+            output_filename = f"{base_name}_cleaned.html"
+
+        return StreamingResponse(
+            BytesIO(result_content.encode('utf-8')),
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f"attachment; filename={output_filename}",
+                "X-Conversion-Service": "BEAUTIFULSOUP_HTML_CLEAN"
+            }
+        )
+
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to fetch URL: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"BeautifulSoup processing failed: {str(e)}"
+        )
+
 @app.get("/test-health")
 async def test_health():
     """Test individual health checks."""
@@ -744,5 +921,12 @@ async def test_health():
         results["html4docx"] = {"healthy": html4docx_healthy, "status": html4docx_status}
     except Exception as e:
         results["html4docx"] = {"error": str(e)}
+    
+    # Test BeautifulSoup
+    try:
+        beautifulsoup_healthy, beautifulsoup_status = await check_beautifulsoup_health()
+        results["beautifulsoup"] = {"healthy": beautifulsoup_healthy, "status": beautifulsoup_status}
+    except Exception as e:
+        results["beautifulsoup"] = {"error": str(e)}
     
     return {"results": results}

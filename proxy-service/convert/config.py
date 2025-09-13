@@ -45,6 +45,7 @@ class ConversionService(Enum):
     WEASYPRINT = "weasyprint"
     MAMMOTH = "mammoth"
     HTML4DOCX = "html4docx"
+    BEAUTIFULSOUP = "beautifulsoup"
 
 
 # Service URL mappings (should match main app)
@@ -57,6 +58,7 @@ SERVICE_URLS = {
     ConversionService.WEASYPRINT: "http://pyconvert:3000",  # WeasyPrint now handled by pyconvert service
     ConversionService.MAMMOTH: "http://pyconvert:3000",  # Mammoth handled by pyconvert service
     ConversionService.HTML4DOCX: "http://pyconvert:3000",  # html4docx handled by pyconvert service
+    ConversionService.BEAUTIFULSOUP: "http://pyconvert:3000",  # BeautifulSoup handled by pyconvert service
 }
 
 
@@ -73,6 +75,23 @@ CONVERSION_MATRIX = {
     ("doc", "md"): [
         [ConversionService.LIBREOFFICE, "doc", "docx", "Convert legacy DOC to DOCX using LibreOffice"],
         [ConversionService.PANDOC, "docx", "md", "Convert DOCX to Markdown using Pandoc"]
+    ],
+
+    ("doc", "txt"): [
+        (ConversionService.LIBREOFFICE, "Convert legacy DOC to TXT using LibreOffice"),
+    ],
+
+    ("doc", "html"): [
+        (ConversionService.LIBREOFFICE, "Convert legacy DOC to TXT using LibreOffice"),
+    ],
+
+    ("doc", "docx"): [
+        (ConversionService.LIBREOFFICE, "Convert legacy DOC to DOCX using LibreOffice"),
+    ],
+
+    ("doc", "pdf"): [
+        (ConversionService.GOTENBERG, "High-quality office document to PDF"),
+        (ConversionService.LIBREOFFICE, "Convert legacy DOC to PDF using LibreOffice"),
     ],
 
     ("docx", "html"): [
@@ -157,6 +176,10 @@ CONVERSION_MATRIX = {
         (ConversionService.UNSTRUCTURED_IO, "HTML text extraction"),
         (ConversionService.LIBREOFFICE, "HTML to Text"),
         (ConversionService.PANDOC, "HTML to Text"),
+    ],
+
+    ("html", "html"): [
+        (ConversionService.BEAUTIFULSOUP, "HTML cleaning and processing with BeautifulSoup"),
     ],
 
     ("latex", "docx"): [
@@ -696,7 +719,8 @@ CONVERSION_METHOD_TO_SERVICE_MAP = {
     "PPTX Conversion": "LIBREOFFICE",
     "File Conversion": "LOCAL",
     "WeasyPrint PDF": "WEASYPRINT",
-    "WeasyPrint Direct": "WEASYPRINT_DIRECT"
+    "WeasyPrint Direct": "WEASYPRINT_DIRECT",
+    "BeautifulSoup HTML Clean": "BEAUTIFULSOUP"
 }
 
 

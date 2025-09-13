@@ -174,6 +174,14 @@ def run_tests():
         "Convert HTML to Markdown"
     )
 
+    # Test HTML to HTML conversion (BeautifulSoup)
+    __test_conversion_endpoint(
+        "/convert/html-html",
+        TEST_FILES_DIR / "test.html",
+        TEST_FILES_DIR / "test_html_cleaned.html",
+        "Convert HTML to cleaned HTML (BeautifulSoup)"
+    )
+
     # Test text conversions
     __test_conversion_endpoint(
         "/convert/txt-pdf",

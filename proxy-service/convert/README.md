@@ -65,6 +65,7 @@ Special attention has been given to formats commonly used for **resumes/CVs/cove
 | `POST /convert/docx-html` | DOCX to HTML | Mammoth/LibreOffice | Document conversion |
 | `POST /convert/url-md` | URL to Markdown | Unstructured IO | Content extraction |
 | `POST /convert/url-txt` | URL to Text | Unstructured IO | Text extraction |
+| `POST /convert/html-html` | HTML to HTML | BeautifulSoup | HTML cleaning and formatting |
 
 ## Service Selection Logic
 
@@ -89,6 +90,7 @@ Each endpoint automatically selects the most reliable service based on:
   - Mammoth (DOCX for semantic conversion)
   - LibreOffice (other office formats)
   - Pandoc (markup formats)
+  - BeautifulSoup (HTML cleaning and formatting)
 - **Markdown/LaTeX**: Pandoc (native support)
 - **Legacy Formats**: LibreOffice (broadest compatibility)
 - **URL Input**: 
@@ -202,6 +204,24 @@ curl -X POST "http://localhost:8369/convert/pdf-json" \
 curl -X POST "http://localhost:8369/convert/html-pdf" \
   -F "file=@webpage.html" \
   -o webpage.pdf
+```
+
+#### Convert HTML to Clean HTML (BeautifulSoup)
+```bash
+curl -X POST "http://localhost:8369/convert/html-html" \
+  -F "file=@messy.html" \
+  -F "prettify=true" \
+  -o clean.html
+```
+
+#### Convert HTML with Advanced Options
+```bash
+curl -X POST "http://localhost:8369/convert/html-html" \
+  -F "file=@input.html" \
+  -F "prettify=true" \
+  -F "remove_comments=true" \
+  -F "remove_empty_tags=true" \
+  -o formatted.html
 ```
 
 ### Utility Endpoints

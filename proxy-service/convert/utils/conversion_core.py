@@ -734,7 +734,7 @@ async def _convert_file(
                         response = await client.post(pyconvert_url, files=files, data=data)
 
                         if response.status_code != 200:
-                            logger.error(f"Pyconvert WeasyPrint service returned {response.status_code}: {response.text[:500]}")
+                            logger.error(f"Pyconvert WeasyPrint service returned {response.status_code}: {response.text}")
                             raise create_http_exception(
                                 ErrorCode.CONVERSION_FAILED,
                                 details=f"WeasyPrint conversion failed: {response.text}",
@@ -926,6 +926,90 @@ async def _convert_file(
                         ErrorCode.CONVERSION_FAILED,
                         details=f"HTML to DOCX conversion failed: {str(e)}",
                         service="html4docx"
+                    )
+
+            elif service_to_try == ConversionService.BEAUTIFULSOUP:
+                # Proxy to pyconvert-service for BeautifulSoup processing
+                if input_format != "html" or output_format != "html":
+                    raise create_http_exception(
+                        ErrorCode.INVALID_REQUEST,
+                        details="BEAUTIFULSOUP only supports HTML to HTML conversion",
+                        service="beautifulsoup"
+                    )
+
+                if not current_file and not current_url:
+                    raise create_http_exception(
+                        ErrorCode.INVALID_REQUEST,
+                        details="BEAUTIFULSOUP requires either file upload or URL input",
+                        service="beautifulsoup"
+                    )
+
+                # httpx is already imported globally at the top of the file
+                from ..config import SERVICE_URLS
+
+                try:
+                    # Prepare request to pyconvert-service
+                    pyconvert_url = f"{SERVICE_URLS[ConversionService.BEAUTIFULSOUP]}/beautifulsoup"
+
+                    # Prepare form data
+                    files = {}
+                    data = {}
+
+                    if current_file:
+                        await current_file.seek(0)  # Reset file pointer
+                        file_content = await current_file.read()
+                        files['file'] = (current_file.filename, BytesIO(file_content), current_file.content_type)
+                        base_name = current_file.filename.rsplit(".", 1)[0] if "." in current_file.filename else "document"
+                    elif current_url:
+                        data['url'] = current_url
+                        parsed_url = urlparse(current_url)
+                        base_name = parsed_url.netloc + parsed_url.path.replace('/', '_')
+                        if not base_name:
+                            base_name = "url_content"
+
+                    # Add extra parameters if provided
+                    if extra_params:
+                        for key, value in extra_params.items():
+                            data[key] = str(value)
+
+                    # Make request to pyconvert-service
+                    async with httpx.AsyncClient(timeout=60.0) as client:
+                        response = await client.post(pyconvert_url, files=files, data=data)
+
+                        if response.status_code != 200:
+                            logger.error(f"Pyconvert BeautifulSoup service returned {response.status_code}: {response.text[:500]}")
+                            raise create_http_exception(
+                                ErrorCode.CONVERSION_FAILED,
+                                details=f"BeautifulSoup conversion failed: {response.text}",
+                                service="beautifulsoup"
+                            )
+
+                        # Generate output filename
+                        output_filename = f"{base_name}_cleaned.html"
+
+                        # Return HTML as StreamingResponse
+                        return StreamingResponse(
+                            BytesIO(response.content),
+                            media_type="text/html",
+                            headers={
+                                "Content-Disposition": f"attachment; filename={output_filename}",
+                                "X-Conversion-Service": "BEAUTIFULSOUP"
+                            }
+                        )
+
+                except httpx.RequestError as e:
+                    logger.error(f"Pyconvert service request failed: {e}")
+                    raise create_http_exception(
+                        ErrorCode.SERVICE_UNAVAILABLE,
+                        details=f"BeautifulSoup service unavailable: {str(e)}",
+                        service="beautifulsoup"
+                    )
+                except Exception as e:
+                    logger.error(f"BeautifulSoup proxy failed: {e}")
+                    raise create_http_exception(
+                        ErrorCode.CONVERSION_FAILED,
+                        details=f"HTML cleaning failed: {str(e)}",
+                        service="beautifulsoup"
                     )
 
             else:

@@ -147,8 +147,16 @@ async def convert_dynamic(request: Request, input_format: str, output_format: st
             output_format=output_format
         )
     
+    # Extract extra parameters from the request
+    form_data = await request.form()
+    extra_params = {}
+    for key, value in form_data.items():
+        # Skip the file parameter
+        if key != 'file':
+            extra_params[key] = value
+    
     # Proceed with conversion
-    return await _convert_file(request, file=file, input_format=input_format, output_format=output_format)
+    return await _convert_file(request, file=file, input_format=input_format, output_format=output_format, extra_params=extra_params)
 
 
 #-- Utility endpoints

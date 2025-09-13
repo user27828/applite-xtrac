@@ -43,7 +43,8 @@ def get_dynamic_service_urls():
         ConversionService.LOCAL: None,
         ConversionService.WEASYPRINT: urls.get("pyconvert"),  # pyconvert
         ConversionService.MAMMOTH: urls.get("pyconvert"),  # pyconvert
-        ConversionService.HTML4DOCX: urls.get("pyconvert")  # pyconvert
+        ConversionService.HTML4DOCX: urls.get("pyconvert"),  # pyconvert
+        ConversionService.BEAUTIFULSOUP: urls.get("pyconvert"),  # pyconvert
     }
 
 

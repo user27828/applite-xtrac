@@ -180,10 +180,10 @@ async def ping_html4docx():
     """Check html4docx service health."""
     return await ping_pyconvert_service("html4docx")
 
-@app.get("/pandoc/ping")
-async def ping_pandoc():
-    """Check Pandoc service health."""
-    return await ping_pyconvert_service("pandoc")
+@app.get("/beautifulsoup/ping")
+async def ping_beautifulsoup():
+    """Check BeautifulSoup service health."""
+    return await ping_pyconvert_service("beautifulsoup")
 
 @app.get("/ping-all")
 async def ping_all():
@@ -918,6 +918,126 @@ async def html4docx_html_to_docx(
         )
     except Exception as e:
         logger.exception("Error proxying to html4docx service")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Proxy error: {str(e)}"}
+        )
+
+@app.post("/beautifulsoup/html-html")
+async def beautifulsoup_html_to_html(
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+    url: Optional[str] = Form(None)
+):
+    """
+    Clean HTML using BeautifulSoup with full parameter control.
+
+    This endpoint proxies requests to the pyconvert-service which handles BeautifulSoup HTML cleaning.
+    Accepts either a file upload or URL input, plus any BeautifulSoup processing parameters.
+
+    BeautifulSoup Parameters (passed via form data or query parameters):
+    - parser: HTML parser to use (default: "html.parser", options: "html.parser", "lxml", "html5lib")
+    - prettify: Whether to format the HTML nicely (default: True)
+    - remove_scripts: Whether to remove <script> tags (default: True)
+    - remove_styles: Whether to remove <style> tags (default: False)
+    - remove_comments: Whether to remove HTML comments (default: True)
+    - extract_title: Whether to return only the page title (default: False)
+    - extract_text: Whether to return only the text content (default: False)
+
+    Examples:
+    - Basic cleaning: Upload a .html file (removes scripts and comments by default)
+    - Extract text: extract_text=true (returns plain text only)
+    - Extract title: extract_title=true (returns page title only)
+    - Custom parser: parser=lxml (uses lxml parser)
+    """
+    # Proxy to pyconvert-service
+    service = "pyconvert"  # pyconvert-service is accessed via /pyconvert/ prefix
+    path = "beautifulsoup"
+    target_url = f"{SERVICES[service]}/{path}"
+
+    # Get request data - don't read body for multipart forms
+    headers = dict(request.headers)
+    headers.pop("host", None)
+
+    # Extract form data parameters for POST requests
+    query_params = dict(request.query_params)
+    form_params = {}
+    form_data = None
+    try:
+        content_type = headers.get("content-type", "").lower()
+        if "multipart/form-data" in content_type:
+            form_data = await request.form()
+            for field_name, field_value in form_data.items():
+                if field_name not in ['file', 'files']:  # Skip file fields
+                    form_params[field_name] = field_value
+            query_params.update(form_params)
+    except Exception as e:
+        logger.warning(f"Failed to extract form parameters in beautifulsoup proxy: {e}")
+
+    # Use the pyconvert client (same as pandoc service)
+    client: httpx.AsyncClient = app.state.client
+
+    try:
+        # Build and send request to pyconvert-service
+        if form_data is not None:
+            # For multipart data, send as form data
+            files = {}
+            data = {}
+            
+            for field_name, field_value in form_data.items():
+                if hasattr(field_value, 'filename'):  # File upload
+                    files[field_name] = (field_value.filename, await field_value.read(), field_value.content_type)
+                else:  # Regular form field
+                    data[field_name] = field_value
+            
+            resp = await client.post(target_url, files=files, data=data, params=query_params)
+        else:
+            # For other content types, read body
+            body = await request.body()
+            req = client.build_request(method=request.method, url=target_url, headers=headers, content=body, params=query_params)
+            resp = await client.send(req)
+
+        # Check for errors
+        if resp.status_code >= 400:
+            if hasattr(resp, 'aclos'):
+                # Streaming response
+                error_content = await resp.aread()
+                error_text = error_content.decode(resp.encoding or "utf-8", errors="replace")
+                await resp.aclose()
+            else:
+                # Regular response
+                error_text = resp.text
+
+            logger.error(f"BeautifulSoup service returned error {resp.status_code}: {error_text[:500]}...")
+
+            return JSONResponse(
+                status_code=resp.status_code,
+                content={"error": f"BeautifulSoup conversion failed: {error_text}"}
+            )
+
+        # Handle response based on type
+        headers = {k: v for k, v in resp.headers.items() if k.lower() not in HOP_BY_HOP}
+
+        if hasattr(resp, 'aclos'):
+            # Streaming response
+            async def _stream_and_close(r):
+                try:
+                    async for chunk in r.aiter_bytes():
+                        yield chunk
+                finally:
+                    await r.aclose()
+
+            return StreamingResponse(_stream_and_close(resp), status_code=resp.status_code, headers=headers)
+        else:
+            # Regular response
+            return Response(content=resp.content, status_code=resp.status_code, headers=headers)
+    except httpx.RequestError as e:
+        return JSONResponse(
+            status_code=502,
+            content={"error": f"BeautifulSoup service unavailable: {str(e)}"}
+        )
+    except Exception as e:
+        logger.exception("Error proxying to beautifulsoup service")
         return JSONResponse(
             status_code=500,
             content={"error": f"Proxy error: {str(e)}"}

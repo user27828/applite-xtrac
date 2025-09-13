@@ -44,6 +44,8 @@ This document provides a comprehensive overview of supported file formats across
     - [LaTeX Output Conversions](#latex-output-conversions)
     - [Plain Text Output Conversions](#plain-text-output-conversions)
   - [XLSX Output Conversions](#xlsx-output-conversions)
+  - [ODT Output Conversions](#odt-output-conversions)
+  - [PPTX Output Conversions](#pptx-output-conversions-1)
   - [💡 Usage Examples](#-usage-examples)
     - [Convert a DOCX Resume to PDF](#convert-a-docx-resume-to-pdf)
     - [Extract PDF Structure](#extract-pdf-structure)
@@ -53,6 +55,9 @@ This document provides a comprehensive overview of supported file formats across
     - [Dynamic Endpoint Examples](#dynamic-endpoint-examples)
     - [List All Supported Conversions](#list-all-supported-conversions)
   - [🧠 Service Intelligence](#-service-intelligence)
+    - [Clean and process HTML (remove scripts, comments, styles)](#clean-and-process-html-remove-scripts-comments-styles)
+    - [Extract text content from HTML](#extract-text-content-from-html)
+    - [Extract title from HTML](#extract-title-from-html)
 
 ---
 
@@ -67,52 +72,55 @@ This document provides a comprehensive overview of supported file formats across
 | **Gotenberg** | HTML and office document to PDF conversion | HTML, URLs, DOCX, XLSX, PPTX, and other office formats | PDF |
 | **Mammoth** | DOCX to HTML conversion | DOCX | HTML (semantic conversion) |
 | **html4docx** | HTML to DOCX conversion | HTML | DOCX (with formatting preservation) |
+| **BeautifulSoup** | HTML cleaning and processing | HTML | HTML (cleaned and processed) |
 
 ## Master Format Support Matrix
 
-| Input → Output | PDF | DOCX | HTML | MD | TEX | TXT | JSON |
-|----------------|-----|------|------|----|-----|-----|------|
-| .asciidoc | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ |
-| .csv | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ✅* |
-| .dbf | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ |
-| .doc | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ |
-| .docx | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| .eml | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* |
-| .epub | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ |
-| .fb2 | ✅* | ❌ | ✅* | ✅* | ❌ | ✅* | ❌ |
-| .gnumeric | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ |
-| .heic | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* |
-| .html | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| .jpg | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* |
-| .key | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ |
-| .latex | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ |
-| .md | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ |
-| .msg | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* |
-| .numbers | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ |
-| .odp | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ |
-| .ods | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
-| .odt | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| .org | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ |
-| .pages | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
-| .parquet | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ |
-| .pdf | ❌ | ✅ | ✅* | ✅ | ❌ | ✅ | ✅ |
-| .png | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* |
-| .ppt | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
-| .pptx | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
-| .rst | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ |
-| .rtf | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
-| .tex | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ |
-| .textile | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ |
-| .tsv | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ✅* |
-| .txt | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
-| .wiki | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ |
-| .xls | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
-| .xlsx | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
+| Input → Output | PDF | DOCX | HTML | MD | TEX | TXT | JSON | ODT | PPTX | ODP |
+|----------------|-----|------|------|----|-----|-----|------|-----|------|-----|
+| .asciidoc | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ | ❌ | ❌ | ❌ |
+| .csv | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ✅* | ❌ | ❌ | ❌ |
+| .dbf | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ | ❌ | ❌ | ❌ |
+| .doc | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| .docx | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| .eml | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* | ❌ | ❌ | ❌ |
+| .epub | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| .fb2 | ✅* | ❌ | ✅* | ✅* | ❌ | ✅* | ❌ | ❌ | ❌ | ❌ |
+| .gnumeric | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ | ❌ | ❌ | ❌ |
+| .heic | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* | ❌ | ❌ | ❌ |
+| .html | ✅ | ✅ | ✅** | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| .jpg | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* | ❌ | ❌ | ❌ |
+| .key | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ | ❌ | ✅ | ✅ |
+| .latex | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ | ❌ | ❌ | ❌ |
+| .md | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| .msg | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* | ❌ | ❌ | ❌ |
+| .numbers | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| .odp | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| .ods | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| .odt | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| .org | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ | ❌ | ❌ | ❌ |
+| .pages | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| .parquet | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ | ❌ | ❌ | ❌ |
+| .pdf | ❌ | ✅ | ✅* | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| .png | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* | ❌ | ❌ | ❌ |
+| .ppt | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| .pptx | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| .rst | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ | ❌ | ❌ | ❌ |
+| .rtf | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| .tex | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| .textile | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ | ❌ | ❌ | ❌ |
+| .tsv | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ✅* | ❌ | ❌ | ❌ |
+| .txt | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| .url | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| .wiki | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ | ❌ | ❌ | ❌ |
+| .xls | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| .xlsx | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
 
 
-> **Note**: `✅*` indicates that the format pair is supported by the underlying services but does **not** have a dedicated `/convert/*` endpoint. These conversions are only accessible by directly calling the proxied service endpoints (refer to individual service documentation for syntax). Service names marked with `*` in the conversion tables also indicate missing `/convert/*` endpoints for those specific conversions.
-> 
-> **URL Input**: URL in/out conversions are generally anything supported in the matrix.
+> **Notes**: 
+> - `✅*` indicates that the format pair is supported by the underlying services but does **not** have a dedicated `/convert/*` endpoint. These conversions are only accessible by directly calling the proxied service endpoints (refer to individual service documentation for syntax). Service names marked with `*` in the conversion tables also indicate missing `/convert/*` endpoints for those specific conversions.
+> - `✅**` html`→`html` is a cleanup conversion.  It will fix malformed HTML.
+> - **URL Input**: URL in/out conversions are generally anything supported in the matrix.
 
 ## Comprehensive Format Support
 
@@ -124,7 +132,7 @@ This document provides a comprehensive overview of supported file formats across
 | OpenDocument Text | .odt | ✅ | ✅ | ✅ | ❌ | Open standard |
 | Rich Text Format | .rtf | ✅ | ✅ | ❌ | ❌ | Limited conversion options |
 | Plain Text | .txt | ✅ | ✅ | ✅ | ❌ | Universal support |
-| HTML | .html | ✅ | ✅ | ✅ | ✅ | Web publishing - Gotenberg can convert HTML to PDF with full CSS support |
+| HTML | .html | ✅ | ✅ | ✅ | ✅ | Web publishing - Gotenberg can convert HTML to PDF with full CSS support, BeautifulSoup provides HTML cleaning and processing |
 | Markdown | .md | ❌ | ❌ | ✅ | ❌ | Pandoc native |
 | LaTeX | .tex | ❌ | ❌ | ✅ | ❌ | Academic publishing |
 | reStructuredText | .rst | ❌ | ❌ | ✅* | ❌ | Python documentation |
@@ -201,6 +209,8 @@ This document provides a comprehensive overview of supported file formats across
 | HTML | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ |
 | DOCX | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | ODT | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| PPTX | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| ODP | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Markdown | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | LaTeX | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | Plain Text | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
@@ -343,6 +353,9 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 - `xlsx` - Modern Excel format
 - `txt` - Plain text
 - `json` - Structured data
+- `odt` - OpenDocument Text
+- `pptx` - Modern PowerPoint format
+- `odp` - OpenDocument Presentation
 
 ## 📋 Complete Conversion Matrix
 
@@ -420,6 +433,8 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 | Input → PPTX | Primary Service | Description |
 |--------------|----------------|-------------|
 | `odp-pptx` | LibreOffice | ODP to PPTX |
+| `ppt-pptx` | LibreOffice | PPT to PPTX |
+| `key-pptx` | LibreOffice | Apple Keynote to PPTX |
 
 ### Markdown Output Conversions
 
@@ -441,6 +456,7 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 
 | Input → HTML | Primary Service | Description |
 |--------------|----------------|-------------|
+| `html-html` | BeautifulSoup | HTML cleaning and processing (remove scripts, comments, styles) |
 | `docx-html` | LibreOffice/Mammoth | DOCX to HTML (LibreOffice for basic, Mammoth for semantic) |
 | `pdf-html` | LibreOffice | PDF to HTML |
 | `md-html` | Pandoc | Markdown to HTML |
@@ -487,6 +503,27 @@ The API provides high-level conversion aliases at `/convert/*` that automaticall
 | Input → XLSX | Primary Service | Description |
 |--------------|----------------|-------------|
 | `numbers-xlsx` | LibreOffice | Numbers to XLSX |
+
+## ODT Output Conversions
+
+| Input → ODT | Primary Service | Description |
+|-------------|----------------|-------------|
+| `docx-odt` | LibreOffice | DOCX to ODT |
+| `html-odt` | LibreOffice | HTML to ODT |
+| `pdf-odt` | LibreOffice* | PDF to ODT |
+| `rtf-odt` | LibreOffice | RTF to ODT |
+| `txt-odt` | LibreOffice | Text to ODT |
+| `doc-odt` | LibreOffice | DOC to ODT |
+| `pptx-odt` | LibreOffice* | PPTX to ODT |
+| `url-odt` | LibreOffice | URL to ODT |
+
+## PPTX Output Conversions
+
+| Input → PPTX | Primary Service | Description |
+|--------------|----------------|-------------|
+| `odp-pptx` | LibreOffice | ODP to PPTX |
+| `ppt-pptx` | LibreOffice | PPT to PPTX |
+| `key-pptx` | LibreOffice | Apple Keynote to PPTX |
 
 ## 💡 Usage Examples
 
@@ -556,7 +593,8 @@ Each endpoint automatically selects the optimal service:
 - **PDF Output**: Gotenberg (highest quality for office documents) or WeasyPrint (highest quality for HTML/CSS rendering) or LibreOffice (fallback)
 - **JSON Output**: Unstructured IO (best structure extraction)
 - **DOCX Output**: LibreOffice (office formats) or Pandoc (markup formats)
-- **HTML Output**: Mammoth (DOCX for semantic conversion) or LibreOffice (other office formats) or Pandoc (markup formats)
+- **HTML Output**: Mammoth (DOCX for semantic conversion) or LibreOffice (other office formats) or Pandoc (markup formats) or BeautifulSoup (HTML cleaning and processing)
+- **HTML Processing**: BeautifulSoup (cleaning, text extraction, title extraction)
 - **Markdown/LaTeX**: Pandoc (native support)
 - **Legacy Formats**: LibreOffice (broadest compatibility)
 - **URL Input**: Gotenberg for PDF, Unstructured IO for JSON/Markdown/Text, WeasyPrint for high-quality HTML-to-PDF
@@ -570,3 +608,31 @@ Each endpoint automatically selects the optimal service:
 > - `md-txt`: Markdown to plain text may strip all formatting, resulting in identical content
 > 
 > These conversions are still available for completeness but may not provide meaningful transformation. Always verify the output quality for your specific use case.
+
+### Clean and process HTML (remove scripts, comments, styles)
+```bash
+curl -X POST "http://localhost:8369/convert/html-html" \
+  -F "file=@messy.html" \
+  -F "remove_scripts=true" \
+  -F "remove_comments=true" \
+  -F "remove_styles=true" \
+  -F "prettify=true" \
+  -o clean.html
+```
+
+### Extract text content from HTML
+```bash
+curl -X POST "http://localhost:8369/convert/html-html" \
+  -F "file=@webpage.html" \
+  -F "extract_text=true" \
+  -F "prettify=false" \
+  -o webpage.txt
+```
+
+### Extract title from HTML
+```bash
+curl -X POST "http://localhost:8369/convert/html-html" \
+  -F "file=@webpage.html" \
+  -F "extract_title=true" \
+  -o title.txt
+```

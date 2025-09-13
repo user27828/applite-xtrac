@@ -75,6 +75,13 @@ The API supports dynamic URL conversion to any supported output format:
 | Endpoint | Primary Service | Description | Use Case |
 |----------|----------------|-------------|----------|
 | `POST /convert/url-html` | Local | URL to HTML content fetching | Direct HTML access |
+| `POST /convert/url-html` | BeautifulSoup | URL to cleaned HTML | HTML sanitization and formatting |
+
+### HTML to HTML Conversions
+| Endpoint | Primary Service | Description | Use Case |
+|----------|----------------|-------------|----------|
+| `POST /convert/html-html` | BeautifulSoup | HTML cleaning and formatting | HTML sanitization, pretty printing |
+| `POST /convert/html-html` | PyConvert | HTML processing with options | Advanced HTML manipulation |
 
 ### Other URL Conversions
 | Endpoint | Primary Service | Description | Use Case |
@@ -171,6 +178,31 @@ curl -X POST "http://localhost:8369/convert/url-pdf" \
   -F "url=https://large-file-site.com" \
   -o large-file.pdf
 # Returns: {"error": "Content too large", "details": "File size 75MB exceeds 50MB limit"}
+```
+
+### HTML-HTML Conversion Examples
+
+#### Convert HTML with BeautifulSoup Options
+```bash
+# Convert URL to cleaned HTML using BeautifulSoup
+curl -X POST "http://localhost:8369/convert/url-html" \
+  -F "url=https://example.com" \
+  -F "clean_html=true" \
+  -o cleaned-webpage.html
+
+# Convert HTML file to cleaned HTML
+curl -X POST "http://localhost:8369/convert/html-html" \
+  -F "file=@input.html" \
+  -F "prettify=true" \
+  -o cleaned-output.html
+
+# Convert HTML with custom BeautifulSoup options
+curl -X POST "http://localhost:8369/convert/html-html" \
+  -F "file=@messy.html" \
+  -F "prettify=true" \
+  -F "remove_comments=true" \
+  -F "remove_empty_tags=true" \
+  -o clean-output.html
 ```
 
 ## Configuration
@@ -294,3 +326,26 @@ curl http://localhost:8369/gotenberg/ping
 - **Proxy Support** - HTTP proxy configuration
 - **Content Caching** - Intelligent caching layer
 - **Batch Processing** - Multiple URL processing
+
+### HTML-HTML Conversion Options
+
+#### BeautifulSoup Parameters
+When using BeautifulSoup for HTML-HTML conversions, you can pass the following parameters:
+
+- `prettify` (boolean): Format HTML with proper indentation and line breaks
+- `remove_comments` (boolean): Remove HTML comments from output
+- `remove_empty_tags` (boolean): Remove empty HTML tags
+- `parser` (string): HTML parser to use (default: "html.parser", options: "lxml", "html5lib")
+- `encoding` (string): Output encoding (default: "utf-8")
+
+#### Example with All Options
+```bash
+curl -X POST "http://localhost:8369/convert/html-html" \
+  -F "file=@input.html" \
+  -F "prettify=true" \
+  -F "remove_comments=true" \
+  -F "remove_empty_tags=true" \
+  -F "parser=lxml" \
+  -F "encoding=utf-8" \
+  -o formatted-output.html
+```

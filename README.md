@@ -1,4 +1,4 @@
-# AppLite Xtrac - Multi-Service Document Processing API
+# AppLite➡️Xtrac - Multi-Service Document Processing API
 
 This project provides a unified API gateway for multiple document processing services using Docker and docker-compose.
 
@@ -13,7 +13,7 @@ or LLM pipelines.
 
 - **Unstructured IO** (`/unstructured-io`): Document structure extraction and processing using the official Unstructured API
 - **LibreOffice Unoserver** (`/libreoffice`): Document conversion using LibreOffice headless server
-- **PyConvert API** (`/pyconvert`): Document format conversion with PDF support via FastAPI service (includes Pandoc, WeasyPrint, and Mammoth)
+- **PyConvert API** (`/pyconvert`): Document format conversion with PDF support via FastAPI service (includes Pandoc, WeasyPrint, Mammoth, html4docx, and BeautifulSoup)
 - **Gotenberg** (`/gotenberg`): High-fidelity HTML to PDF conversion, including support for URLs and office documents
 - **Local Proxy**: In addition to handling proxying for the other services, this container has some smaller or manually-defined conversion services.
 
@@ -30,7 +30,7 @@ Proxying to these containers aims to preserve the original functionality of the 
 - `/unstructured-io/*` → Unstructured IO API (port 8000)
 - `/libreoffice/*` → LibreOffice API (port 2004)
 - `/gotenberg/*` → Gotenberg API (port 3001)
-- `/pyconvert/*` → PyConvert API (port 3030) - has child services for Pandoc, WeasyPrint, and Mammoth
+- `/pyconvert/*` → PyConvert API (port 3030) - has child services for Pandoc, WeasyPrint, Mammoth, html4docx, and BeautifulSoup
 
 **Helper endpoints**:
 
@@ -147,12 +147,12 @@ For easier management, use the provided script:
 
 ## Conversion Endpoints
 
-The API provides high-level conversion aliases at `/convert/*` that automatically route to the most reliable service for each conversion type. These endpoints are optimized for common document workflows, especially **resume/CV/cover letter** processing.
+The API provides high-level conversion aliases at `/convert/*` that automatically route to the most reliable service for each conversion type. These endpoints are optimized for common document workflows, especially **resume/CV/cover letter** processing.  The chosen converter for a given format to `txt`, `md`, will be what converter is most accurate in semantic structure and content.  Outside of `txt`, and `md`, priority will be based on visual accuracy.  Some visual conversions are very poor quality compared to the source format, and only exist to be able to have text content editable in a given format.
 
 ### Priority Formats (Documents)
 
 **Input Formats:** _\<http(s) URL\>_, `pptx`, `ppt`, `docx`, `odt`, `rtf`, `txt`, `html`, `md`, `tex`, `latex`, `pages`, `numbers`, `xlsx`, `xls`, `ods`, `odp`, `epub`, `eml`, `msg`  
-**Output Formats:** `pdf`, `docx`, `html`, `md`, `txt`, `json`, `tex`, `xlsx`
+**Output Formats:** `pdf`, `docx`, `html`, `md`, `txt`, `json`, `tex`, `xlsx`, `odt`, `pptx`, `odp`
 
 ### 📖 Further Documentation
 
@@ -358,7 +358,7 @@ curl -X POST "http://localhost:8369/libreoffice/request" \
 
 **Supported Conversions:**
 - DOCX → PDF
-- XLSX → PDF  
+- XLSX → PDF
 - PPTX → PDF
 - ODT → PDF
 - And many other office document format conversions
@@ -377,12 +377,16 @@ curl -X POST "http://localhost:8369/libreoffice/request" \
   - **Features**: Semantic HTML conversion, style preservation, clean output
 - `POST /pyconvert/html4docx` - HTML to DOCX conversion using html4docx
   - **Features**: HTML formatting preservation, table support, list conversion, style mapping
+- `POST /pyconvert/beautifulsoup` - HTML cleaning and formatting using BeautifulSoup
+  - **Features**: HTML sanitization, pretty printing, comment removal, empty tag cleanup
+  - **Parameters**: `prettify` (boolean), `remove_comments` (boolean), `remove_empty_tags` (boolean), `parser` (string), `encoding` (string)
 
 **PyConvert Integration:**
 - Uses [Pandoc](https://pandoc.org/) for universal document conversion
 - Includes [WeasyPrint](https://weasyprint.org/) for high-quality HTML to PDF conversion
 - Includes [Mammoth](https://github.com/mwilliamson/mammoth.js) for DOCX to HTML conversion
 - Includes [html4docx](https://github.com/ReddyKilowatt/html-for-docx) for HTML to DOCX conversion
+- Includes [BeautifulSoup](https://www.crummy.com/software/BeautifulSoup/) for HTML cleaning and formatting
 - Supports conversion between markup formats and office documents
 - Includes LaTeX support for high-quality PDF generation
 
@@ -416,6 +420,14 @@ curl -X POST "http://localhost:8369/pyconvert/html4docx" \
   -F "file=@document.html" \
   -o document.docx
 
+# Clean and format HTML (via BeautifulSoup)
+curl -X POST "http://localhost:8369/pyconvert/beautifulsoup" \
+  -F "file=@messy.html" \
+  -F "prettify=true" \
+  -F "remove_comments=true" \
+  -F "remove_empty_tags=true" \
+  -o clean.html
+
 # Convert with custom Pandoc arguments
 curl -X POST "http://localhost:8369/pyconvert/pandoc" \
   -F "file=@document.md" \
@@ -428,6 +440,7 @@ curl -X POST "http://localhost:8369/pyconvert/pandoc" \
 - Markdown/HTML → PDF (with LaTeX via Pandoc)
 - HTML → PDF (with full CSS support via WeasyPrint)
 - HTML → DOCX (with formatting preservation via html4docx)
+- HTML → HTML (cleaning and formatting via BeautifulSoup)
 - DOCX → Markdown/HTML
 - Various markup formats ↔ Office documents
 - Text files with custom formatting
