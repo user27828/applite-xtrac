@@ -445,6 +445,10 @@ CONVERSION_MATRIX = {
         (ConversionService.UNSTRUCTURED_IO, "Legacy presentation to HTML"),
     ],
 
+    ("ppt", "pptx"): [
+        (ConversionService.LIBREOFFICE, "Legacy presentation to PPTX"),
+    ],
+
     ("pptx", "json"): [
         (ConversionService.UNSTRUCTURED_IO, "Presentation structure extraction"),
     ],
