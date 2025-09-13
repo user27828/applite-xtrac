@@ -54,6 +54,9 @@ async def ping():
     # Get BeautifulSoup health
     beautifulsoup_healthy, beautifulsoup_status = await check_beautifulsoup_health()
     
+    # Get PyMuPDF health
+    pymupdf_healthy, pymupdf_status = await check_pymupdf_health()
+    
     return {
         "success": True,
         "data": "PONG!",
@@ -76,6 +79,10 @@ async def ping():
         "beautifulsoup": {
             "status": "healthy" if beautifulsoup_healthy else "unhealthy",
             "response_code": beautifulsoup_status
+        },
+        "pymupdf": {
+            "status": "healthy" if pymupdf_healthy else "unhealthy",
+            "response_code": pymupdf_status
         }
     }
 
@@ -123,6 +130,15 @@ async def ping_beautifulsoup():
         return {"success": True, "data": "PONG!", "service": "beautifulsoup"}
     else:
         raise HTTPException(status_code=503, detail=f"BeautifulSoup service unhealthy (status: {status})")
+
+@app.get("/pymupdf/ping")
+async def ping_pymupdf():
+    """Check PyMuPDF service health."""
+    healthy, status = await check_pymupdf_health()
+    if healthy:
+        return {"success": True, "data": "PONG!", "service": "pymupdf"}
+    else:
+        raise HTTPException(status_code=503, detail=f"PyMuPDF service unhealthy (status: {status})")
 
 async def check_pandoc_health() -> tuple[bool, int]:
     """
@@ -195,6 +211,22 @@ async def check_beautifulsoup_health() -> tuple[bool, int]:
     try:
         # Simple import test
         from bs4 import BeautifulSoup
+        return True, 200
+    except ImportError:
+        return False, 503
+    except Exception:
+        return False, 503
+
+async def check_pymupdf_health() -> tuple[bool, int]:
+    """
+    Check PyMuPDF service health by testing if PyMuPDF is available.
+    
+    Returns:
+        tuple: (is_healthy: bool, status_code: int)
+    """
+    try:
+        # Simple import test
+        import fitz
         return True, 200
     except ImportError:
         return False, 503
@@ -889,6 +921,186 @@ async def beautifulsoup_html_clean(
             detail=f"BeautifulSoup processing failed: {str(e)}"
         )
 
+@app.post("/pymupdf/pdf-html")
+async def pymupdf_pdf_to_html(
+    file: UploadFile = File(...)
+):
+    """
+    Convert PDF to HTML using PyMuPDF (fitz).
+
+    This endpoint provides direct access to PyMuPDF's HTML conversion functionality.
+    Accepts a PDF file upload and converts it to HTML format.
+
+    PyMuPDF Parameters:
+    - File upload only (no URL support for now)
+
+    Returns:
+        HTML content as streaming response
+    """
+    # Import PyMuPDF classes
+    try:
+        import fitz
+        PYMUPDF_AVAILABLE = True
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="PyMuPDF library not available. Please install with: pip install PyMuPDF"
+        )
+
+    # Validate input file
+    if not file:
+        raise HTTPException(
+            status_code=400,
+            detail="File parameter is required"
+        )
+
+    # Validate file extension
+    if not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(
+            status_code=400,
+            detail="Only .pdf files are supported by PyMuPDF"
+        )
+
+    try:
+        # Read file content
+        file_content = await file.read()
+
+        # Open PDF with PyMuPDF
+        pdf_document = fitz.open(stream=file_content, filetype="pdf")
+
+        # Convert PDF to HTML
+        html_content = ""
+        for page_num in range(len(pdf_document)):
+            page = pdf_document.load_page(page_num)
+            # Get HTML representation of the page
+            page_html = page.get_text("html")
+            html_content += f"<div class='page' data-page='{page_num + 1}'>\n{page_html}\n</div>\n"
+
+        # Close the document
+        pdf_document.close()
+
+        # Wrap in basic HTML structure
+        full_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF to HTML Conversion</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; }}
+        .page {{ margin-bottom: 20px; border: 1px solid #ccc; padding: 10px; }}
+        .page[data-page]:before {{
+            content: "Page " attr(data-page);
+            display: block;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #666;
+        }}
+    </style>
+</head>
+<body>
+    <h1>PDF to HTML Conversion</h1>
+    <p>Converted from: {file.filename}</p>
+    {html_content}
+</body>
+</html>"""
+
+        # Generate output filename
+        base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
+        output_filename = f"{base_name}.html"
+
+        return StreamingResponse(
+            BytesIO(full_html.encode('utf-8')),
+            media_type="text/html",
+            headers={
+                "Content-Disposition": f"attachment; filename={output_filename}",
+                "X-Conversion-Service": "PYMUPDF_PDF_HTML"
+            }
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"PyMuPDF conversion failed: {str(e)}"
+        )
+
+@app.post("/pymupdf/pdf-txt")
+async def pymupdf_pdf_to_txt(
+    file: UploadFile = File(...)
+):
+    """
+    Convert PDF to plain text using PyMuPDF (fitz).
+
+    This endpoint provides direct access to PyMuPDF's text extraction functionality.
+    Accepts a PDF file upload and converts it to plain text format.
+
+    PyMuPDF Parameters:
+    - File upload only (no URL support for now)
+
+    Returns:
+        Plain text content as streaming response
+    """
+    # Import PyMuPDF classes
+    try:
+        import fitz
+        PYMUPDF_AVAILABLE = True
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="PyMuPDF library not available. Please install with: pip install PyMuPDF"
+        )
+
+    # Validate input file
+    if not file:
+        raise HTTPException(
+            status_code=400,
+            detail="File parameter is required"
+        )
+
+    # Validate file extension
+    if not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(
+            status_code=400,
+            detail="Only .pdf files are supported by PyMuPDF"
+        )
+
+    try:
+        # Read file content
+        file_content = await file.read()
+
+        # Open PDF with PyMuPDF
+        pdf_document = fitz.open(stream=file_content, filetype="pdf")
+
+        # Extract text from all pages
+        text_content = ""
+        for page_num in range(len(pdf_document)):
+            page = pdf_document.load_page(page_num)
+            # Get text representation of the page
+            page_text = page.get_text()
+            text_content += f"--- Page {page_num + 1} ---\n{page_text}\n\n"
+
+        # Close the document
+        pdf_document.close()
+
+        # Generate output filename
+        base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
+        output_filename = f"{base_name}.txt"
+
+        return StreamingResponse(
+            BytesIO(text_content.encode('utf-8')),
+            media_type="text/plain",
+            headers={
+                "Content-Disposition": f"attachment; filename={output_filename}",
+                "X-Conversion-Service": "PYMUPDF_PDF_TXT"
+            }
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"PyMuPDF conversion failed: {str(e)}"
+        )
+
 @app.get("/test-health")
 async def test_health():
     """Test individual health checks."""
@@ -928,5 +1140,12 @@ async def test_health():
         results["beautifulsoup"] = {"healthy": beautifulsoup_healthy, "status": beautifulsoup_status}
     except Exception as e:
         results["beautifulsoup"] = {"error": str(e)}
+    
+    # Test PyMuPDF
+    try:
+        pymupdf_healthy, pymupdf_status = await check_pymupdf_health()
+        results["pymupdf"] = {"healthy": pymupdf_healthy, "status": pymupdf_status}
+    except Exception as e:
+        results["pymupdf"] = {"error": str(e)}
     
     return {"results": results}

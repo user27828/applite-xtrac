@@ -81,7 +81,7 @@ This document provides a comprehensive overview of supported file formats across
 | .asciidoc | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ | ❌ | ❌ | ❌ |
 | .csv | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ✅* | ❌ | ❌ | ❌ |
 | .dbf | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ | ❌ | ❌ | ❌ |
-| .doc | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| .doc | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | .docx | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
 | .eml | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* | ❌ | ❌ | ❌ |
 | .epub | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |

@@ -1012,6 +1012,90 @@ async def _convert_file(
                         service="beautifulsoup"
                     )
 
+            elif service_to_try == ConversionService.PYMUPDF:
+                # Proxy to pyconvert-service for PyMuPDF processing
+                if input_format != "pdf" or output_format not in ["html", "txt"]:
+                    raise create_http_exception(
+                        ErrorCode.INVALID_REQUEST,
+                        details="PYMUPDF only supports PDF to HTML/TXT conversion",
+                        service="pymupdf"
+                    )
+
+                if not current_file:
+                    raise create_http_exception(
+                        ErrorCode.INVALID_REQUEST,
+                        details="PYMUPDF requires file upload input",
+                        service="pymupdf"
+                    )
+
+                # httpx is already imported globally at the top of the file
+                from ..config import SERVICE_URLS
+
+                try:
+                    # Prepare request to pyconvert-service
+                    if output_format == "html":
+                        pyconvert_url = f"{SERVICE_URLS[ConversionService.PYMUPDF]}/pymupdf/pdf-html"
+                    else:  # output_format == "txt"
+                        pyconvert_url = f"{SERVICE_URLS[ConversionService.PYMUPDF]}/pymupdf/pdf-txt"
+
+                    # Prepare form data
+                    await current_file.seek(0)  # Reset file pointer
+                    file_content = await current_file.read()
+                    files = {'file': (current_file.filename, BytesIO(file_content), current_file.content_type)}
+                    data = {}
+
+                    # Add extra parameters if provided
+                    if extra_params:
+                        for key, value in extra_params.items():
+                            data[key] = str(value)
+
+                    # Make request to pyconvert-service
+                    async with httpx.AsyncClient(timeout=60.0) as client:
+                        response = await client.post(pyconvert_url, files=files, data=data)
+
+                        if response.status_code != 200:
+                            logger.error(f"Pyconvert PyMuPDF service returned {response.status_code}: {response.text[:500]}")
+                            raise create_http_exception(
+                                ErrorCode.CONVERSION_FAILED,
+                                details=f"PyMuPDF conversion failed: {response.text}",
+                                service="pymupdf"
+                            )
+
+                        # Generate output filename
+                        base_name = current_file.filename.rsplit(".", 1)[0] if "." in current_file.filename else "document"
+                        output_filename = f"{base_name}.{output_format}"
+
+                        # Determine content type
+                        if output_format == "html":
+                            content_type = "text/html"
+                        else:  # output_format == "txt"
+                            content_type = "text/plain"
+
+                        # Return result as StreamingResponse
+                        return StreamingResponse(
+                            BytesIO(response.content),
+                            media_type=content_type,
+                            headers={
+                                "Content-Disposition": f"attachment; filename={output_filename}",
+                                "X-Conversion-Service": "PYMUPDF"
+                            }
+                        )
+
+                except httpx.RequestError as e:
+                    logger.error(f"Pyconvert service request failed: {e}")
+                    raise create_http_exception(
+                        ErrorCode.SERVICE_UNAVAILABLE,
+                        details=f"PyMuPDF service unavailable: {str(e)}",
+                        service="pymupdf"
+                    )
+                except Exception as e:
+                    logger.error(f"PyMuPDF proxy failed: {e}")
+                    raise create_http_exception(
+                        ErrorCode.CONVERSION_FAILED,
+                        details=f"PDF to {output_format.upper()} conversion failed: {str(e)}",
+                        service="pymupdf"
+                    )
+
             else:
                 raise create_http_exception(
                     ErrorCode.INTERNAL_ERROR,

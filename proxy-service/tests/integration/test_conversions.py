@@ -342,6 +342,13 @@ class TestConversionEndpoints:
             return "HTML4DOCX Conversion"
         elif conversion_service == "LOCAL":
             return "File Conversion"
+        elif conversion_service == "PYMUPDF":
+            if output_ext == "html":
+                return "PyMuPDF PDF to HTML"
+            elif output_ext == "txt":
+                return "PyMuPDF PDF to Text"
+            else:
+                return "PyMuPDF Conversion"
         
         content_type = response.headers.get("content-type", "").lower()
 

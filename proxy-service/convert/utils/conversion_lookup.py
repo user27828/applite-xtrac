@@ -45,6 +45,7 @@ def get_dynamic_service_urls():
         ConversionService.MAMMOTH: urls.get("pyconvert"),  # pyconvert
         ConversionService.HTML4DOCX: urls.get("pyconvert"),  # pyconvert
         ConversionService.BEAUTIFULSOUP: urls.get("pyconvert"),  # pyconvert
+        ConversionService.PYMUPDF: urls.get("pyconvert"),  # pyconvert
     }
 
 

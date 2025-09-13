@@ -46,6 +46,7 @@ class ConversionService(Enum):
     MAMMOTH = "mammoth"
     HTML4DOCX = "html4docx"
     BEAUTIFULSOUP = "beautifulsoup"
+    PYMUPDF = "pymupdf"
 
 
 # Service URL mappings (should match main app)
@@ -55,10 +56,11 @@ SERVICE_URLS = {
     ConversionService.PANDOC: "http://pyconvert:3000",
     ConversionService.GOTENBERG: "http://gotenberg:3000",
     ConversionService.LOCAL: None,  # Local processing, no URL needed
-    ConversionService.WEASYPRINT: "http://pyconvert:3000",  # WeasyPrint now handled by pyconvert service
-    ConversionService.MAMMOTH: "http://pyconvert:3000",  # Mammoth handled by pyconvert service
-    ConversionService.HTML4DOCX: "http://pyconvert:3000",  # html4docx handled by pyconvert service
-    ConversionService.BEAUTIFULSOUP: "http://pyconvert:3000",  # BeautifulSoup handled by pyconvert service
+    ConversionService.WEASYPRINT: "http://pyconvert:3000", 
+    ConversionService.MAMMOTH: "http://pyconvert:3000", 
+    ConversionService.HTML4DOCX: "http://pyconvert:3000",
+    ConversionService.BEAUTIFULSOUP: "http://pyconvert:3000", 
+    ConversionService.PYMUPDF: "http://pyconvert:3000", 
 }
 
 
@@ -79,6 +81,10 @@ CONVERSION_MATRIX = {
 
     ("doc", "txt"): [
         (ConversionService.LIBREOFFICE, "Convert legacy DOC to TXT using LibreOffice"),
+    ],
+
+    ("doc", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, "Convert legacy DOC to JSON using Unstructured-IO"),
     ],
 
     ("doc", "html"): [
@@ -162,10 +168,8 @@ CONVERSION_MATRIX = {
     ],
 
     ("html", "pdf"): [
-        (ConversionService.WEASYPRINT, "High-quality HTML to PDF with WeasyPrint"),
-        (ConversionService.GOTENBERG, "High-fidelity HTML to PDF with CSS support"),
-        (ConversionService.PANDOC, "Good for simple HTML"),
-        (ConversionService.LIBREOFFICE, "Basic HTML support"),
+        (ConversionService.PYMUPDF, "PDF to HTML using PyMuPDF"),
+        (ConversionService.UNSTRUCTURED_IO, "PDF to HTML structure extraction"),
     ],
 
     ("html", "tex"): [
@@ -401,6 +405,7 @@ CONVERSION_MATRIX = {
     ],
 
     ("pdf", "html"): [
+        (ConversionService.PYMUPDF, "PDF to HTML using PyMuPDF"),
         (ConversionService.UNSTRUCTURED_IO, "PDF to HTML structure extraction"),
     ],
 
@@ -413,6 +418,7 @@ CONVERSION_MATRIX = {
     ],
 
     ("pdf", "txt"): [
+        (ConversionService.PYMUPDF, "PDF to text using PyMuPDF"),
         (ConversionService.UNSTRUCTURED_IO, "PDF text extraction"),
         (ConversionService.LIBREOFFICE, "PDF to Text"),
     ],
@@ -720,7 +726,10 @@ CONVERSION_METHOD_TO_SERVICE_MAP = {
     "File Conversion": "LOCAL",
     "WeasyPrint PDF": "WEASYPRINT",
     "WeasyPrint Direct": "WEASYPRINT_DIRECT",
-    "BeautifulSoup HTML Clean": "BEAUTIFULSOUP"
+    "BeautifulSoup HTML Clean": "BEAUTIFULSOUP",
+    "PyMuPDF PDF to HTML": "PYMUPDF",
+    "PyMuPDF PDF to Text": "PYMUPDF",
+    "PyMuPDF Conversion": "PYMUPDF"
 }
 
 
