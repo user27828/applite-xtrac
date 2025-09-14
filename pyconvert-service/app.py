@@ -255,7 +255,7 @@ async def convert_file(
     extra_args: str = Form("")
 ):
     # Validate output format
-    allowed_formats = ["pdf", "docx", "html", "txt", "md", "tex"]
+    allowed_formats = ["pdf", "docx", "html", "txt", "md", "tex", "json"]
     if output_format not in allowed_formats:
         raise HTTPException(status_code=400, detail=f"Unsupported output format: {output_format}")
 
@@ -330,7 +330,11 @@ async def convert_file(
                     os.remove(aux_file)
         else:
             # Build pandoc command for other conversions
-            cmd = ["pandoc", input_path, "-o", output_path]
+            if output_format == "json":
+                # For JSON output, extract AST representation
+                cmd = ["pandoc", input_path, "-t", "json"]
+            else:
+                cmd = ["pandoc", input_path, "-o", output_path]
             
             # Special handling for PDF output - need to specify PDF engine
             if output_format == "pdf":
@@ -341,7 +345,12 @@ async def convert_file(
                 cmd.extend(extra_args.split())
 
             # Run pandoc
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if output_format == "json":
+                # For JSON, capture stdout
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            else:
+                # For other formats, use normal execution
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             
             if result.returncode != 0:
                 error_msg = f"Pandoc failed with return code {result.returncode}"
@@ -354,6 +363,23 @@ async def convert_file(
                 print(f"Pandoc command failed: {error_msg}")
                 print(f"Command was: {' '.join(cmd)}")
                 raise HTTPException(status_code=500, detail=error_msg)
+
+        # Handle JSON output differently - return JSON content directly
+        if output_format == "json":
+            # Parse and validate the JSON AST
+            try:
+                import json
+                ast_data = json.loads(result.stdout)
+                return JSONResponse(
+                    content=ast_data,
+                    media_type="application/json",
+                    headers={
+                        "Content-Disposition": f"attachment; filename={os.path.splitext(file.filename)[0]}.json",
+                        "X-Conversion-Service": "PANDOC_JSON_AST"
+                    }
+                )
+            except json.JSONDecodeError as e:
+                raise HTTPException(status_code=500, detail=f"Failed to parse pandoc JSON AST: {str(e)}")
 
         # Get MIME type using comprehensive detection
         media_type = get_unified_mime_type(filename=output_path, expected_format=output_format)
