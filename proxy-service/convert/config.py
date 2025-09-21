@@ -155,8 +155,8 @@ CONVERSION_MATRIX = {
     ],
 
     ("html", "odt"): [
-        (ConversionService.LIBREOFFICE, "HTML to ODT"),
         (ConversionService.PANDOC, "HTML to ODT"),
+        (ConversionService.LIBREOFFICE, "HTML to ODT"),
     ],
 
     ("html", "json"): [
