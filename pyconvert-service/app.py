@@ -14,6 +14,12 @@ import shutil
 from datetime import datetime
 from typing import Optional, List
 
+# Import CSS margin utilities
+from utils.css_margin_parser import (
+    extract_page_margins_from_html,
+    apply_margins_to_docx_sections
+)
+
 # Try to import python-magic for comprehensive MIME type detection
 try:
     import magic
@@ -340,6 +346,24 @@ async def convert_file(
             if output_format == "pdf":
                 cmd = ["pandoc", input_path, "-o", output_path, "--pdf-engine=xelatex"]
             
+            # Extract and apply CSS @page margins for HTML input to DOCX/PDF output
+            if file.filename.lower().endswith('.html') or file.filename.lower().endswith('.htm'):
+                try:
+                    # Read HTML content to extract margins
+                    html_content = file_content.decode('utf-8', errors='replace')
+                    margins = extract_page_margins_from_html(html_content)
+                    
+                    if margins and output_format in ['docx', 'pdf']:
+                        # Add margin variables to pandoc command
+                        pandoc_vars = format_margins_for_pandoc(margins)
+                        for var_name, var_value in pandoc_vars.items():
+                            cmd.extend(['-V', f'{var_name}={var_value}'])
+                        
+                        print(f"Applied margins to pandoc {output_format}: {margins}")
+                except Exception as margin_error:
+                    # Log the error but don't fail the conversion
+                    print(f"Warning: Failed to extract margins for pandoc: {margin_error}")
+            
             # Add extra args if provided
             if extra_args:
                 cmd.extend(extra_args.split())
@@ -531,6 +555,16 @@ async def weasyprint_html_to_pdf(
         # Create HTML document
         html_doc = HTML(string=html_content, base_url=base_url)
 
+        # Extract and log CSS @page margins for validation (WeasyPrint supports them natively)
+        try:
+            margins = extract_page_margins_from_html(html_content)
+            if margins:
+                print(f"WeasyPrint detected margins in HTML: {margins}")
+                print("Note: WeasyPrint respects CSS @page margins natively")
+        except Exception as margin_error:
+            # Log the error but don't fail the conversion
+            print(f"Warning: Failed to extract margins for WeasyPrint validation: {margin_error}")
+
         # Generate PDF - pass all parameters directly to write_pdf
         pdf_bytes = html_doc.write_pdf(**weasyprint_params)
 
@@ -669,6 +703,7 @@ async def mammoth_docx_to_html(
             detail=f"Mammoth conversion failed: {str(e)}"
         )
 
+
 @app.post("/html4docx")
 async def html4docx_html_to_docx(
     request: Request,
@@ -773,6 +808,18 @@ async def html4docx_html_to_docx(
 
         # Convert HTML to DOCX using parse_html_string method
         docx_document = converter.parse_html_string(html_content)
+        
+        # Extract and apply @page margins from HTML/CSS
+        try:
+            margins = extract_page_margins_from_html(html_content)
+            
+            if margins:
+                # Apply margins using utility function
+                apply_margins_to_docx_sections(docx_document, margins)
+                print(f"Applied margins to DOCX: {margins}")
+        except Exception as margin_error:
+            # Log the error but don't fail the conversion
+            print(f"Warning: Failed to apply margins: {margin_error}")
         
         # Save to BytesIO to get the bytes
         docx_bytes_io = BytesIO()
