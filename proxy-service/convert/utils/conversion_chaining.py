@@ -14,16 +14,7 @@ from fastapi.responses import StreamingResponse
 from ..config import ConversionService, UNSTRUCTURED_IO_MIME_MAPPING
 from .conversion_lookup import DYNAMIC_SERVICE_URLS
 from .conversion_core import _get_service_client
-
-# Try to import unstructured functions for local markdown/text conversion
-try:
-    from unstructured.staging.base import elements_to_md, elements_to_text, dict_to_elements
-    UNSTRUCTURED_AVAILABLE = True
-except ImportError:
-    UNSTRUCTURED_AVAILABLE = False
-    elements_to_md = None
-    elements_to_text = None
-    dict_to_elements = None
+from .error_handling import sanitize_filename
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +104,7 @@ async def chain_conversions(
             # Prepare the request based on service type
             if step.service == ConversionService.LIBREOFFICE:
                 # LibreOffice conversion
-                files = {"file": (current_filename, BytesIO(current_content), f"application/{step.input_format}")}
+                files = {"file": (current_filename, current_content, f"application/{step.input_format}")}
                 data = {"convert-to": step.output_format}
 
                 response = await client.post(
@@ -124,7 +115,7 @@ async def chain_conversions(
 
             elif step.service == ConversionService.PANDOC:
                 # Pandoc conversion
-                files = {"file": (current_filename, BytesIO(current_content), f"application/{step.input_format}")}
+                files = {"file": (current_filename, current_content, f"application/{step.input_format}")}
                 data = {"output_format": step.output_format}
 
                 # Add input format as extra arg if needed
@@ -146,7 +137,7 @@ async def chain_conversions(
 
             elif step.service == ConversionService.UNSTRUCTURED_IO:
                 # Unstructured IO conversion
-                files = {"files": (current_filename, BytesIO(current_content), f"application/{step.input_format}")}
+                files = {"files": (current_filename, current_content, f"application/{step.input_format}")}
                 
                 # Special handling for markdown/text/html outputs from unstructured-io
                 if step.output_format in ["md", "txt", "html"]:
@@ -160,35 +151,15 @@ async def chain_conversions(
                     )
                     
                     if response.status_code == 200:
-                        # Convert JSON response to elements and then to markdown/text/html
+                        # Convert JSON response to requested format using centralized utility
                         json_data = response.json()
                         
-                        # Check if unstructured library is available
-                        if not UNSTRUCTURED_AVAILABLE:
-                            raise HTTPException(
-                                status_code=503, 
-                                detail="Unstructured library not available for local markdown/text/html conversion"
-                            )
-                        
-                        # Import the utility function for HTML conversion
                         from .unstructured_utils import process_unstructured_json_to_content
-                        
-                        # Convert JSON to requested format
-                        if step.output_format == "md":
-                            # Filter out elements with None text to prevent "sequence item X: expected str instance, NoneType found" error
-                            filtered_elements = [elem for elem in dict_to_elements(json_data) if elem.text is not None]
-                            content = elements_to_md(filtered_elements)
-                            media_type = "text/markdown"
-                        elif step.output_format == "txt":
-                            content = elements_to_text(dict_to_elements(json_data))
-                            media_type = "text/plain"
-                        else:  # html
-                            content = process_unstructured_json_to_content(json_data, "html")
-                            media_type = "text/html"
+                        content = process_unstructured_json_to_content(json_data, step.output_format, fix_tables=True)
                         
                         # Generate output filename
                         base_name = current_filename.rsplit(".", 1)[0] if "." in current_filename else current_filename
-                        output_filename = f"{base_name}.{step.output_format}"
+                        output_filename = sanitize_filename(f"{base_name}.{step.output_format}")
                         
                         # Return the converted content
                         current_content = content.encode('utf-8')
@@ -215,7 +186,7 @@ async def chain_conversions(
 
             elif step.service == ConversionService.GOTENBERG:
                 # Gotenberg conversion
-                files = {"files": (current_filename, BytesIO(current_content), f"application/{step.input_format}")}
+                files = {"files": (current_filename, current_content, f"application/{step.input_format}")}
                 data = {}
 
                 # Determine endpoint based on input format
@@ -259,7 +230,7 @@ async def chain_conversions(
 
     # Generate final output filename
     base_name = initial_filename.rsplit(".", 1)[0] if "." in initial_filename else initial_filename
-    final_filename = f"{base_name}.{final_output_format}"
+    final_filename = sanitize_filename(f"{base_name}.{final_output_format}")
 
     logger.info(f"Chained conversion completed successfully, final output: {final_filename}")
 

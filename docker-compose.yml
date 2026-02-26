@@ -29,6 +29,7 @@ services:
   unstructured-io:
     <<: *common-service
     image: downloads.unstructured.io/unstructured-io/unstructured-api:latest
+    stop_grace_period: 10s
     ports:
       - "8000:8000"
     environment:
@@ -37,6 +38,7 @@ services:
   libreoffice:
     <<: *common-service
     image: docker.io/libreofficedocker/libreoffice-unoserver:3.19
+    stop_grace_period: 10s
     ports:
       - "2004:2004"
     environment:
@@ -51,12 +53,15 @@ services:
   pyconvert:
     <<: *common-service
     build: ./pyconvert-service
+    init: true
+    stop_grace_period: 10s
     ports:
       - "3030:3000"
 
   gotenberg:
     <<: *common-service
     image: gotenberg/gotenberg:latest
+    stop_grace_period: 10s
     ports:
       - "3001:3000"
     command:
@@ -68,6 +73,7 @@ services:
   proxy:
     <<: *common-service
     build: ./proxy-service
+    stop_grace_period: 10s
     ports:
       - "${APPLITEXTRAC_PORT:-8369}:8369"
 

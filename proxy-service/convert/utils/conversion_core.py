@@ -17,40 +17,6 @@ from fastapi.responses import StreamingResponse
 # Import centralized HTTP client factory
 from .http_client import ServiceType
 
-# Import local conversion factory
-from .._local_ import LocalConversionFactory
-
-# Import Excel processing libraries (for backwards compatibility)
-try:
-    import pandas as pd
-    PANDAS_AVAILABLE = True
-except ImportError:
-    pd = None
-    PANDAS_AVAILABLE = False
-
-try:
-    import xlrd
-    XLRD_AVAILABLE = True
-except ImportError:
-    xlrd = None
-    XLRD_AVAILABLE = False
-
-try:
-    import openpyxl
-    OPENPYXL_AVAILABLE = True
-except ImportError:
-    openpyxl = None
-    OPENPYXL_AVAILABLE = False
-
-# Import unstructured libraries for JSON to markdown/text conversion
-try:
-    from unstructured.staging.base import elements_to_md, dict_to_elements
-    UNSTRUCTURED_AVAILABLE = True
-except ImportError:
-    elements_to_md = None
-    dict_to_elements = None
-    UNSTRUCTURED_AVAILABLE = False
-
 # Set up logging
 logger = logging.getLogger(__name__)
 
@@ -68,7 +34,7 @@ from .conversion_lookup import (
     DYNAMIC_SERVICE_URLS
 )
 from .url_processor import ConversionInput, fetch_url_content
-from .error_handling import create_http_exception, ErrorCode, handle_conversion_error, handle_service_error
+from .error_handling import create_http_exception, ErrorCode, handle_conversion_error, handle_service_error, sanitize_filename
 
 # Import unified MIME type detector
 from .mime_detector import get_mime_type as get_unified_mime_type
@@ -110,6 +76,105 @@ async def _get_service_client(service: ConversionService, request: Request) -> h
     else:
         # Default client for unstructured.io and other services
         return request.app.state.client
+
+
+async def _proxy_pyconvert(
+    service: ConversionService,
+    path: str,
+    service_label: str,
+    current_file: Optional[UploadFile],
+    current_url: Optional[str],
+    output_format: str,
+    media_type: str,
+    extra_params: Optional[Dict[str, Any]] = None,
+    filename_suffix: Optional[str] = None,
+) -> StreamingResponse:
+    """
+    Shared helper that proxies a conversion request to the pyconvert-service.
+
+    Args:
+        service: The ConversionService enum member.
+        path: URL sub-path on the pyconvert service (e.g. "weasyprint").
+        service_label: Human-readable service name for logs / errors.
+        current_file: The uploaded file, if any.
+        current_url: The source URL, if any.
+        output_format: Target format extension (e.g. "pdf", "html", "docx").
+        media_type: MIME type for the response (e.g. "application/pdf").
+        extra_params: Optional dict of extra form-data params.
+        filename_suffix: If set, appended to the base name before the extension
+                         (e.g. "_cleaned" → "doc_cleaned.html").
+    """
+    from ..config import SERVICE_URLS
+    from .http_client import get_http_client_factory, ServiceType
+
+    pyconvert_url = f"{SERVICE_URLS[service]}/{path}"
+
+    files: Dict[str, Any] = {}
+    data: Dict[str, str] = {}
+
+    if current_file:
+        await current_file.seek(0)
+        file_content = await current_file.read()
+        files['file'] = (current_file.filename, file_content, current_file.content_type)
+        base_name = current_file.filename.rsplit(".", 1)[0] if "." in current_file.filename else "document"
+    elif current_url:
+        data['url'] = current_url
+        parsed = urlparse(current_url)
+        base_name = parsed.netloc + parsed.path.replace('/', '_')
+        if not base_name:
+            base_name = "url_content"
+    else:
+        base_name = "converted"
+
+    if extra_params:
+        for key, value in extra_params.items():
+            data[key] = str(value)
+
+    try:
+        factory = get_http_client_factory()
+        response = await factory.post_with_retry(
+            ServiceType.PANDOC,
+            pyconvert_url,
+            files=files,
+            data=data,
+        )
+
+        if response.status_code != 200:
+            logger.error(f"Pyconvert {service_label} returned {response.status_code}: {response.text[:500]}")
+            raise create_http_exception(
+                ErrorCode.CONVERSION_FAILED,
+                details=f"{service_label} conversion failed: {response.text}",
+                service=service_label.lower(),
+            )
+
+        suffix = filename_suffix or ""
+        output_filename = sanitize_filename(f"{base_name}{suffix}.{output_format}")
+
+        return StreamingResponse(
+            BytesIO(response.content),
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f"attachment; filename={output_filename}",
+                "X-Conversion-Service": service.value,
+            },
+        )
+
+    except httpx.RequestError as e:
+        logger.error(f"Pyconvert service request failed: {e}")
+        raise create_http_exception(
+            ErrorCode.SERVICE_UNAVAILABLE,
+            details=f"{service_label} service unavailable: {str(e)}",
+            service=service_label.lower(),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"{service_label} proxy failed: {e}")
+        raise create_http_exception(
+            ErrorCode.CONVERSION_FAILED,
+            details=f"{service_label} conversion failed: {str(e)}",
+            service=service_label.lower(),
+        )
 
 
 async def _convert_file(
@@ -282,10 +347,11 @@ async def _convert_file(
                                         final_content_type="application/octet-stream"
                                     )
                                     
-                                    # Extract content from intermediate result
-                                    intermediate_content = b""
+                                    # Extract content from intermediate result (collect chunks to avoid O(n²) concat)
+                                    intermediate_chunks = []
                                     async for chunk in intermediate_result.body_iterator:
-                                        intermediate_content += chunk
+                                        intermediate_chunks.append(chunk if isinstance(chunk, bytes) else chunk.encode('utf-8'))
+                                    intermediate_content = b''.join(intermediate_chunks)
                                     
                                     # Call special handler with intermediate content
                                     return await process_presentation_to_html(
@@ -398,7 +464,7 @@ async def _convert_file(
                     
                     # Get MIME type for input file using standard library
                     mime_type = get_mime_type(input_format)
-                    files = {"files": (current_file.filename, BytesIO(file_content), mime_type)}
+                    files = {"files": (current_file.filename, file_content, mime_type)}
                     # Map output_format to MIME types for Unstructured-IO
                     unstructured_output_format = UNSTRUCTURED_IO_MIME_MAPPING.get(output_format, output_format)
                     
@@ -454,13 +520,9 @@ async def _convert_file(
                             status_code=response.status_code
                         )
 
-                    # Parse JSON response and convert locally
-                    if not UNSTRUCTURED_AVAILABLE or not dict_to_elements or not elements_to_md:
-                        raise HTTPException(status_code=503, detail="Unstructured library not available for local conversion")
-
+                    # Parse JSON response and convert locally using centralized utility
                     json_data = response.json()
                     
-                    # Use consolidated unstructured processing utility
                     from .unstructured_utils import process_unstructured_json_to_content
                     content = process_unstructured_json_to_content(json_data, output_format, fix_tables=True)
                     media_type = "text/markdown" if output_format == "md" else "text/html" if output_format == "html" else "text/plain"
@@ -474,7 +536,7 @@ async def _convert_file(
                         if not base_name:
                             base_name = "url_content"
 
-                    output_filename = f"{base_name}.{output_format}"
+                    output_filename = sanitize_filename(f"{base_name}.{output_format}")
 
                     return StreamingResponse(
                         BytesIO(content.encode('utf-8')),
@@ -511,7 +573,7 @@ async def _convert_file(
                 file_content = await current_file.read()
                 # Get MIME type for input file using standard library
                 mime_type = get_mime_type(input_format)
-                files = {"file": (current_file.filename, BytesIO(file_content), mime_type)}
+                files = {"file": (current_file.filename, file_content, mime_type)}
                 data = {"convert-to": output_format}
 
                 response = await client.post(
@@ -530,7 +592,7 @@ async def _convert_file(
                     
                 await current_file.seek(0)  # Reset file pointer
                 file_content = await current_file.read()
-                files = {"file": (current_file.filename, BytesIO(file_content), f"application/{input_format}")}
+                files = {"file": (current_file.filename, file_content, f"application/{input_format}")}
                 data = {"output_format": output_format}
 
                 # Map input format to pandoc format name and add as extra arg
@@ -590,13 +652,13 @@ async def _convert_file(
                     file_content = await current_file.read()
                     # For HTML files, use the correct endpoint and filename
                     if input_format == 'html':
-                        files = {"index.html": ("index.html", BytesIO(file_content), f"application/{input_format}")}
+                        files = {"index.html": ("index.html", file_content, f"application/{input_format}")}
                         endpoint = "forms/chromium/convert/html"
                     elif input_format in ['docx', 'pptx', 'xlsx', 'xls', 'ppt', 'odt', 'ods', 'odp', 'pages', 'numbers']:
-                        files = {"files": (current_file.filename, BytesIO(file_content), f"application/{input_format}")}
+                        files = {"files": (current_file.filename, file_content, f"application/{input_format}")}
                         endpoint = "forms/libreoffice/convert"
                     else:
-                        files = {"files": (current_file.filename, BytesIO(file_content), f"application/{input_format}")}
+                        files = {"files": (current_file.filename, file_content, f"application/{input_format}")}
                         endpoint = "forms/chromium/convert/html"
                     data = {}
                 elif current_url:
@@ -653,7 +715,7 @@ async def _convert_file(
                         base_name = parsed_url.netloc + parsed_url.path.replace('/', '_')
                         if not base_name:
                             base_name = "url_content"
-                        output_filename = f"{base_name}.html"
+                        output_filename = sanitize_filename(f"{base_name}.html")
                         
                         return StreamingResponse(
                             BytesIO(content.encode('utf-8')),
@@ -679,9 +741,9 @@ async def _convert_file(
                 await current_file.seek(0)  # Reset file pointer
                 file_content = await current_file.read()
                 
-                # Use the local conversion factory
-                factory = LocalConversionFactory()
-                content, media_type, output_filename = factory.convert(file_content, current_file.filename, input_format, output_format)
+                # Use the global local conversion factory instance
+                from .._local_.factory import factory as local_factory
+                content, media_type, output_filename = local_factory.convert(file_content, current_file.filename, input_format, output_format)
                 
                 # Return directly as StreamingResponse (skip the normal response handling)
                 return StreamingResponse(
@@ -694,445 +756,102 @@ async def _convert_file(
                 )
 
             elif service_to_try == ConversionService.WEASYPRINT:
-                # Proxy to pyconvert-service for WeasyPrint processing
                 if input_format != "html" or output_format != "pdf":
                     raise create_http_exception(
                         ErrorCode.INVALID_REQUEST,
                         details="WEASYPRINT only supports HTML to PDF conversion",
                         service="weasyprint"
                     )
-
                 if not current_file and not current_url:
                     raise create_http_exception(
                         ErrorCode.INVALID_REQUEST,
                         details="WEASYPRINT requires either file upload or URL input",
                         service="weasyprint"
                     )
-
-                # httpx is already imported globally at the top of the file
-                from ..config import SERVICE_URLS
-
-                try:
-                    # Prepare request to pyconvert-service
-                    pyconvert_url = f"{SERVICE_URLS[ConversionService.WEASYPRINT]}/weasyprint"
-
-                    # Prepare form data
-                    files = {}
-                    data = {}
-
-                    if current_file:
-                        await current_file.seek(0)  # Reset file pointer
-                        file_content = await current_file.read()
-                        files['file'] = (current_file.filename, BytesIO(file_content), current_file.content_type)
-                        base_name = current_file.filename.rsplit(".", 1)[0] if "." in current_file.filename else "document"
-                    elif current_url:
-                        data['url'] = current_url
-                        parsed_url = urlparse(current_url)
-                        base_name = parsed_url.netloc + parsed_url.path.replace('/', '_')
-                        if not base_name:
-                            base_name = "url_content"
-
-                    # Make request to pyconvert-service with retry logic
-                    from .http_client import get_http_client_factory, ServiceType
-                    
-                    factory = get_http_client_factory()
-                    response = await factory.post_with_retry(
-                        ServiceType.PANDOC,  # Use PANDOC as the service type for pyconvert
-                        pyconvert_url,
-                        files=files,
-                        data=data
-                    )
-
-                    if response.status_code != 200:
-                        logger.error(f"Pyconvert WeasyPrint service returned {response.status_code}: {response.text}")
-                        raise create_http_exception(
-                            ErrorCode.CONVERSION_FAILED,
-                            details=f"WeasyPrint conversion failed: {response.text}",
-                            service="weasyprint"
-                        )
-
-                    # Generate output filename
-                    output_filename = f"{base_name}.pdf"
-
-                    # Return PDF as StreamingResponse
-                    return StreamingResponse(
-                        BytesIO(response.content),
-                        media_type="application/pdf",
-                        headers={
-                            "Content-Disposition": f"attachment; filename={output_filename}",
-                            "X-Conversion-Service": "WEASYPRINT"
-                        }
-                    )
-
-                except httpx.RequestError as e:
-                    logger.error(f"Pyconvert service request failed: {e}")
-                    raise create_http_exception(
-                        ErrorCode.SERVICE_UNAVAILABLE,
-                        details=f"WeasyPrint service unavailable: {str(e)}",
-                        service="weasyprint"
-                    )
-                except Exception as e:
-                    logger.error(f"WeasyPrint proxy failed: {e}")
-                    raise create_http_exception(
-                        ErrorCode.CONVERSION_FAILED,
-                        details=f"HTML to PDF conversion failed: {str(e)}",
-                        service="weasyprint"
-                    )
+                return await _proxy_pyconvert(
+                    ConversionService.WEASYPRINT, "weasyprint", "WeasyPrint",
+                    current_file, current_url, "pdf", "application/pdf",
+                    extra_params=extra_params,
+                )
 
             elif service_to_try == ConversionService.MAMMOTH:
-                # Proxy to pyconvert-service for Mammoth processing
                 if input_format != "docx" or output_format != "html":
                     raise create_http_exception(
                         ErrorCode.INVALID_REQUEST,
                         details="MAMMOTH only supports DOCX to HTML conversion",
                         service="mammoth"
                     )
-
                 if not current_file:
                     raise create_http_exception(
                         ErrorCode.INVALID_REQUEST,
                         details="MAMMOTH requires file upload input",
                         service="mammoth"
                     )
-
-                # httpx is already imported globally at the top of the file
-                from ..config import SERVICE_URLS
-
-                try:
-                    # Prepare request to pyconvert-service
-                    pyconvert_url = f"{SERVICE_URLS[ConversionService.MAMMOTH]}/mammoth"
-
-                    # Prepare form data
-                    await current_file.seek(0)  # Reset file pointer
-                    file_content = await current_file.read()
-                    files = {'file': (current_file.filename, BytesIO(file_content), current_file.content_type)}
-                    data = {}
-
-                    # Add extra parameters if provided
-                    if extra_params:
-                        for key, value in extra_params.items():
-                            data[key] = str(value)
-
-                    # Make request to pyconvert-service with retry logic
-                    from .http_client import get_http_client_factory, ServiceType
-                    
-                    factory = get_http_client_factory()
-                    response = await factory.post_with_retry(
-                        ServiceType.PANDOC,  # Use PANDOC as the service type for pyconvert
-                        pyconvert_url,
-                        files=files,
-                        data=data
-                    )
-
-                    if response.status_code != 200:
-                        logger.error(f"Pyconvert Mammoth service returned {response.status_code}: {response.text[:500]}")
-                        raise create_http_exception(
-                            ErrorCode.CONVERSION_FAILED,
-                            details=f"Mammoth conversion failed: {response.text}",
-                            service="mammoth"
-                        )
-
-                    # Generate output filename
-                    base_name = current_file.filename.rsplit(".", 1)[0] if "." in current_file.filename else "document"
-                    output_filename = f"{base_name}.html"
-
-                    # Return HTML as StreamingResponse
-                    return StreamingResponse(
-                        BytesIO(response.content),
-                        media_type="text/html",
-                        headers={
-                            "Content-Disposition": f"attachment; filename={output_filename}",
-                            "X-Conversion-Service": "MAMMOTH"
-                        }
-                    )
-
-                except httpx.RequestError as e:
-                    logger.error(f"Pyconvert service request failed: {e}")
-                    raise create_http_exception(
-                        ErrorCode.SERVICE_UNAVAILABLE,
-                        details=f"Mammoth service unavailable: {str(e)}",
-                        service="mammoth"
-                    )
-                except Exception as e:
-                    logger.error(f"Mammoth proxy failed: {e}")
-                    raise create_http_exception(
-                        ErrorCode.CONVERSION_FAILED,
-                        details=f"DOCX to HTML conversion failed: {str(e)}",
-                        service="mammoth"
-                    )
+                return await _proxy_pyconvert(
+                    ConversionService.MAMMOTH, "mammoth", "Mammoth",
+                    current_file, None, "html", "text/html",
+                    extra_params=extra_params,
+                )
 
             elif service_to_try == ConversionService.HTML4DOCX:
-                # Proxy to pyconvert-service for html4docx processing
                 if input_format != "html" or output_format != "docx":
                     raise create_http_exception(
                         ErrorCode.INVALID_REQUEST,
                         details="HTML4DOCX only supports HTML to DOCX conversion",
                         service="html4docx"
                     )
-
                 if not current_file and not current_url:
                     raise create_http_exception(
                         ErrorCode.INVALID_REQUEST,
                         details="HTML4DOCX requires either file upload or URL input",
                         service="html4docx"
                     )
-
-                # httpx is already imported globally at the top of the file
-                from ..config import SERVICE_URLS
-
-                try:
-                    # Prepare request to pyconvert-service
-                    pyconvert_url = f"{SERVICE_URLS[ConversionService.HTML4DOCX]}/html4docx"
-
-                    # Prepare form data
-                    files = {}
-                    data = {}
-
-                    if current_file:
-                        await current_file.seek(0)  # Reset file pointer
-                        file_content = await current_file.read()
-                        files['file'] = (current_file.filename, BytesIO(file_content), current_file.content_type)
-                        base_name = current_file.filename.rsplit(".", 1)[0] if "." in current_file.filename else "document"
-                    elif current_url:
-                        data['url'] = current_url
-                        parsed_url = urlparse(current_url)
-                        base_name = parsed_url.netloc + parsed_url.path.replace('/', '_')
-                        if not base_name:
-                            base_name = "url_content"
-
-                    # Add extra parameters if provided
-                    if extra_params:
-                        for key, value in extra_params.items():
-                            data[key] = str(value)
-
-                    # Make request to pyconvert-service with retry logic
-                    from .http_client import get_http_client_factory, ServiceType
-                    
-                    factory = get_http_client_factory()
-                    response = await factory.post_with_retry(
-                        ServiceType.PANDOC,  # Use PANDOC as the service type for pyconvert
-                        pyconvert_url,
-                        files=files,
-                        data=data
-                    )
-
-                    if response.status_code != 200:
-                        logger.error(f"Pyconvert html4docx service returned {response.status_code}: {response.text[:500]}")
-                        raise create_http_exception(
-                            ErrorCode.CONVERSION_FAILED,
-                            details=f"html4docx conversion failed: {response.text}",
-                            service="html4docx"
-                        )
-
-                    # Generate output filename
-                    output_filename = f"{base_name}.docx"
-
-                    # Return DOCX as StreamingResponse
-                    return StreamingResponse(
-                        BytesIO(response.content),
-                        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        headers={
-                            "Content-Disposition": f"attachment; filename={output_filename}",
-                            "X-Conversion-Service": "HTML4DOCX"
-                        }
-                    )
-
-                except httpx.RequestError as e:
-                    logger.error(f"Pyconvert service request failed: {e}")
-                    raise create_http_exception(
-                        ErrorCode.SERVICE_UNAVAILABLE,
-                        details=f"html4docx service unavailable: {str(e)}",
-                        service="html4docx"
-                    )
-                except Exception as e:
-                    logger.error(f"html4docx proxy failed: {e}")
-                    raise create_http_exception(
-                        ErrorCode.CONVERSION_FAILED,
-                        details=f"HTML to DOCX conversion failed: {str(e)}",
-                        service="html4docx"
-                    )
+                return await _proxy_pyconvert(
+                    ConversionService.HTML4DOCX, "html4docx", "html4docx",
+                    current_file, current_url, "docx",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    extra_params=extra_params,
+                )
 
             elif service_to_try == ConversionService.BEAUTIFULSOUP:
-                # Proxy to pyconvert-service for BeautifulSoup processing
                 if input_format != "html" or output_format != "html":
                     raise create_http_exception(
                         ErrorCode.INVALID_REQUEST,
                         details="BEAUTIFULSOUP only supports HTML to HTML conversion",
                         service="beautifulsoup"
                     )
-
                 if not current_file and not current_url:
                     raise create_http_exception(
                         ErrorCode.INVALID_REQUEST,
                         details="BEAUTIFULSOUP requires either file upload or URL input",
                         service="beautifulsoup"
                     )
-
-                # httpx is already imported globally at the top of the file
-                from ..config import SERVICE_URLS
-
-                try:
-                    # Prepare request to pyconvert-service
-                    pyconvert_url = f"{SERVICE_URLS[ConversionService.BEAUTIFULSOUP]}/beautifulsoup"
-
-                    # Prepare form data
-                    files = {}
-                    data = {}
-
-                    if current_file:
-                        await current_file.seek(0)  # Reset file pointer
-                        file_content = await current_file.read()
-                        files['file'] = (current_file.filename, BytesIO(file_content), current_file.content_type)
-                        base_name = current_file.filename.rsplit(".", 1)[0] if "." in current_file.filename else "document"
-                    elif current_url:
-                        data['url'] = current_url
-                        parsed_url = urlparse(current_url)
-                        base_name = parsed_url.netloc + parsed_url.path.replace('/', '_')
-                        if not base_name:
-                            base_name = "url_content"
-
-                    # Add extra parameters if provided
-                    if extra_params:
-                        for key, value in extra_params.items():
-                            data[key] = str(value)
-
-                    # Make request to pyconvert-service with retry logic
-                    from .http_client import get_http_client_factory, ServiceType
-                    
-                    factory = get_http_client_factory()
-                    response = await factory.post_with_retry(
-                        ServiceType.PANDOC,  # Use PANDOC as the service type for pyconvert
-                        pyconvert_url,
-                        files=files,
-                        data=data
-                    )
-
-                    if response.status_code != 200:
-                        logger.error(f"Pyconvert BeautifulSoup service returned {response.status_code}: {response.text}")
-                        raise create_http_exception(
-                            ErrorCode.CONVERSION_FAILED,
-                            details=f"BeautifulSoup conversion failed: {response.text}",
-                            service="beautifulsoup"
-                        )
-
-                    # Generate output filename
-                    output_filename = f"{base_name}_cleaned.html"
-
-                    # Return HTML as StreamingResponse
-                    return StreamingResponse(
-                        BytesIO(response.content),
-                        media_type="text/html",
-                        headers={
-                            "Content-Disposition": f"attachment; filename={output_filename}",
-                            "X-Conversion-Service": "BEAUTIFULSOUP"
-                        }
-                    )
-
-                except httpx.RequestError as e:
-                    logger.error(f"Pyconvert service request failed: {e}")
-                    raise create_http_exception(
-                        ErrorCode.SERVICE_UNAVAILABLE,
-                        details=f"BeautifulSoup service unavailable: {str(e)}",
-                        service="beautifulsoup"
-                    )
-                except Exception as e:
-                    logger.error(f"BeautifulSoup proxy failed: {e}")
-                    raise create_http_exception(
-                        ErrorCode.CONVERSION_FAILED,
-                        details=f"HTML cleaning failed: {str(e)}",
-                        service="beautifulsoup"
-                    )
+                return await _proxy_pyconvert(
+                    ConversionService.BEAUTIFULSOUP, "beautifulsoup", "BeautifulSoup",
+                    current_file, current_url, "html", "text/html",
+                    extra_params=extra_params, filename_suffix="_cleaned",
+                )
 
             elif service_to_try == ConversionService.PYMUPDF:
-                # Proxy to pyconvert-service for PyMuPDF processing
                 if input_format != "pdf" or output_format not in ["html", "txt"]:
                     raise create_http_exception(
                         ErrorCode.INVALID_REQUEST,
                         details="PYMUPDF only supports PDF to HTML/TXT conversion",
                         service="pymupdf"
                     )
-
                 if not current_file:
                     raise create_http_exception(
                         ErrorCode.INVALID_REQUEST,
                         details="PYMUPDF requires file upload input",
                         service="pymupdf"
                     )
-
-                # httpx is already imported globally at the top of the file
-                from ..config import SERVICE_URLS
-
-                try:
-                    # Prepare request to pyconvert-service
-                    if output_format == "html":
-                        pyconvert_url = f"{SERVICE_URLS[ConversionService.PYMUPDF]}/pymupdf/pdf-html"
-                    else:  # output_format == "txt"
-                        pyconvert_url = f"{SERVICE_URLS[ConversionService.PYMUPDF]}/pymupdf/pdf-txt"
-
-                    # Prepare form data
-                    await current_file.seek(0)  # Reset file pointer
-                    file_content = await current_file.read()
-                    files = {'file': (current_file.filename, BytesIO(file_content), current_file.content_type)}
-                    data = {}
-
-                    # Add extra parameters if provided
-                    if extra_params:
-                        for key, value in extra_params.items():
-                            data[key] = str(value)
-
-                    # Make request to pyconvert-service with retry logic
-                    from .http_client import get_http_client_factory, ServiceType
-                    
-                    factory = get_http_client_factory()
-                    response = await factory.post_with_retry(
-                        ServiceType.PANDOC,  # Use PANDOC as the service type for pyconvert
-                        pyconvert_url,
-                        files=files,
-                        data=data
-                    )
-
-                    if response.status_code != 200:
-                        logger.error(f"Pyconvert PyMuPDF service returned {response.status_code}: {response.text[:500]}")
-                        raise create_http_exception(
-                            ErrorCode.CONVERSION_FAILED,
-                            details=f"PyMuPDF conversion failed: {response.text}",
-                            service="pymupdf"
-                        )
-
-                    # Generate output filename
-                    base_name = current_file.filename.rsplit(".", 1)[0] if "." in current_file.filename else "document"
-                    output_filename = f"{base_name}.{output_format}"
-
-                    # Determine content type
-                    if output_format == "html":
-                        content_type = "text/html"
-                    else:  # output_format == "txt"
-                        content_type = "text/plain"
-
-                    # Return result as StreamingResponse
-                    return StreamingResponse(
-                        BytesIO(response.content),
-                        media_type=content_type,
-                        headers={
-                            "Content-Disposition": f"attachment; filename={output_filename}",
-                            "X-Conversion-Service": "PYMUPDF"
-                        }
-                    )
-
-                except httpx.RequestError as e:
-                    logger.error(f"Pyconvert service request failed: {e}")
-                    raise create_http_exception(
-                        ErrorCode.SERVICE_UNAVAILABLE,
-                        details=f"PyMuPDF service unavailable: {str(e)}",
-                        service="pymupdf"
-                    )
-                except Exception as e:
-                    logger.error(f"PyMuPDF proxy failed: {e}")
-                    raise create_http_exception(
-                        ErrorCode.CONVERSION_FAILED,
-                        details=f"PDF to {output_format.upper()} conversion failed: {str(e)}",
-                        service="pymupdf"
-                    )
+                pymupdf_path = f"pymupdf/pdf-{output_format}"
+                pymupdf_media = "text/html" if output_format == "html" else "text/plain"
+                return await _proxy_pyconvert(
+                    ConversionService.PYMUPDF, pymupdf_path, "PyMuPDF",
+                    current_file, None, output_format, pymupdf_media,
+                    extra_params=extra_params,
+                )
 
             else:
                 raise create_http_exception(
@@ -1166,7 +885,7 @@ async def _convert_file(
             else:
                 base_name = "converted_content"
             
-            output_filename = f"{base_name}.{output_format}"
+            output_filename = sanitize_filename(f"{base_name}.{output_format}")
 
             return StreamingResponse(
                 BytesIO(response.content),

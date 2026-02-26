@@ -15,37 +15,6 @@ from io import BytesIO
 # Import local conversion factory
 from ._local_ import LocalConversionFactory
 
-# Import Excel processing libraries (for backwards compatibility)
-try:
-    import pandas as pd
-    PANDAS_AVAILABLE = True
-except ImportError:
-    pd = None
-    PANDAS_AVAILABLE = False
-
-try:
-    import xlrd
-    XLRD_AVAILABLE = True
-except ImportError:
-    xlrd = None
-    XLRD_AVAILABLE = False
-
-try:
-    import openpyxl
-    OPENPYXL_AVAILABLE = True
-except ImportError:
-    openpyxl = None
-    OPENPYXL_AVAILABLE = False
-
-# Import unstructured libraries for JSON to markdown/text conversion
-try:
-    from unstructured.staging.base import elements_to_md, dict_to_elements
-    UNSTRUCTURED_AVAILABLE = True
-except ImportError:
-    elements_to_md = None
-    dict_to_elements = None
-    UNSTRUCTURED_AVAILABLE = False
-
 from .config import (
     SERVICE_URLS
 )

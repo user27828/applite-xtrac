@@ -5,17 +5,33 @@ This module provides a factory pattern for local document conversions
 that don't require external container services.
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Optional, Tuple, Dict, Any
 from io import BytesIO
+
+from ..utils.error_handling import sanitize_filename
 from fastapi import HTTPException
 
 # Import centralized temp file manager
 from ..utils.temp_file_manager import get_temp_manager
 
-import pandas as pd
-import xlrd
-import openpyxl
+# Lazy-imported at first use to reduce startup memory (~200MB)
+pd = None
+xlrd = None
+openpyxl = None
+
+def _ensure_excel_deps():
+    """Lazy-import pandas and Excel engines on first use."""
+    global pd, xlrd, openpyxl
+    if pd is None:
+        import pandas as _pd
+        import xlrd as _xlrd
+        import openpyxl as _openpyxl
+        pd = _pd
+        xlrd = _xlrd
+        openpyxl = _openpyxl
 
 try:
     from numbers_parser import Document
@@ -90,6 +106,7 @@ class LocalConversionFactory:
         Returns:
             Tuple of (content, media_type, output_filename)
         """
+        _ensure_excel_deps()
         try:
             # Parse Excel file to DataFrame
             df = self._read_excel_file(file_content, filename)
@@ -111,7 +128,7 @@ class LocalConversionFactory:
                 raise HTTPException(status_code=400, detail=f"Unsupported output format: {output_format}")
 
             # Generate output filename
-            output_filename = f"{base_name}.{output_format}"
+            output_filename = sanitize_filename(f"{base_name}.{output_format}")
 
             return content, media_type, output_filename
 

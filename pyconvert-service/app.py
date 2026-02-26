@@ -17,7 +17,8 @@ from typing import Optional, List
 # Import CSS margin utilities
 from utils.css_margin_parser import (
     extract_page_margins_from_html,
-    apply_margins_to_docx_sections
+    apply_margins_to_docx_sections,
+    format_margins_for_pandoc
 )
 
 # Try to import python-magic for comprehensive MIME type detection

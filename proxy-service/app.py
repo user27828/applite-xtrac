@@ -12,13 +12,7 @@ import os
 from datetime import datetime
 from typing import Optional, List
 
-# Import unstructured libraries for JSON to markdown/text conversion
-try:
-    from unstructured.partition.auto import partition
-    from unstructured.staging.base import elements_to_md
-    UNSTRUCTURED_AVAILABLE = True
-except ImportError:
-    UNSTRUCTURED_AVAILABLE = False
+from convert.utils.unstructured_utils import is_unstructured_available
 
 # Import the conversion router
 from convert.router import router as convert_router
@@ -27,7 +21,7 @@ from convert.router import router as convert_router
 from convert.utils.conversion_lookup import get_service_urls
 
 # Import centralized error handling
-from convert.utils.error_handling import create_error_response, ErrorCode, handle_service_error
+from convert.utils.error_handling import create_error_response, ErrorCode, handle_service_error, sanitize_filename
 
 # Import centralized HTTP client factory
 from convert.utils.http_client import (
@@ -111,8 +105,8 @@ from fastapi import HTTPException
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
-# Mount static files directory
-static_dir = Path(__file__).parent
+# Mount static files directory (dedicated subdirectory, not the app root)
+static_dir = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 @app.get("/favicon.ico")
@@ -397,126 +391,61 @@ async def service_ping(service: str, request: Request):
 @app.post("/unstructured-io-md")
 async def unstructured_to_markdown(request: Request, file: UploadFile = File(...)):
     """Convert document to markdown using Unstructured-IO service and local JSON parsing."""
-    if not UNSTRUCTURED_AVAILABLE:
-        return JSONResponse(status_code=503, content={"error": "Unstructured library not available"})
-
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Use centralized unstructured conversion function
-        from convert.utils.unstructured_utils import convert_file_with_unstructured_io
-        client: httpx.AsyncClient = request.app.state.client
-        service_url = SERVICES["unstructured-io"]
-        
-        markdown_content = await convert_file_with_unstructured_io(
-            client=client,
-            service_url=service_url,
-            file_content=file_content,
-            filename=file.filename,
-            content_type=file.content_type or "application/octet-stream",
-            output_format="md",
-            fix_tables=True
-        )
-
-        # Generate output filename
-        base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
-        output_filename = f"{base_name}.md"
-
-        return StreamingResponse(
-            BytesIO(markdown_content.encode('utf-8')),
-            media_type="text/markdown",
-            headers={"Content-Disposition": f"attachment; filename={output_filename}"}
-        )
-
-    except Exception as e:
-        logger.exception("Error in unstructured_to_markdown")
-        return JSONResponse(status_code=500, content={"error": f"Conversion failed: {str(e)}"})
+    return await _unstructured_convert(request, file, output_format="md", media_type="text/markdown", fix_tables=True)
 
 @app.post("/unstructured-io-txt")
 async def unstructured_to_text(request: Request, file: UploadFile = File(...)):
     """Convert document to plain text using Unstructured-IO service and local JSON parsing."""
-    if not UNSTRUCTURED_AVAILABLE:
-        return JSONResponse(status_code=503, content={"error": "Unstructured library not available"})
-
-    try:
-        # Read the uploaded file
-        file_content = await file.read()
-
-        # Use centralized unstructured conversion function
-        from convert.utils.unstructured_utils import convert_file_with_unstructured_io
-        client: httpx.AsyncClient = request.app.state.client
-        service_url = SERVICES["unstructured-io"]
-        
-        text_content = await convert_file_with_unstructured_io(
-            client=client,
-            service_url=service_url,
-            file_content=file_content,
-            filename=file.filename,
-            content_type=file.content_type or "application/octet-stream",
-            output_format="txt",
-            fix_tables=False
-        )
-
-        # Generate output filename
-        base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
-        output_filename = f"{base_name}.txt"
-
-        return StreamingResponse(
-            BytesIO(text_content.encode('utf-8')),
-            media_type="text/plain",
-            headers={"Content-Disposition": f"attachment; filename={output_filename}"}
-        )
-
-    except Exception as e:
-        logger.exception("Error in unstructured_to_text")
-        return JSONResponse(status_code=500, content={"error": f"Conversion failed: {str(e)}"})
-
+    return await _unstructured_convert(request, file, output_format="txt", media_type="text/plain", fix_tables=False)
 
 @app.post("/unstructured-io-html")
 async def unstructured_to_html(request: Request, file: UploadFile = File(...)):
     """Convert document to HTML using Unstructured-IO service and local JSON parsing."""
-    if not UNSTRUCTURED_AVAILABLE:
+    return await _unstructured_convert(request, file, output_format="html", media_type="text/html", fix_tables=True)
+
+
+async def _unstructured_convert(
+    request: Request, file: UploadFile, *, output_format: str, media_type: str, fix_tables: bool
+):
+    """Shared implementation for the Unstructured-IO conversion endpoints."""
+    if not is_unstructured_available():
         return JSONResponse(status_code=503, content={"error": "Unstructured library not available"})
 
     try:
-        # Read the uploaded file
         file_content = await file.read()
 
-        # Use centralized unstructured conversion function
         from convert.utils.unstructured_utils import convert_file_with_unstructured_io
         client: httpx.AsyncClient = request.app.state.client
         service_url = SERVICES["unstructured-io"]
-        
-        html_content = await convert_file_with_unstructured_io(
+
+        converted = await convert_file_with_unstructured_io(
             client=client,
             service_url=service_url,
             file_content=file_content,
             filename=file.filename,
             content_type=file.content_type or "application/octet-stream",
-            output_format="html",
-            fix_tables=True
+            output_format=output_format,
+            fix_tables=fix_tables,
         )
 
-        # Generate output filename
         base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
-        output_filename = f"{base_name}.html"
+        output_filename = sanitize_filename(f"{base_name}.{output_format}")
 
         return StreamingResponse(
-            BytesIO(html_content.encode('utf-8')),
-            media_type="text/html",
-            headers={"Content-Disposition": f"attachment; filename={output_filename}"}
+            BytesIO(converted.encode("utf-8")),
+            media_type=media_type,
+            headers={"Content-Disposition": f"attachment; filename={output_filename}"},
         )
 
     except Exception as e:
-        logger.exception("Error in unstructured_to_html")
+        logger.exception(f"Error in unstructured_to_{output_format}")
         return JSONResponse(status_code=500, content={"error": f"Conversion failed: {str(e)}"})
 
 
 @app.post("/libreoffice-md")
 async def libreoffice_to_markdown(request: Request, file: UploadFile = File(...)):
     """Convert document to PDF using LibreOffice, then to markdown using Unstructured-IO."""
-    if not UNSTRUCTURED_AVAILABLE:
+    if not is_unstructured_available():
         return JSONResponse(status_code=503, content={"error": "Unstructured library not available"})
 
     try:
@@ -561,7 +490,7 @@ async def libreoffice_to_markdown(request: Request, file: UploadFile = File(...)
 
         # Generate output filename
         base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
-        output_filename = f"{base_name}.md"
+        output_filename = sanitize_filename(f"{base_name}.md")
 
         return StreamingResponse(
             BytesIO(markdown_content.encode('utf-8')),
@@ -573,129 +502,96 @@ async def libreoffice_to_markdown(request: Request, file: UploadFile = File(...)
         logger.exception("Error in libreoffice_to_markdown")
         return JSONResponse(status_code=500, content={"error": f"Conversion failed: {str(e)}"})
 
-@app.post("/weasyprint/html-pdf")
-async def weasyprint_html_to_pdf(
-    request: Request,
-    file: Optional[UploadFile] = File(None),
-    url: Optional[str] = Form(None)
-):
+# --- Generic pyconvert proxy helper ---
+
+async def _proxy_to_pyconvert(request: Request, path: str, service_label: str):
     """
-    Convert HTML to PDF using WeasyPrint with full parameter control.
+    Proxy a request to the pyconvert-service.
 
-    This endpoint proxies requests to the pyconvert-service which handles WeasyPrint conversions.
-    Accepts either a file upload or URL input, plus any WeasyPrint write_pdf() parameters.
+    This shared helper eliminates duplication across the WeasyPrint, Mammoth,
+    html4docx, BeautifulSoup, and PyMuPDF proxy endpoints.
 
-    WeasyPrint Parameters (all write_pdf() parameters are supported):
-    - stylesheets: List of CSS objects, URLs, file paths, CSS strings, or UploadFile objects
-    - font_config: Font configuration object (auto-created if not provided)
-    - zoom: Zoom factor for scaling content
-    - presentational_hints: Enable CSS presentational hints
-    - optimize_images: Optimize images for smaller PDF size
-    - jpeg_quality: JPEG compression quality (1-100)
-    - image_quality: General image quality (1-100)
-    - disable_smart_shrinking: Disable smart shrinking
-    - enable_hinting: Enable font hinting
-    - user_agent: User agent for URL fetching (extracted from kwargs)
-    - page_size, orientation, margin_*: Auto-converted to @page CSS if no stylesheets
-    - Any other write_pdf() parameter...
-
-    Examples:
-    - stylesheets=["https://example.com/style.css", ".body { color: red; }"]
-    - stylesheets=[uploaded_file_object]
-    - zoom=1.5, presentational_hints=True
+    Args:
+        request: The incoming FastAPI request.
+        path: The pyconvert sub-path (e.g. "weasyprint", "pymupdf/pdf-html").
+        service_label: Human-readable name for error/log messages.
     """
-    # Proxy to pyconvert-service
-    service = "pyconvert"  # pyconvert-service is accessed via /pyconvert/ prefix
-    path = "weasyprint"
-    target_url = f"{SERVICES[service]}/{path}"
+    target_url = f"{SERVICES['pyconvert']}/{path}"
 
-    # Get request data - don't read body for multipart forms
     headers = dict(request.headers)
     headers.pop("host", None)
 
-    # Extract form data parameters for POST requests
     query_params = dict(request.query_params)
-    form_params = {}
     form_data = None
+
     try:
         content_type = headers.get("content-type", "").lower()
         if "multipart/form-data" in content_type:
             form_data = await request.form()
             for field_name, field_value in form_data.items():
-                if field_name not in ['file', 'files']:  # Skip file fields
-                    form_params[field_name] = field_value
-            query_params.update(form_params)
+                if field_name not in ('file', 'files'):
+                    query_params[field_name] = field_value
     except Exception as e:
-        logger.warning(f"Failed to extract form parameters in weasyprint proxy: {e}")
+        logger.warning(f"Failed to extract form parameters in {service_label} proxy: {e}")
 
-    # Use the pyconvert client (same as pandoc service)
     client: httpx.AsyncClient = app.state.client
 
     try:
-        # Build and send request to pyconvert-service
         if form_data is not None:
-            # For multipart data, send as form data
             files = {}
             data = {}
-            
             for field_name, field_value in form_data.items():
-                if hasattr(field_value, 'filename'):  # File upload
+                if hasattr(field_value, 'filename'):
                     files[field_name] = (field_value.filename, await field_value.read(), field_value.content_type)
-                else:  # Regular form field
+                else:
                     data[field_name] = field_value
-            
             resp = await client.post(target_url, files=files, data=data, params=query_params)
         else:
-            # For other content types, read body
             body = await request.body()
             req = client.build_request(method=request.method, url=target_url, headers=headers, content=body, params=query_params)
             resp = await client.send(req)
 
-        # Check for errors
         if resp.status_code >= 400:
-            if hasattr(resp, 'aclos'):
-                # Streaming response
+            if hasattr(resp, 'aclose'):
                 error_content = await resp.aread()
                 error_text = error_content.decode(resp.encoding or "utf-8", errors="replace")
                 await resp.aclose()
             else:
-                # Regular response
                 error_text = resp.text
 
-            logger.error(f"WeasyPrint service returned error {resp.status_code}: {error_text[:500]}...")
-
+            logger.error(f"{service_label} service returned error {resp.status_code}: {error_text[:500]}...")
             return JSONResponse(
                 status_code=resp.status_code,
-                content={"error": f"WeasyPrint conversion failed: {error_text}"}
+                content={"error": f"{service_label} conversion failed: {error_text}"}
             )
 
-        # Handle response based on type
-        headers = {k: v for k, v in resp.headers.items() if k.lower() not in HOP_BY_HOP}
+        resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in HOP_BY_HOP}
 
-        if hasattr(resp, 'aclos'):
-            # Streaming response
+        if hasattr(resp, 'aclose'):
             async def _stream_and_close(r):
                 try:
                     async for chunk in r.aiter_bytes():
                         yield chunk
                 finally:
                     await r.aclose()
-
-            return StreamingResponse(_stream_and_close(resp), status_code=resp.status_code, headers=headers)
+            return StreamingResponse(_stream_and_close(resp), status_code=resp.status_code, headers=resp_headers)
         else:
-            # Regular response
-            return Response(content=resp.content, status_code=resp.status_code, headers=headers)
+            return Response(content=resp.content, status_code=resp.status_code, headers=resp_headers)
+
     except httpx.RequestError as e:
-        return JSONResponse(
-            status_code=502,
-            content={"error": f"WeasyPrint service unavailable: {str(e)}"}
-        )
+        return JSONResponse(status_code=502, content={"error": f"{service_label} service unavailable: {str(e)}"})
     except Exception as e:
-        logger.exception("Error proxying to weasyprint service")
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Proxy error: {str(e)}"}
-        )
+        logger.exception(f"Error proxying to {service_label} service")
+        return JSONResponse(status_code=500, content={"error": f"Proxy error: {str(e)}"})
+
+
+# --- Pyconvert proxy endpoints ---
+
+@app.post("/weasyprint/html-pdf")
+async def weasyprint_html_to_pdf(request: Request, file: Optional[UploadFile] = File(None), url: Optional[str] = Form(None)):
+    """Convert HTML to PDF using WeasyPrint via pyconvert-service."""
+    return await _proxy_to_pyconvert(request, "weasyprint", "WeasyPrint")
+
 
 @app.post("/mammoth/docx-html")
 async def mammoth_docx_to_html(
@@ -705,231 +601,17 @@ async def mammoth_docx_to_html(
     include_default_style_map: Optional[bool] = Form(True),
     include_embedded_style_map: Optional[bool] = Form(True),
     ignore_empty_paragraphs: Optional[bool] = Form(True),
-    id_prefix: Optional[str] = Form(None)
+    id_prefix: Optional[str] = Form(None),
 ):
-    """
-    Convert DOCX to HTML using Mammoth.
+    """Convert DOCX to HTML using Mammoth via pyconvert-service."""
+    return await _proxy_to_pyconvert(request, "mammoth", "Mammoth")
 
-    This endpoint proxies requests to the pyconvert-service which handles Mammoth conversions.
-    Accepts a DOCX file upload and converts it to clean HTML using Mammoth's semantic conversion.
-
-    Mammoth Parameters:
-    - style_map: Custom style mapping string (optional)
-    - include_default_style_map: Whether to include default style mappings (default: True)
-    - include_embedded_style_map: Whether to include embedded style maps from the document (default: True)
-    - ignore_empty_paragraphs: Whether to ignore empty paragraphs (default: True)
-    - id_prefix: Prefix for generated IDs (optional)
-
-    Examples:
-    - Basic conversion: Upload a .docx file
-    - Custom styling: style_map="p[style-name='Heading 1'] => h1:fresh"
-    - Custom ID prefix: id_prefix="doc-"
-    """
-    # Proxy to pyconvert-service
-    service = "pyconvert"  # pyconvert-service is accessed via /pyconvert/ prefix
-    path = "mammoth"
-    target_url = f"{SERVICES[service]}/{path}"
-
-    # Get request data - don't read body for multipart forms
-    headers = dict(request.headers)
-    headers.pop("host", None)
-
-    # Extract form data parameters for POST requests
-    query_params = dict(request.query_params)
-    form_params = {}
-    form_data = None
-    try:
-        content_type = headers.get("content-type", "").lower()
-        if "multipart/form-data" in content_type:
-            form_data = await request.form()
-            for field_name, field_value in form_data.items():
-                if field_name not in ['file', 'files']:  # Skip file fields
-                    form_params[field_name] = field_value
-            query_params.update(form_params)
-    except Exception as e:
-        logger.warning(f"Failed to extract form parameters in mammoth proxy: {e}")
-
-    # Use the pyconvert client (same as pandoc service)
-    client: httpx.AsyncClient = app.state.client
-
-    try:
-        # Build and send request to pyconvert-service
-        if form_data is not None:
-            # For multipart data, send as form data
-            files = {}
-            data = {}
-            
-            for field_name, field_value in form_data.items():
-                if hasattr(field_value, 'filename'):  # File upload
-                    files[field_name] = (field_value.filename, await field_value.read(), field_value.content_type)
-                else:  # Regular form field
-                    data[field_name] = field_value
-            
-            resp = await client.post(target_url, files=files, data=data, params=query_params)
-        else:
-            # For other content types, read body
-            body = await request.body()
-            req = client.build_request(method=request.method, url=target_url, headers=headers, content=body, params=query_params)
-            resp = await client.send(req)
-
-        # Check for errors
-        if resp.status_code >= 400:
-            if hasattr(resp, 'aclos'):
-                # Streaming response
-                error_content = await resp.aread()
-                error_text = error_content.decode(resp.encoding or "utf-8", errors="replace")
-                await resp.aclose()
-            else:
-                # Regular response
-                error_text = resp.text
-
-            logger.error(f"Mammoth service returned error {resp.status_code}: {error_text[:500]}...")
-
-            return JSONResponse(
-                status_code=resp.status_code,
-                content={"error": f"Mammoth conversion failed: {error_text}"}
-            )
-
-        # Handle response based on type
-        headers = {k: v for k, v in resp.headers.items() if k.lower() not in HOP_BY_HOP}
-
-        if hasattr(resp, 'aclos'):
-            # Streaming response
-            async def _stream_and_close(r):
-                try:
-                    async for chunk in r.aiter_bytes():
-                        yield chunk
-                finally:
-                    await r.aclose()
-
-            return StreamingResponse(_stream_and_close(resp), status_code=resp.status_code, headers=headers)
-        else:
-            # Regular response
-            return Response(content=resp.content, status_code=resp.status_code, headers=headers)
-    except httpx.RequestError as e:
-        return JSONResponse(
-            status_code=502,
-            content={"error": f"Mammoth service unavailable: {str(e)}"}
-        )
-    except Exception as e:
-        logger.exception("Error proxying to mammoth service")
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Proxy error: {str(e)}"}
-        )
 
 @app.post("/html4docx/html-docx")
-async def html4docx_html_to_docx(
-    request: Request,
-    file: UploadFile = File(...),
-    url: Optional[str] = Form(None)
-):
-    """
-    Convert HTML to DOCX using html4docx.
+async def html4docx_html_to_docx(request: Request, file: UploadFile = File(...), url: Optional[str] = Form(None)):
+    """Convert HTML to DOCX using html4docx via pyconvert-service."""
+    return await _proxy_to_pyconvert(request, "html4docx", "html4docx")
 
-    This endpoint proxies requests to the pyconvert-service which handles html4docx conversions.
-    Accepts either a file upload or URL input and converts it to DOCX format.
-
-    html4docx Parameters:
-    - url: URL to fetch HTML from (alternative to file upload)
-    - Any other parameters are passed through to html4docx
-
-    Examples:
-    - Basic conversion: Upload a .html file
-    - URL conversion: url=https://example.com
-    """
-    # Proxy to pyconvert-service
-    service = "pyconvert"  # pyconvert-service is accessed via /pyconvert/ prefix
-    path = "html4docx"
-    target_url = f"{SERVICES[service]}/{path}"
-
-    # Get request data - don't read body for multipart forms
-    headers = dict(request.headers)
-    headers.pop("host", None)
-
-    # Extract form data parameters for POST requests
-    query_params = dict(request.query_params)
-    form_params = {}
-    form_data = None
-    try:
-        content_type = headers.get("content-type", "").lower()
-        if "multipart/form-data" in content_type:
-            form_data = await request.form()
-            for field_name, field_value in form_data.items():
-                if field_name not in ['file', 'files']:  # Skip file fields
-                    form_params[field_name] = field_value
-            query_params.update(form_params)
-    except Exception as e:
-        logger.warning(f"Failed to extract form parameters in html4docx proxy: {e}")
-
-    # Use the pyconvert client (same as pandoc service)
-    client: httpx.AsyncClient = app.state.client
-
-    try:
-        # Build and send request to pyconvert-service
-        if form_data is not None:
-            # For multipart data, send as form data
-            files = {}
-            data = {}
-            
-            for field_name, field_value in form_data.items():
-                if hasattr(field_value, 'filename'):  # File upload
-                    files[field_name] = (field_value.filename, await field_value.read(), field_value.content_type)
-                else:  # Regular form field
-                    data[field_name] = field_value
-            
-            resp = await client.post(target_url, files=files, data=data, params=query_params)
-        else:
-            # For other content types, read body
-            body = await request.body()
-            req = client.build_request(method=request.method, url=target_url, headers=headers, content=body, params=query_params)
-            resp = await client.send(req)
-
-        # Check for errors
-        if resp.status_code >= 400:
-            if hasattr(resp, 'aclos'):
-                # Streaming response
-                error_content = await resp.aread()
-                error_text = error_content.decode(resp.encoding or "utf-8", errors="replace")
-                await resp.aclose()
-            else:
-                # Regular response
-                error_text = resp.text
-
-            logger.error(f"html4docx service returned error {resp.status_code}: {error_text[:500]}...")
-
-            return JSONResponse(
-                status_code=resp.status_code,
-                content={"error": f"html4docx conversion failed: {error_text}"}
-            )
-
-        # Handle response based on type
-        headers = {k: v for k, v in resp.headers.items() if k.lower() not in HOP_BY_HOP}
-
-        if hasattr(resp, 'aclos'):
-            # Streaming response
-            async def _stream_and_close(r):
-                try:
-                    async for chunk in r.aiter_bytes():
-                        yield chunk
-                finally:
-                    await r.aclose()
-
-            return StreamingResponse(_stream_and_close(resp), status_code=resp.status_code, headers=headers)
-        else:
-            # Regular response
-            return Response(content=resp.content, status_code=resp.status_code, headers=headers)
-    except httpx.RequestError as e:
-        return JSONResponse(
-            status_code=502,
-            content={"error": f"html4docx service unavailable: {str(e)}"}
-        )
-    except Exception as e:
-        logger.exception("Error proxying to html4docx service")
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Proxy error: {str(e)}"}
-        )
 
 @app.post("/beautifulsoup/html-html")
 async def beautifulsoup_html_to_html(
@@ -942,332 +624,19 @@ async def beautifulsoup_html_to_html(
     remove_styles: Optional[bool] = Form(False),
     remove_comments: Optional[bool] = Form(True),
     extract_title: Optional[bool] = Form(False),
-    extract_text: Optional[bool] = Form(False)
+    extract_text: Optional[bool] = Form(False),
 ):
-    """
-    Clean HTML using BeautifulSoup with full parameter control.
+    """Clean HTML using BeautifulSoup via pyconvert-service."""
+    return await _proxy_to_pyconvert(request, "beautifulsoup", "BeautifulSoup")
 
-    This endpoint proxies requests to the pyconvert-service which handles BeautifulSoup HTML cleaning.
-    Accepts either a file upload or URL input, plus any BeautifulSoup processing parameters.
-
-    BeautifulSoup Parameters:
-    - parser: HTML parser to use (default: "html.parser", options: "html.parser", "lxml", "html5lib")
-    - prettify: Whether to format the HTML nicely (default: True)
-    - remove_scripts: Whether to remove <script> tags (default: True)
-    - remove_styles: Whether to remove <style> tags (default: False)
-    - remove_comments: Whether to remove HTML comments (default: True)
-    - extract_title: Whether to return only the page title (default: False)
-    - extract_text: Whether to return only the text content (default: False)
-
-    Examples:
-    - Basic cleaning: Upload a .html file (removes scripts and comments by default)
-    - Extract text: extract_text=true (returns plain text only)
-    - Extract title: extract_title=true (returns page title only)
-    - Custom parser: parser=lxml (uses lxml parser)
-    """
-    # Proxy to pyconvert-service
-    service = "pyconvert"  # pyconvert-service is accessed via /pyconvert/ prefix
-    path = "beautifulsoup"
-    target_url = f"{SERVICES[service]}/{path}"
-
-    # Get request data - don't read body for multipart forms
-    headers = dict(request.headers)
-    headers.pop("host", None)
-
-    # Extract form data parameters for POST requests
-    query_params = dict(request.query_params)
-    form_params = {}
-    form_data = None
-    try:
-        content_type = headers.get("content-type", "").lower()
-        if "multipart/form-data" in content_type:
-            form_data = await request.form()
-            for field_name, field_value in form_data.items():
-                if field_name not in ['file', 'files']:  # Skip file fields
-                    form_params[field_name] = field_value
-            query_params.update(form_params)
-    except Exception as e:
-        logger.warning(f"Failed to extract form parameters in beautifulsoup proxy: {e}")
-
-    # Use the pyconvert client (same as pandoc service)
-    client: httpx.AsyncClient = app.state.client
-
-    try:
-        # Build and send request to pyconvert-service
-        if form_data is not None:
-            # For multipart data, send as form data
-            files = {}
-            data = {}
-            
-            for field_name, field_value in form_data.items():
-                if hasattr(field_value, 'filename'):  # File upload
-                    files[field_name] = (field_value.filename, await field_value.read(), field_value.content_type)
-                else:  # Regular form field
-                    data[field_name] = field_value
-            
-            resp = await client.post(target_url, files=files, data=data, params=query_params)
-        else:
-            # For other content types, read body
-            body = await request.body()
-            req = client.build_request(method=request.method, url=target_url, headers=headers, content=body, params=query_params)
-            resp = await client.send(req)
-
-        # Check for errors
-        if resp.status_code >= 400:
-            if hasattr(resp, 'aclos'):
-                # Streaming response
-                error_content = await resp.aread()
-                error_text = error_content.decode(resp.encoding or "utf-8", errors="replace")
-                await resp.aclose()
-            else:
-                # Regular response
-                error_text = resp.text
-
-            logger.error(f"BeautifulSoup service returned error {resp.status_code}: {error_text[:500]}...")
-
-            return JSONResponse(
-                status_code=resp.status_code,
-                content={"error": f"BeautifulSoup conversion failed: {error_text}"}
-            )
-
-        # Handle response based on type
-        headers = {k: v for k, v in resp.headers.items() if k.lower() not in HOP_BY_HOP}
-
-        if hasattr(resp, 'aclos'):
-            # Streaming response
-            async def _stream_and_close(r):
-                try:
-                    async for chunk in r.aiter_bytes():
-                        yield chunk
-                finally:
-                    await r.aclose()
-
-            return StreamingResponse(_stream_and_close(resp), status_code=resp.status_code, headers=headers)
-        else:
-            # Regular response
-            return Response(content=resp.content, status_code=resp.status_code, headers=headers)
-    except httpx.RequestError as e:
-        return JSONResponse(
-            status_code=502,
-            content={"error": f"BeautifulSoup service unavailable: {str(e)}"}
-        )
-    except Exception as e:
-        logger.exception("Error proxying to beautifulsoup service")
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Proxy error: {str(e)}"}
-        )
 
 @app.post("/pymupdf/pdf-html")
-async def pymupdf_pdf_to_html_proxy(
-    request: Request,
-    file: UploadFile = File(...)
-):
-    """
-    Convert PDF to HTML using PyMuPDF via pyconvert-service.
+async def pymupdf_pdf_to_html_proxy(request: Request, file: UploadFile = File(...)):
+    """Convert PDF to HTML using PyMuPDF via pyconvert-service."""
+    return await _proxy_to_pyconvert(request, "pymupdf/pdf-html", "PyMuPDF")
 
-    This endpoint proxies requests to the pyconvert-service which handles PyMuPDF conversions.
-    Accepts a PDF file upload and converts it to HTML format.
-
-    Returns:
-        HTML content as streaming response
-    """
-    # Proxy to pyconvert-service
-    service = "pyconvert"  # pyconvert-service is accessed via /pyconvert/ prefix
-    path = "pymupdf/pdf-html"
-    target_url = f"{SERVICES[service]}/{path}"
-
-    # Get request data - don't read body for multipart forms
-    headers = dict(request.headers)
-    headers.pop("host", None)
-
-    # Extract form data parameters for POST requests
-    query_params = dict(request.query_params)
-    form_params = {}
-    form_data = None
-    try:
-        content_type = headers.get("content-type", "").lower()
-        if "multipart/form-data" in content_type:
-            form_data = await request.form()
-            for field_name, field_value in form_data.items():
-                if field_name not in ['file', 'files']:  # Skip file fields
-                    form_params[field_name] = field_value
-            query_params.update(form_params)
-    except Exception as e:
-        logger.warning(f"Failed to extract form parameters in pymupdf proxy: {e}")
-
-    # Use the pyconvert client (same as pandoc service)
-    client: httpx.AsyncClient = app.state.client
-
-    try:
-        # Build and send request to pyconvert-service
-        if form_data is not None:
-            # For multipart data, send as form data
-            files = {}
-            data = {}
-            
-            for field_name, field_value in form_data.items():
-                if hasattr(field_value, 'filename'):  # File upload
-                    files[field_name] = (field_value.filename, await field_value.read(), field_value.content_type)
-                else:  # Regular form field
-                    data[field_name] = field_value
-            
-            resp = await client.post(target_url, files=files, data=data, params=query_params)
-        else:
-            # For other content types, read body
-            body = await request.body()
-            req = client.build_request(method=request.method, url=target_url, headers=headers, content=body, params=query_params)
-            resp = await client.send(req)
-
-        # Check for errors
-        if resp.status_code >= 400:
-            if hasattr(resp, 'aclos'):
-                # Streaming response
-                error_content = await resp.aread()
-                error_text = error_content.decode(resp.encoding or "utf-8", errors="replace")
-                await resp.aclose()
-            else:
-                # Regular response
-                error_text = resp.text
-
-            logger.error(f"PyMuPDF service returned error {resp.status_code}: {error_text[:500]}...")
-
-            return JSONResponse(
-                status_code=resp.status_code,
-                content={"error": f"PyMuPDF conversion failed: {error_text}"}
-            )
-
-        # Handle response based on type
-        headers = {k: v for k, v in resp.headers.items() if k.lower() not in HOP_BY_HOP}
-
-        if hasattr(resp, 'aclos'):
-            # Streaming response
-            async def _stream_and_close(r):
-                try:
-                    async for chunk in r.aiter_bytes():
-                        yield chunk
-                finally:
-                    await r.aclose()
-
-            return StreamingResponse(_stream_and_close(resp), status_code=resp.status_code, headers=headers)
-        else:
-            # Regular response
-            return Response(content=resp.content, status_code=resp.status_code, headers=headers)
-    except httpx.RequestError as e:
-        return JSONResponse(
-            status_code=502,
-            content={"error": f"PyMuPDF service unavailable: {str(e)}"}
-        )
-    except Exception as e:
-        logger.exception("Error proxying to pymupdf service")
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Proxy error: {str(e)}"}
-        )
 
 @app.post("/pymupdf/pdf-txt")
-async def pymupdf_pdf_to_txt_proxy(
-    request: Request,
-    file: UploadFile = File(...)
-):
-    """
-    Convert PDF to plain text using PyMuPDF via pyconvert-service.
-
-    This endpoint proxies requests to the pyconvert-service which handles PyMuPDF conversions.
-    Accepts a PDF file upload and converts it to plain text format.
-
-    Returns:
-        Plain text content as streaming response
-    """
-    # Proxy to pyconvert-service
-    service = "pyconvert"  # pyconvert-service is accessed via /pyconvert/ prefix
-    path = "pymupdf/pdf-txt"
-    target_url = f"{SERVICES[service]}/{path}"
-
-    # Get request data - don't read body for multipart forms
-    headers = dict(request.headers)
-    headers.pop("host", None)
-
-    # Extract form data parameters for POST requests
-    query_params = dict(request.query_params)
-    form_params = {}
-    form_data = None
-    try:
-        content_type = headers.get("content-type", "").lower()
-        if "multipart/form-data" in content_type:
-            form_data = await request.form()
-            for field_name, field_value in form_data.items():
-                if field_name not in ['file', 'files']:  # Skip file fields
-                    form_params[field_name] = field_value
-            query_params.update(form_params)
-    except Exception as e:
-        logger.warning(f"Failed to extract form parameters in pymupdf proxy: {e}")
-
-    # Use the pyconvert client (same as pandoc service)
-    client: httpx.AsyncClient = app.state.client
-
-    try:
-        # Build and send request to pyconvert-service
-        if form_data is not None:
-            # For multipart data, send as form data
-            files = {}
-            data = {}
-            
-            for field_name, field_value in form_data.items():
-                if hasattr(field_value, 'filename'):  # File upload
-                    files[field_name] = (field_value.filename, await field_value.read(), field_value.content_type)
-                else:  # Regular form field
-                    data[field_name] = field_value
-            
-            resp = await client.post(target_url, files=files, data=data, params=query_params)
-        else:
-            # For other content types, read body
-            body = await request.body()
-            req = client.build_request(method=request.method, url=target_url, headers=headers, content=body, params=query_params)
-            resp = await client.send(req)
-
-        # Check for errors
-        if resp.status_code >= 400:
-            if hasattr(resp, 'aclos'):
-                # Streaming response
-                error_content = await resp.aread()
-                error_text = error_content.decode(resp.encoding or "utf-8", errors="replace")
-                await resp.aclose()
-            else:
-                # Regular response
-                error_text = resp.text
-
-            logger.error(f"PyMuPDF service returned error {resp.status_code}: {error_text[:500]}...")
-
-            return JSONResponse(
-                status_code=resp.status_code,
-                content={"error": f"PyMuPDF conversion failed: {error_text}"}
-            )
-
-        # Handle response based on type
-        headers = {k: v for k, v in resp.headers.items() if k.lower() not in HOP_BY_HOP}
-
-        if hasattr(resp, 'aclos'):
-            # Streaming response
-            async def _stream_and_close(r):
-                try:
-                    async for chunk in r.aiter_bytes():
-                        yield chunk
-                finally:
-                    await r.aclose()
-
-            return StreamingResponse(_stream_and_close(resp), status_code=resp.status_code, headers=headers)
-        else:
-            # Regular response
-            return Response(content=resp.content, status_code=resp.status_code, headers=headers)
-    except httpx.RequestError as e:
-        return JSONResponse(
-            status_code=502,
-            content={"error": f"PyMuPDF service unavailable: {str(e)}"}
-        )
-    except Exception as e:
-        logger.exception("Error proxying to pymupdf service")
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Proxy error: {str(e)}"}
-        )
+async def pymupdf_pdf_to_txt_proxy(request: Request, file: UploadFile = File(...)):
+    """Convert PDF to plain text using PyMuPDF via pyconvert-service."""
+    return await _proxy_to_pyconvert(request, "pymupdf/pdf-txt", "PyMuPDF")

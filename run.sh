@@ -592,8 +592,36 @@ check_and_activate_venv() {
     cd - > /dev/null
 }
 
+show_usage() {
+    echo "Usage: $0 {help|activate|up|down|stop|start|start:d|status|ps|logs|restart|build|dev|dev:stop|update|resources|health|test|test:conversion|test:url}"
+    echo ""
+    echo "Commands:"
+    echo "  help         Show this usage message"
+    echo "  activate     Check and activate Python virtual environment"
+    echo "  start|up     Start all services"
+    echo "  startd|up-d  Start all services in background"
+    echo "  stop|down    Stop all services"
+    echo "  build        Build Docker images"
+    echo "  logs <svc> [opts]   Show logs for a specific service (supports --tail, -f, -t, --since, --until)"
+    echo "  restart      Restart all services"
+    echo "  dev          Start development mode (containers + local proxy)"
+    echo "  dev:stop     Stop development mode"
+    echo "  update       Pull latest Docker images"
+    echo "  resources    Show container resource usage"
+    echo "  status|health|ps   Check service health"
+    echo "  test         Run all tests"
+    echo "  test:conversion    Run conversion integration tests"
+    echo "                     Use --applite-log-level=INFO to show debug messages"
+    echo "  test:url           Run URL fetching tests"
+}
+
 # Main command processing
 main() {
+    if [ $# -eq 0 ]; then
+        show_usage
+        exit 0
+    fi
+
     # Check and activate venv for all commands
     check_and_activate_venv
     
@@ -601,6 +629,9 @@ main() {
     shift
     
     case "$command" in
+        "help")
+            show_usage
+            ;;
         "activate")
             log_success "Virtual environment is active"
             ;;
@@ -671,25 +702,7 @@ main() {
             ;;
         *)
             log_error "Unknown command: $command"
-            echo "Usage: $0 {activate|up|down|stop|start|start:d|status|ps|logs|restart|build|dev|dev:stop|update|resources|health|test|test:conversion|test:url}"
-            echo ""
-            echo "Commands:"
-            echo "  activate     Check and activate Python virtual environment"
-            echo "  start|up     Start all services"
-            echo "  startd|up-d  Start all services in background"
-            echo "  stop|down    Stop all services"
-            echo "  build        Build Docker images"
-            echo "  logs <svc> [opts]   Show logs for a specific service (supports --tail, -f, -t, --since, --until)"
-            echo "  restart      Restart all services"
-            echo "  dev          Start development mode (containers + local proxy)"
-            echo "  dev:stop     Stop development mode"
-            echo "  update       Pull latest Docker images"
-            echo "  resources    Show container resource usage"
-            echo "  status|health|ps   Check service health"
-            echo "  test         Run all tests"
-            echo "  test:conversion    Run conversion integration tests"
-            echo "                     Use --applite-log-level=INFO to show debug messages"
-            echo "  test:url           Run URL fetching tests"
+            show_usage
             exit 1
             ;;
     esac

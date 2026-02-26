@@ -12,15 +12,40 @@ import logging
 # Import httpx for async HTTP requests
 import httpx
 
-# Import unstructured libraries
-try:
-    from unstructured.staging.base import elements_to_md, elements_to_text, dict_to_elements
-    UNSTRUCTURED_AVAILABLE = True
-except ImportError:
-    elements_to_md = None
-    elements_to_text = None
-    dict_to_elements = None
-    UNSTRUCTURED_AVAILABLE = False
+# Lazy-import unstructured libraries to reduce startup memory (~500MB+)
+# These are imported on first use via _ensure_unstructured()
+elements_to_md = None
+elements_to_text = None
+dict_to_elements = None
+UNSTRUCTURED_AVAILABLE = False
+
+def _ensure_unstructured():
+    """Lazy-import unstructured staging functions on first use."""
+    global elements_to_md, elements_to_text, dict_to_elements, UNSTRUCTURED_AVAILABLE
+    if UNSTRUCTURED_AVAILABLE:
+        return True
+    try:
+        from unstructured.staging.base import (
+            elements_to_md as _md,
+            elements_to_text as _txt,
+            dict_to_elements as _dte,
+        )
+        elements_to_md = _md
+        elements_to_text = _txt
+        dict_to_elements = _dte
+        UNSTRUCTURED_AVAILABLE = True
+        return True
+    except ImportError:
+        return False
+
+
+def is_unstructured_available() -> bool:
+    """Check whether the unstructured library can be imported.
+
+    Triggers the lazy import on the first call; subsequent calls are O(1).
+    """
+    return _ensure_unstructured()
+
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +72,7 @@ def process_unstructured_json_to_content(
     Raises:
         HTTPException: If unstructured library is not available or conversion fails
     """
-    if not UNSTRUCTURED_AVAILABLE or not dict_to_elements:
+    if not _ensure_unstructured():
         raise HTTPException(
             status_code=503,
             detail="Unstructured library not available for content conversion"
@@ -122,7 +147,7 @@ def json_to_elements(json_data: List[dict], fix_tables: bool = True) -> List:
     Returns:
         List of element objects
     """
-    if not UNSTRUCTURED_AVAILABLE or not dict_to_elements:
+    if not _ensure_unstructured():
         raise HTTPException(
             status_code=503,
             detail="Unstructured library not available for element conversion"

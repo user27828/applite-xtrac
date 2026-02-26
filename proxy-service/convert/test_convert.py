@@ -125,13 +125,10 @@ def test_supported_conversions():
             data = response.json()
             print("✅ Supported conversions retrieved")
             print(f"   Found {len(data.get('supported_conversions', {}))} input formats")
-            return True
         else:
             print(f"❌ Failed: {response.status_code}")
-            return False
     except Exception as e:
         print(f"❌ Error: {e}")
-        return False
 
 def run_tests():
     """Run all conversion tests."""

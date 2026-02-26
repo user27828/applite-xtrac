@@ -73,10 +73,11 @@ async def process_presentation_to_html(request, file_content, input_format, outp
             service=ConversionService.UNSTRUCTURED_IO
         )
 
-        # Extract JSON content
-        json_content = b""
+        # Extract JSON content (collect chunks to avoid O(n²) concat)
+        chunks = []
         async for chunk in json_response.body_iterator:
-            json_content += chunk
+            chunks.append(chunk if isinstance(chunk, bytes) else chunk.encode('utf-8'))
+        json_content = b''.join(chunks)
 
         json_data = json.loads(json_content.decode('utf-8'))
 

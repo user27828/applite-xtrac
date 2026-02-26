@@ -32,9 +32,7 @@ except ImportError:
     magic = None
     MAGIC_AVAILABLE = False
 
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+import httpx
 from fastapi import HTTPException, UploadFile
 
 from ..config import ConversionService, CONVERSION_MATRIX, PASSTHROUGH_FORMATS
@@ -147,6 +145,15 @@ class URLFileWrapper:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.close()
+
+    def __del__(self):
+        """Ensure file handle is closed on garbage collection."""
+        if self._file:
+            try:
+                self._file.close()
+            except Exception:
+                pass
+            self._file = None
 
 
 class ContentAnalyzer:
@@ -270,28 +277,14 @@ class ContentAnalyzer:
 class URLFetcher:
     """Handles HTTP requests and content retrieval."""
 
-    @staticmethod
-    def create_session_with_retries() -> requests.Session:
-        """Create a requests session with retry configuration."""
-        session = requests.Session()
-
-        retry_strategy = Retry(
-            total=3,
-            status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["HEAD", "GET", "OPTIONS"],
-            backoff_factor=1
-        )
-
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
-
-        return session
+    RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
+    MAX_RETRIES = 3
+    BACKOFF_FACTOR = 1
 
     @staticmethod
     async def fetch_content(url: str, timeout: int = DEFAULT_TIMEOUT, user_agent: Optional[str] = None) -> Dict[str, Any]:
         """
-        Fetch URL content using requests.
+        Fetch URL content asynchronously using httpx.
 
         Args:
             url: The URL to fetch
@@ -304,41 +297,52 @@ class URLFetcher:
         Raises:
             URLProcessingError: If fetching fails
         """
+        request_user_agent = user_agent or (
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+            '(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        )
+        headers = {
+            'User-Agent': request_user_agent,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        }
+        transport = httpx.AsyncHTTPTransport(
+            retries=URLFetcher.MAX_RETRIES,
+        )
+
         try:
-            session = URLFetcher.create_session_with_retries()
+            async with httpx.AsyncClient(
+                transport=transport,
+                timeout=httpx.Timeout(timeout),
+                follow_redirects=True,
+            ) as client:
+                async with client.stream('GET', url, headers=headers) as response:
+                    response.raise_for_status()
 
-            # Use provided user agent or default
-            request_user_agent = user_agent or 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                    # Read content with size limit (collect chunks to avoid O(n²) concat)
+                    chunks = []
+                    total_size = 0
+                    async for chunk in response.aiter_bytes(chunk_size=8192):
+                        chunks.append(chunk)
+                        total_size += len(chunk)
+                        if total_size > DEFAULT_MAX_SIZE:
+                            raise URLProcessingError(
+                                f"Content size exceeds maximum limit of {DEFAULT_MAX_SIZE} bytes"
+                            )
+                    content = b''.join(chunks)
 
-            response = session.get(
-                url,
-                timeout=timeout,
-                headers={
-                    'User-Agent': request_user_agent,
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                },
-                stream=True
-            )
+                    return {
+                        'content': content,
+                        'content_type': response.headers.get('Content-Type', ''),
+                        'final_url': str(response.url),
+                        'status': response.status_code,
+                        'headers': dict(response.headers)
+                    }
 
-            response.raise_for_status()
-
-            # Read content with size limit
-            content = b''
-            for chunk in response.iter_content(chunk_size=8192):
-                content += chunk
-                if len(content) > DEFAULT_MAX_SIZE:
-                    raise URLProcessingError(f"Content size exceeds maximum limit of {DEFAULT_MAX_SIZE} bytes")
-
-            return {
-                'content': content,
-                'content_type': response.headers.get('Content-Type', ''),
-                'final_url': response.url,
-                'status': response.status_code,
-                'headers': dict(response.headers)
-            }
-
-        except requests.RequestException as e:
-            logger.error(f"Requests fetch failed for {url}: {e}")
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error fetching {url}: {e.response.status_code} {e}")
+            raise URLProcessingError(f"Failed to fetch URL (HTTP {e.response.status_code}): {str(e)}")
+        except httpx.HTTPError as e:
+            logger.error(f"Fetch failed for {url}: {e}")
             raise URLProcessingError(f"Failed to fetch URL: {str(e)}")
 
 
@@ -558,6 +562,10 @@ class URLProcessor:
             "detected_format": detected_format,
             **path_info
         }
+
+    async def process_url_conversion(self, url: str, target_format: str, user_agent: Optional[str] = None) -> ConversionInput:
+        """Alias for process_url() — used by router and conversion_core."""
+        return await self.process_url(url, target_format, user_agent)
 
     async def process_url(self, url: str, target_format: str, user_agent: Optional[str] = None) -> ConversionInput:
         """

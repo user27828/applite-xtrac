@@ -381,8 +381,9 @@ class TempFileManager:
         await self.cleanup_all_async()
 
 
-# Global manager instances
+# Global manager instances (bounded to prevent unbounded growth)
 _managers: Dict[str, TempFileManager] = {}
+_MAX_MANAGERS = 64
 
 def get_temp_manager(service: str = "default", base_dir: str = DEFAULT_TEMP_DIR) -> TempFileManager:
     """
@@ -397,6 +398,10 @@ def get_temp_manager(service: str = "default", base_dir: str = DEFAULT_TEMP_DIR)
     """
     key = f"{service}:{base_dir}"
     if key not in _managers:
+        if len(_managers) >= _MAX_MANAGERS:
+            # Evict the oldest entry to prevent unbounded growth
+            oldest_key = next(iter(_managers))
+            _managers.pop(oldest_key, None)
         _managers[key] = TempFileManager(base_dir=base_dir, service=service)
     return _managers[key]
 

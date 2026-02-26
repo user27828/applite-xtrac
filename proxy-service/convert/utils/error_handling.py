@@ -5,6 +5,7 @@ This module provides standardized error responses, error codes, and error handli
 utilities across all services and endpoints.
 """
 
+import re
 import logging
 from datetime import datetime
 from enum import Enum
@@ -33,6 +34,7 @@ class ErrorCode(str, Enum):
 
     # Conversion-specific errors
     CONVERSION_NOT_SUPPORTED = "CONVERSION_NOT_SUPPORTED"
+    CONVERSION_FAILED = "CONVERSION_FAILED"
     INVALID_FORMAT = "INVALID_FORMAT"
     FILE_TOO_LARGE = "FILE_TOO_LARGE"
     INVALID_FILE = "INVALID_FILE"
@@ -67,6 +69,7 @@ ERROR_STATUS_MAP: Dict[ErrorCode, int] = {
     ErrorCode.INVALID_PARAMETER: 400,
     ErrorCode.PARAMETER_OUT_OF_RANGE: 400,
     ErrorCode.CONVERSION_NOT_SUPPORTED: 400,
+    ErrorCode.CONVERSION_FAILED: 500,
     ErrorCode.FILE_TOO_LARGE: 413,
     ErrorCode.UNAUTHORIZED: 401,
     ErrorCode.FORBIDDEN: 403,
@@ -93,6 +96,7 @@ ERROR_SEVERITY_MAP: Dict[ErrorCode, ErrorSeverity] = {
     ErrorCode.TIMEOUT: ErrorSeverity.MEDIUM,
     ErrorCode.INVALID_REQUEST: ErrorSeverity.MEDIUM,
     ErrorCode.CONVERSION_NOT_SUPPORTED: ErrorSeverity.LOW,
+    ErrorCode.CONVERSION_FAILED: ErrorSeverity.HIGH,
     ErrorCode.INVALID_FORMAT: ErrorSeverity.LOW,
     ErrorCode.INVALID_FILE: ErrorSeverity.LOW,
     ErrorCode.INVALID_URL: ErrorSeverity.LOW,
@@ -314,3 +318,52 @@ def validate_format_parameter(
             ErrorCode.INVALID_FORMAT,
             details=f"{param_name} must contain only alphanumeric characters"
         )
+
+
+# --- Filename Sanitization ---
+
+_UNSAFE_FILENAME_RE = re.compile(r'[^\w.\-]')
+_MAX_FILENAME_LEN = 200
+
+
+def sanitize_filename(name: str, max_length: int = _MAX_FILENAME_LEN) -> str:
+    """
+    Sanitize a filename for safe use in Content-Disposition headers.
+
+    Strips path components, null bytes, and any characters that are not
+    alphanumeric, underscore, hyphen, or period.  Collapses runs of
+    underscores and limits total length.
+
+    Args:
+        name: The raw filename string (may contain path separators, etc.)
+        max_length: Maximum allowed filename length (default 200)
+
+    Returns:
+        A safe filename string, or "download" if nothing remains after
+        sanitisation.
+    """
+    if not name:
+        return "download"
+
+    # Strip directory components (covers both / and \ separators)
+    import os
+    name = os.path.basename(name)
+
+    # Remove null bytes
+    name = name.replace('\x00', '')
+
+    # Replace unsafe characters with underscore
+    name = _UNSAFE_FILENAME_RE.sub('_', name)
+
+    # Collapse consecutive underscores
+    name = re.sub(r'_{2,}', '_', name).strip('_')
+
+    # Truncate, preserving extension when possible
+    if len(name) > max_length:
+        stem, _, ext = name.rpartition('.')
+        if ext and len(ext) < 20:
+            name = stem[:max_length - len(ext) - 1] + '.' + ext
+        else:
+            name = name[:max_length]
+
+    return name or "download"

@@ -1,5 +1,25 @@
 # AppLite Xtrac AI Coding Assistant Instructions
 
+## Engineering Standards
+
+Every change — no matter how small — must follow first-principles logic and be production-grade.
+
+- Before implementing, build a concrete plan. Back-trace (does each step follow from preconditions?) and forward-trace (do downstream consumers behave correctly?) to verify logical consistency.
+- Eliminate implementation gaps, memory leaks, race conditions, and bugs before proposing a solution. Maximise code re-use: search for existing utilities before writing new ones.
+- Optimise for robustness, security, and conciseness.
+- If anything is unclear, ask — do not guess.
+
+## Critical Agent Guidelines
+
+**⚠️ AGENTS MUST NOT COMMIT CODE**: AI agents must never execute `git commit`, `git push`, or any other git write operations. All code changes should be left staged or unstaged for the user to commit manually. This ensures:
+
+- User retains full control over commits and commit messages
+- Commits remain authored by the user, not an AI agent
+- All changes are reviewable before being committed
+- Commit history remains clean and human-authored
+
+If you need to record work, ask the user to commit or use task tracking instead.
+
 ## 🏗️ Architecture Overview
 
 This is a **multi-service document processing API** that acts as a unified gateway for 4 different document processing services via a FastAPI proxy. The system prioritizes **resume/CV/cover letter processing** but supports comprehensive document conversion.
