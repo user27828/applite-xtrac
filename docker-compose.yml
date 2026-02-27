@@ -7,6 +7,12 @@
 x-common-service: &common-service
   networks:
     - app-network
+  deploy:
+    restart_policy:
+      condition: on-failure
+      delay: 5s
+      max_attempts: 5
+      window: 120s
 
 x-service-template: &service-template
   <<: *common-service
@@ -16,14 +22,6 @@ x-service-template: &service-template
 x-env-template: &env-template
   environment:
     - PORT=${INTERNAL_PORT}
-
-x-restart-policy: &restart-policy
-  deploy:
-    restart_policy:
-      condition: on-failure
-      delay: 5s
-      max_attempts: 3
-      window: 120s
 
 services:
   unstructured-io:
@@ -43,12 +41,6 @@ services:
       - "2004:2004"
     environment:
       - UNOSERVER_STOP_AFTER=50
-    deploy:
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
-        window: 120s
 
   pyconvert:
     <<: *common-service
