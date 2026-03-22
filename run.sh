@@ -6,8 +6,14 @@
 set -euo pipefail  # Exit on error, undefined vars, and pipe failures
 
 # Configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="docker-compose.yml"
 PROJECT_NAME="applite-xtrac"
+ROOT_DIR="$SCRIPT_DIR"
+ROOT_VENV_DIR="$ROOT_DIR/venv"
+ROOT_VENV_PYTHON="$ROOT_VENV_DIR/bin/python"
+ROOT_VENV_PIP="$ROOT_VENV_DIR/bin/pip"
+SYSTEM_PYTHON="${APPLITEXTRAC_SYSTEM_PYTHON:-/usr/bin/python3}"
 # Set default port if not already defined
 APPLITEXTRAC_PORT=${APPLITEXTRAC_PORT:-8369}
 APPLITEXTRAC_HTTP_TIMEOUT=${APPLITEXTRAC_HTTP_TIMEOUT:-0}
@@ -59,6 +65,54 @@ check_dependencies() {
         log_info "Please install missing dependencies and try again."
         exit 1
     fi
+}
+
+create_repo_venv() {
+    local rebuild=${1:-false}
+    local backup_dir=""
+
+    cd "$ROOT_DIR"
+
+    if $rebuild && [ -d "$ROOT_VENV_DIR" ]; then
+        backup_dir="${ROOT_DIR}/venv.backup.$(date +%Y%m%d-%H%M%S)"
+        mv "$ROOT_VENV_DIR" "$backup_dir"
+        log_info "Backed up existing virtual environment to $backup_dir"
+    fi
+
+    if [ ! -d "$ROOT_VENV_DIR" ]; then
+        log_info "Creating repo virtual environment at $ROOT_VENV_DIR"
+        if ! "$SYSTEM_PYTHON" -m venv "$ROOT_VENV_DIR" 2>/dev/null; then
+            log_warning "Standard venv creation unavailable for $SYSTEM_PYTHON, falling back to virtualenv"
+            if ! command -v virtualenv >/dev/null 2>&1; then
+                log_error "virtualenv executable not found for fallback venv creation"
+                exit 1
+            fi
+            virtualenv --python "$SYSTEM_PYTHON" "$ROOT_VENV_DIR" || {
+                log_error "Failed to create virtual environment"
+                exit 1
+            }
+        fi
+    fi
+
+    # shellcheck disable=SC1091
+    source "$ROOT_VENV_DIR/bin/activate"
+    "$ROOT_VENV_PIP" install --upgrade pip
+    "$ROOT_VENV_PIP" install \
+        -r "$ROOT_DIR/proxy-service/requirements.txt" \
+        -r "$ROOT_DIR/proxy-service/requirements-dev.txt" \
+        -r "$ROOT_DIR/pyconvert-service/requirements.txt"
+}
+
+ensure_repo_venv() {
+    if [ ! -x "$ROOT_VENV_PYTHON" ]; then
+        create_repo_venv false
+    fi
+}
+
+activate_repo_venv() {
+    ensure_repo_venv
+    # shellcheck disable=SC1091
+    source "$ROOT_VENV_DIR/bin/activate"
 }
 
 # Configuration validation
@@ -290,17 +344,8 @@ start_local_proxy() {
         exit 1
     fi
     
-    cd "$proxy_dir"
-    
-    # Check if Python environment exists
-    if [ ! -d "venv" ]; then
-        log_warning "Virtual environment not found. Creating one..."
-        python3 -m venv venv
-        source venv/bin/activate
-        pip install -r requirements.txt
-    else
-        source venv/bin/activate
-    fi
+    cd "$ROOT_DIR/$proxy_dir"
+    activate_repo_venv
     
     # Set environment variables for local development with network optimizations
     export APPLITEXTRAC_PORT  # Export the port variable
@@ -319,7 +364,7 @@ start_local_proxy() {
     log_info "Press Ctrl+C to stop"
     
     # Start with auto-reload for development
-    uvicorn app:app --host 0.0.0.0 --port ${APPLITEXTRAC_PORT} --reload --reload-exclude 'venv/'
+    "$ROOT_VENV_DIR/bin/uvicorn" app:app --host 0.0.0.0 --port ${APPLITEXTRAC_PORT} --reload --reload-exclude 'venv/'
 }
 
 # Stop development mode
@@ -450,32 +495,17 @@ run_all_tests() {
         exit 1
     fi
     
-    cd "$proxy_dir"
-    
-    # Check if Python environment exists
-    if [ ! -d "venv" ]; then
-        log_warning "Virtual environment not found. Creating one..."
-        python3 -m venv venv
-        source venv/bin/activate
-        pip install -r requirements.txt
-        pip install -r requirements-dev.txt
-    else
-        source venv/bin/activate
-        # Check if pytest is available, install dev requirements if not
-        if ! ./venv/bin/python -c "import pytest" 2>/dev/null; then
-            log_info "Installing development dependencies..."
-            pip install -r requirements-dev.txt
-        fi
-    fi
+    cd "$ROOT_DIR/$proxy_dir"
+    activate_repo_venv
     
     log_info "Running all tests..."
     
     # Run pytest with coverage
-    if ./venv/bin/python -c "import pytest" 2>/dev/null; then
-        ./venv/bin/python -m pytest --tb=short --cov=convert --cov-report=html:htmlcov || log_error "Tests failed"
+    if "$ROOT_VENV_PYTHON" -c "import pytest" 2>/dev/null; then
+        "$ROOT_VENV_PYTHON" -m pytest --tb=short --cov=convert --cov-report=html:htmlcov || log_error "Tests failed"
     else
         log_warning "pytest not found in virtual environment, running basic Python tests..."
-        ./venv/bin/python -m unittest discover tests/ -v || log_error "Basic tests failed"
+        "$ROOT_VENV_PYTHON" -m unittest discover tests/ -v || log_error "Basic tests failed"
     fi
     
     log_success "All tests completed"
@@ -497,32 +527,17 @@ run_conversion_tests() {
         exit 1
     fi
     
-    cd "$proxy_dir"
-    
-    # Check if Python environment exists
-    if [ ! -d "venv" ]; then
-        log_warning "Virtual environment not found. Creating one..."
-        python3 -m venv venv
-        source venv/bin/activate
-        pip install -r requirements.txt
-        pip install -r requirements-dev.txt
-    else
-        source venv/bin/activate
-        # Check if pytest is available, install dev requirements if not
-        if ! ./venv/bin/python -c "import pytest" 2>/dev/null; then
-            log_info "Installing development dependencies..."
-            pip install -r requirements-dev.txt
-        fi
-    fi
+    cd "$ROOT_DIR/$proxy_dir"
+    activate_repo_venv
     
     log_info "Running conversion integration tests with detailed output..."
     
     # Run the specific test method that shows all conversion results
-    if ./venv/bin/python -c "import pytest" 2>/dev/null; then
-        ./venv/bin/python -m pytest tests/integration/test_conversions.py::TestConversionEndpoints::test_all_file_conversions -v -s --tb=short $extra_args || log_error "Conversion tests failed"
+    if "$ROOT_VENV_PYTHON" -c "import pytest" 2>/dev/null; then
+        "$ROOT_VENV_PYTHON" -m pytest tests/integration/test_conversions.py::TestConversionEndpoints::test_all_file_conversions -v -s --tb=short $extra_args || log_error "Conversion tests failed"
     else
         log_warning "pytest not found in virtual environment, running basic Python tests..."
-        ./venv/bin/python -m unittest tests.integration.test_conversions.TestConversionEndpoints.test_all_file_conversions -v || log_error "Basic conversion tests failed"
+        "$ROOT_VENV_PYTHON" -m unittest tests.integration.test_conversions.TestConversionEndpoints.test_all_file_conversions -v || log_error "Basic conversion tests failed"
     fi
     
     log_success "Conversion tests completed"
@@ -537,32 +552,17 @@ run_url_tests() {
         exit 1
     fi
     
-    cd "$proxy_dir"
-    
-    # Check if Python environment exists
-    if [ ! -d "venv" ]; then
-        log_warning "Virtual environment not found. Creating one..."
-        python3 -m venv venv
-        source venv/bin/activate
-        pip install -r requirements.txt
-        pip install -r requirements-dev.txt
-    else
-        source venv/bin/activate
-        # Check if pytest is available, install dev requirements if not
-        if ! ./venv/bin/python -c "import pytest" 2>/dev/null; then
-            log_info "Installing development dependencies..."
-            pip install -r requirements-dev.txt
-        fi
-    fi
+    cd "$ROOT_DIR/$proxy_dir"
+    activate_repo_venv
     
     log_info "Running URL fetching tests..."
     
     # Run the URL fetching tests
-    if ./venv/bin/python -c "import pytest" 2>/dev/null; then
-        ./venv/bin/python -m pytest convert/test_url_fetching.py -v -s --tb=short || log_error "URL tests failed"
+    if "$ROOT_VENV_PYTHON" -c "import pytest" 2>/dev/null; then
+        "$ROOT_VENV_PYTHON" -m pytest convert/test_url_fetching.py -v -s --tb=short || log_error "URL tests failed"
     else
         log_warning "pytest not found in virtual environment, running basic Python tests..."
-        ./venv/bin/python -m unittest convert.test_url_fetching -v || log_error "Basic URL tests failed"
+        "$ROOT_VENV_PYTHON" -m unittest convert.test_url_fetching -v || log_error "Basic URL tests failed"
     fi
     
     log_success "URL tests completed"
@@ -570,34 +570,16 @@ run_url_tests() {
 
 # Check and activate Python virtual environment
 check_and_activate_venv() {
-    local proxy_dir="proxy-service"
-    
-    if [ ! -d "$proxy_dir" ]; then
-        log_error "Proxy service directory '$proxy_dir' not found"
-        exit 1
-    fi
-    
-    cd "$proxy_dir"
-    
-    # Check if Python environment exists
-    if [ ! -d "venv" ]; then
-        log_warning "Virtual environment not found. Creating one..."
-        python3 -m venv venv
-        source venv/bin/activate
-        pip install -r requirements.txt
-    else
-        source venv/bin/activate
-    fi
-    
-    cd - > /dev/null
+    activate_repo_venv
 }
 
 show_usage() {
-    echo "Usage: $0 {help|activate|up|down|stop|start|start:d|status|ps|logs|restart|build|dev|dev:stop|update|resources|health|test|test:conversion|test:url}"
+    echo "Usage: $0 {help|activate|venv:rebuild|up|down|stop|start|start:d|status|ps|logs|restart|build|dev|dev:stop|update|resources|health|test|test:conversion|test:url}"
     echo ""
     echo "Commands:"
     echo "  help         Show this usage message"
     echo "  activate     Check and activate Python virtual environment"
+    echo "  venv:rebuild Rebuild the repo-local virtual environment from requirements"
     echo "  start|up     Start all services"
     echo "  startd|up-d  Start all services in background"
     echo "  stop|down    Stop all services"
@@ -622,9 +604,6 @@ main() {
         exit 0
     fi
 
-    # Check and activate venv for all commands
-    check_and_activate_venv
-    
     local command=$1
     shift
     
@@ -633,7 +612,12 @@ main() {
             show_usage
             ;;
         "activate")
+            check_and_activate_venv
             log_success "Virtual environment is active"
+            ;;
+        "venv:rebuild")
+            create_repo_venv true
+            log_success "Repo-local virtual environment rebuilt successfully"
             ;;
         "up"|"start")
             do_start false "$@"

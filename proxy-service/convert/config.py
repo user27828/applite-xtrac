@@ -172,6 +172,11 @@ CONVERSION_MATRIX = {
         (ConversionService.GOTENBERG, "HTML to PDF using Gotenberg"),
     ],
 
+    ("heic", "pdf"): [
+        (ConversionService.WEASYPRINT, "Image to PDF using WeasyPrint"),
+        (ConversionService.GOTENBERG, "Image to PDF using Gotenberg"),
+    ],
+
     ("html", "tex"): [
         (ConversionService.PANDOC, "HTML to LaTeX"),
     ],
@@ -184,6 +189,51 @@ CONVERSION_MATRIX = {
 
     ("html", "html"): [
         (ConversionService.BEAUTIFULSOUP, "HTML cleaning and processing with BeautifulSoup"),
+    ],
+
+    ("jpg", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, "Image OCR and structure extraction"),
+    ],
+
+    ("jpg", "pdf"): [
+        (ConversionService.WEASYPRINT, "Image to PDF using WeasyPrint"),
+        (ConversionService.GOTENBERG, "Image to PDF using Gotenberg"),
+    ],
+
+    ("jpeg", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, "Image OCR and structure extraction"),
+    ],
+
+    ("jpeg", "pdf"): [
+        (ConversionService.WEASYPRINT, "Image to PDF using WeasyPrint"),
+        (ConversionService.GOTENBERG, "Image to PDF using Gotenberg"),
+    ],
+
+    ("png", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, "Image OCR and structure extraction"),
+    ],
+
+    ("png", "pdf"): [
+        (ConversionService.WEASYPRINT, "Image to PDF using WeasyPrint"),
+        (ConversionService.GOTENBERG, "Image to PDF using Gotenberg"),
+    ],
+
+    ("tiff", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, "Image OCR and structure extraction"),
+    ],
+
+    ("tiff", "pdf"): [
+        (ConversionService.WEASYPRINT, "Image to PDF using WeasyPrint"),
+        (ConversionService.GOTENBERG, "Image to PDF using Gotenberg"),
+    ],
+
+    ("tif", "pdf"): [
+        (ConversionService.WEASYPRINT, "Image to PDF using WeasyPrint"),
+        (ConversionService.GOTENBERG, "Image to PDF using Gotenberg"),
+    ],
+
+    ("bmp", "json"): [
+        (ConversionService.UNSTRUCTURED_IO, "Image OCR and structure extraction"),
     ],
 
     ("latex", "docx"): [

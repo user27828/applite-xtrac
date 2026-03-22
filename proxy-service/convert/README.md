@@ -13,6 +13,7 @@ Special attention has been given to formats commonly used for **resumes/CVs/cove
 ### Priority Input Formats
 - `pptx`, `ppt` - PowerPoint presentations
 - `docx`, `odt`, `rtf` - Word processing documents
+- `jpg`, `jpeg`, `png`, `tiff`, `heic` - Scanned pages and image inputs
 - `html` - Web content
 - `md` - Markdown
 - `tex` - LaTeX
@@ -48,6 +49,11 @@ Special attention has been given to formats commonly used for **resumes/CVs/cove
 | `POST /convert/docx-pdf` | DOCX to PDF | Gotenberg | Resume/CV conversion |
 | `POST /convert/pptx-pdf` | PPTX to PDF | Gotenberg | Presentation conversion |
 | `POST /convert/html-pdf` | HTML to PDF | WeasyPrint/Gotenberg | Web content to PDF |
+| `POST /convert/jpg-pdf` | JPEG image to PDF | WeasyPrint/Gotenberg | Wrap scanned pages as PDF pages |
+| `POST /convert/jpeg-pdf` | JPEG image to PDF | WeasyPrint/Gotenberg | Wrap scanned pages as PDF pages |
+| `POST /convert/png-pdf` | PNG image to PDF | WeasyPrint/Gotenberg | Wrap screenshots or scans as PDF pages |
+| `POST /convert/tiff-pdf` | TIFF image to PDF | WeasyPrint/Gotenberg | Convert single or multi-page TIFF images to PDF |
+| `POST /convert/heic-pdf` | HEIC image to PDF | WeasyPrint/Gotenberg | Convert HEIC captures to PDF |
 | `POST /convert/md-pdf` | Markdown to PDF | Pandoc | Text content to PDF |
 | `POST /convert/url-pdf` | URL to PDF | WeasyPrint/Gotenberg | Web page archiving |
 
@@ -56,6 +62,9 @@ Special attention has been given to formats commonly used for **resumes/CVs/cove
 |----------|-------------|----------------|----------|
 | `POST /convert/docx-json` | DOCX to JSON | Unstructured IO | Document analysis |
 | `POST /convert/pdf-json` | PDF to JSON | Unstructured IO | Document analysis |
+| `POST /convert/jpg-json` | JPEG image to JSON | Unstructured IO | OCR and layout extraction for scanned pages |
+| `POST /convert/jpeg-json` | JPEG image to JSON | Unstructured IO | OCR and layout extraction for scanned pages |
+| `POST /convert/png-json` | PNG image to JSON | Unstructured IO | OCR and layout extraction for scanned pages |
 | `POST /convert/url-json` | URL to JSON | Unstructured IO | Web content analysis |
 
 #### Other Conversions
@@ -199,12 +208,30 @@ curl -X POST "http://localhost:8369/convert/pdf-json" \
   -o document-structure.json
 ```
 
+#### Extract OCR Structure from a Scanned JPEG
+```bash
+curl -X POST "http://localhost:8369/convert/jpg-json" \
+  -F "file=@scan.jpg" \
+  -F "strategy=hi_res" \
+  -F "languages=eng+fra+deu+spa+por" \
+  -o scan-structure.json
+```
+
 #### Convert HTML Content to PDF
 ```bash
 curl -X POST "http://localhost:8369/convert/html-pdf" \
   -F "file=@webpage.html" \
   -o webpage.pdf
 ```
+
+#### Convert an Image to PDF
+```bash
+curl -X POST "http://localhost:8369/convert/jpg-pdf" \
+  -F "file=@scan.jpg" \
+  -o scan.pdf
+```
+
+Image-to-PDF conversion wraps the original image into one or more PDF pages. It does not run OCR, and it does not create or embed a searchable OCR text layer. Visible text inside the image remains pixels only. For searchable text extraction, use the `*-json` OCR endpoints and a dedicated OCR-PDF workflow.
 
 #### Convert HTML to Clean HTML (BeautifulSoup)
 ```bash

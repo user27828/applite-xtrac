@@ -14,15 +14,6 @@ x-common-service: &common-service
       max_attempts: 5
       window: 120s
 
-x-service-template: &service-template
-  <<: *common-service
-  ports:
-    - "${EXTERNAL_PORT:-INTERNAL_PORT}:INTERNAL_PORT"
-
-x-env-template: &env-template
-  environment:
-    - PORT=${INTERNAL_PORT}
-
 services:
   unstructured-io:
     <<: *common-service

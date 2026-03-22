@@ -35,6 +35,7 @@ from .conversion_lookup import (
 )
 from .url_processor import ConversionInput, fetch_url_content
 from .error_handling import create_http_exception, ErrorCode, handle_conversion_error, handle_service_error, sanitize_filename
+from .image_pdf_utils import build_image_pdf_html
 
 # Import unified MIME type detector
 from .mime_detector import get_mime_type as get_unified_mime_type
@@ -47,6 +48,8 @@ from .temp_file_manager import (
     cleanup_temp_files,
     cleanup_temp_file
 )
+
+IMAGE_TO_PDF_INPUT_FORMATS = {"heic", "jpg", "jpeg", "png", "tiff", "tif"}
 
 # Legacy function - now uses unified MIME detector
 def get_mime_type(extension: str) -> str:
@@ -76,6 +79,30 @@ async def _get_service_client(service: ConversionService, request: Request) -> h
     else:
         # Default client for unstructured.io and other services
         return request.app.state.client
+
+
+class InMemoryUploadFile:
+    """Minimal UploadFile-compatible wrapper for generated in-memory content."""
+
+    def __init__(self, filename: str, content: bytes, content_type: str):
+        self.filename = filename
+        self.content_type = content_type
+        self._content = content
+
+    async def read(self) -> bytes:
+        return self._content
+
+    async def seek(self, position: int) -> None:
+        return None
+
+
+async def _create_image_pdf_upload(current_file: UploadFile, input_format: str) -> InMemoryUploadFile:
+    """Convert an image upload into printable HTML for downstream PDF renderers."""
+    await current_file.seek(0)
+    file_content = await current_file.read()
+    html_content = build_image_pdf_html(file_content, current_file.filename, input_format)
+    base_name = current_file.filename.rsplit(".", 1)[0] if "." in current_file.filename else current_file.filename
+    return InMemoryUploadFile(f"{base_name}.html", html_content.encode("utf-8"), "text/html")
 
 
 async def _proxy_pyconvert(
@@ -648,11 +675,15 @@ async def _convert_file(
             elif service_to_try == ConversionService.GOTENBERG:
                 # Gotenberg supports both files and URLs
                 if current_file:
+                    if input_format in IMAGE_TO_PDF_INPUT_FORMATS and output_format == "pdf":
+                        current_file = await _create_image_pdf_upload(current_file, input_format)
+                        input_format = "html"
+
                     await current_file.seek(0)  # Reset file pointer
                     file_content = await current_file.read()
                     # For HTML files, use the correct endpoint and filename
                     if input_format == 'html':
-                        files = {"index.html": ("index.html", file_content, f"application/{input_format}")}
+                        files = {"index.html": ("index.html", file_content, "text/html")}
                         endpoint = "forms/chromium/convert/html"
                     elif input_format in ['docx', 'pptx', 'xlsx', 'xls', 'ppt', 'odt', 'ods', 'odp', 'pages', 'numbers']:
                         files = {"files": (current_file.filename, file_content, f"application/{input_format}")}
@@ -756,16 +787,31 @@ async def _convert_file(
                 )
 
             elif service_to_try == ConversionService.WEASYPRINT:
-                if input_format != "html" or output_format != "pdf":
+                if output_format != "pdf":
                     raise create_http_exception(
                         ErrorCode.INVALID_REQUEST,
-                        details="WEASYPRINT only supports HTML to PDF conversion",
+                        details="WEASYPRINT only supports PDF output",
                         service="weasyprint"
                     )
                 if not current_file and not current_url:
                     raise create_http_exception(
                         ErrorCode.INVALID_REQUEST,
                         details="WEASYPRINT requires either file upload or URL input",
+                        service="weasyprint"
+                    )
+
+                if current_file and input_format in IMAGE_TO_PDF_INPUT_FORMATS:
+                    current_file = await _create_image_pdf_upload(current_file, input_format)
+                    return await _proxy_pyconvert(
+                        ConversionService.WEASYPRINT, "weasyprint", "WeasyPrint",
+                        current_file, None, "pdf", "application/pdf",
+                        extra_params=extra_params,
+                    )
+
+                if input_format != "html" and not current_url:
+                    raise create_http_exception(
+                        ErrorCode.INVALID_REQUEST,
+                        details="WEASYPRINT only supports HTML or image input for PDF conversion",
                         service="weasyprint"
                     )
                 return await _proxy_pyconvert(

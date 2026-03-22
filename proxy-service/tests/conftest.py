@@ -188,7 +188,42 @@ def temp_dir():
 @pytest.fixture(scope="session")
 def fixtures_dir():
     """Directory containing test fixture files."""
-    return Path(__file__).parent / "fixtures"
+    fixtures = Path(__file__).parent / "fixtures"
+    _ensure_generated_image_fixtures(fixtures)
+    return fixtures
+
+
+def _ensure_generated_image_fixtures(fixtures: Path) -> None:
+    """Generate image fixtures used by integration coverage for image conversions."""
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        return
+
+    def create_image(path: Path, label: str, fmt: str) -> Image.Image:
+        image = Image.new("RGB", (900, 1200), "white")
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((40, 40, 860, 1160), outline="black", width=6)
+        draw.text((90, 120), label, fill="black")
+        draw.text((90, 220), "Resume / CV sample", fill="black")
+        draw.text((90, 320), "Email: sample@example.com", fill="black")
+        if not path.exists():
+            image.save(path, format=fmt)
+        return image
+
+    create_image(fixtures / "sample.jpg", "JPEG fixture", "JPEG")
+    create_image(fixtures / "sample.png", "PNG fixture", "PNG")
+
+    tiff_path = fixtures / "sample.tiff"
+    if not tiff_path.exists():
+        first_page = create_image(fixtures / "_sample_tiff_page1.png", "TIFF fixture page 1", "PNG")
+        second_page = Image.new("RGB", (900, 1200), "white")
+        draw = ImageDraw.Draw(second_page)
+        draw.rectangle((40, 40, 860, 1160), outline="black", width=6)
+        draw.text((90, 120), "TIFF fixture page 2", fill="black")
+        draw.text((90, 220), "Second page for multi-page PDF rendering", fill="black")
+        first_page.save(tiff_path, format="TIFF", save_all=True, append_images=[second_page])
+        (fixtures / "_sample_tiff_page1.png").unlink(missing_ok=True)
 
 
 # ===== FILE FIXTURES (GENERATED USING FACTORY) =====

@@ -68,6 +68,7 @@ MIME_TYPE_MAPPINGS = {
     "bmp": "image/bmp",
     "tiff": "image/tiff",
     "tif": "image/tiff",
+    "heic": "image/heic",
 
     # JSON and structured data
     "json": "application/json",

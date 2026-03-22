@@ -87,9 +87,9 @@ This document provides a comprehensive overview of supported file formats across
 | .epub | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | .fb2 | ✅* | ❌ | ✅* | ✅* | ❌ | ✅* | ❌ | ❌ | ❌ | ❌ |
 | .gnumeric | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ | ❌ | ❌ | ❌ |
-| .heic | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* | ❌ | ❌ | ❌ |
+| .heic | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* | ❌ | ❌ | ❌ |
 | .html | ✅ | ✅ | ✅** | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
-| .jpg | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* | ❌ | ❌ | ❌ |
+| .jpg | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | .key | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ | ❌ | ✅ | ✅ |
 | .latex | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ | ❌ | ❌ | ❌ |
 | .md | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
@@ -102,7 +102,8 @@ This document provides a comprehensive overview of supported file formats across
 | .pages | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | .parquet | ✅* | ❌ | ✅* | ❌ | ❌ | ✅* | ❌ | ❌ | ❌ | ❌ |
 | .pdf | ❌ | ✅ | ✅* | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
-| .png | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* | ❌ | ❌ | ❌ |
+| .png | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| .tiff | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅* | ❌ | ❌ | ❌ |
 | .ppt | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | .pptx | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | .rst | ✅* | ❌ | ✅* | ❌ | ✅* | ✅* | ❌ | ❌ | ❌ | ❌ |
@@ -178,9 +179,10 @@ This document provides a comprehensive overview of supported file formats across
 ### Images and Graphics
 | Format | Extension | Unstructured IO | LibreOffice | Pandoc | Gotenberg | Notes |
 |--------|-----------|----------------|-------------|--------|-----------|-------|
-| PNG | .png | ✅* | ❌ | ❌ | ❌ | **GAP**: No conversion to document formats |
-| JPEG | .jpg, .jpeg | ✅* | ❌ | ❌ | ❌ | **GAP**: No conversion to document formats |
-| HEIC | .heic | ✅* | ❌ | ❌ | ❌ | **GAP**: No conversion to document formats |
+| PNG | .png | ✅ | ❌ | ❌ | ❌ | Direct `POST /convert/png-json` and `POST /convert/png-pdf` are supported; image→PDF does not run OCR and produces an image-only PDF without an OCR text layer |
+| JPEG | .jpg, .jpeg | ✅ | ❌ | ❌ | ❌ | Direct `POST /convert/jpg-json`, `POST /convert/jpeg-json`, `POST /convert/jpg-pdf`, and `POST /convert/jpeg-pdf` are supported; image→PDF does not run OCR and produces an image-only PDF without an OCR text layer |
+| TIFF | .tiff, .tif | ✅* | ❌ | ❌ | ❌ | `POST /convert/tiff-pdf` is supported; multi-page TIFF files render each frame as a PDF page, and image→PDF does not run OCR or embed OCR text |
+| HEIC | .heic | ✅* | ❌ | ❌ | ❌ | `POST /convert/heic-pdf` is supported; image→PDF does not run OCR and produces an image-only PDF without an OCR text layer |
 
 ### Legacy and Specialized Formats
 | Format | Extension | Unstructured IO | LibreOffice | Pandoc | Gotenberg | Notes |
@@ -235,9 +237,9 @@ This document provides a comprehensive overview of supported file formats across
 ## Conversion Gaps and Limitations
 
 ### Critical Gaps (No Service Support)
-1. **Image Formats → Document Formats**
-   - **Problem**: PNG, JPG, HEIC files can only be processed for text extraction by Unstructured IO
-   - **Gap**: Cannot convert images to PDF, DOCX, HTML, or other document formats
+1. **Image Formats → Editable Document Formats**
+  - **Problem**: PNG, JPEG, TIFF, and HEIC files can be converted to PDF, but the conversion does not run OCR and the result is a page image rather than an editable document
+  - **Gap**: Cannot convert images to DOCX, HTML, Markdown, or searchable OCR-PDF with an embedded text layer
    - **Impact**: Scanned documents, screenshots, and graphics cannot be converted to editable formats
 
 2. **Email Formats → Document Formats**
