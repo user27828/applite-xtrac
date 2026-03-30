@@ -75,8 +75,7 @@ PASSTHROUGH_FORMATS = {
 # Conversion matrix defining input -> output format mappings with preferred services
 CONVERSION_MATRIX = {
     ("doc", "md"): [
-        [ConversionService.LIBREOFFICE, "doc", "docx", "Convert legacy DOC to DOCX using LibreOffice"],
-        [ConversionService.PANDOC, "docx", "md", "Convert DOCX to Markdown using Pandoc"]
+        (ConversionService.UNSTRUCTURED_IO, "Convert legacy DOC to Markdown using structure-preserving Unstructured-IO"),
     ],
 
     ("doc", "txt"): [
