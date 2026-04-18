@@ -8,6 +8,7 @@ and utility functions that were moved from router.py to keep the router clean.
 import logging
 import httpx
 import re
+import zipfile
 from typing import Optional, Dict, Any
 from urllib.parse import urlparse
 from io import BytesIO
@@ -50,6 +51,12 @@ from .temp_file_manager import (
 )
 
 IMAGE_TO_PDF_INPUT_FORMATS = {"heic", "jpg", "jpeg", "png", "tiff", "tif"}
+LIBREOFFICE_HTML_DOCX_FILTER = "MS Word 2007 XML"
+WORD_DOCUMENT_XML_PATH = "word/document.xml"
+WORD_DOCUMENT_BODY_OPEN_RE = re.compile(rb"<w:body\b[^>]*>")
+WORD_DOCUMENT_BODY_CLOSE_RE = re.compile(rb"</w:body>")
+WORD_DOCUMENT_BODY_CHILD_START_RE = re.compile(rb"<(?P<tag>w:[A-Za-z0-9]+)\b")
+WORD_DOCUMENT_START_TAG_RE = re.compile(rb"<(?P<tag>[A-Za-z0-9:_-]+)\b")
 
 # Legacy function - now uses unified MIME detector
 def get_mime_type(extension: str) -> str:
@@ -79,6 +86,260 @@ async def _get_service_client(service: ConversionService, request: Request) -> h
     else:
         # Default client for unstructured.io and other services
         return request.app.state.client
+
+
+def _normalize_multipart_values(value: Any) -> list[str]:
+    """Convert scalar or repeated multipart fields into a flat list of strings."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value if item not in (None, "")]
+    if value == "":
+        return []
+    return [str(value)]
+
+
+def _build_libreoffice_request_data(
+    input_format: str,
+    output_format: str,
+    extra_params: Optional[Dict[str, Any]] = None,
+) -> list[tuple[str, str]]:
+    """Build multipart fields for LibreOffice conversions.
+
+    The bundled libreoffice-unoserver image currently ships with unoserver 1.6,
+    which still expects the backward-compatible ``--filter`` flag rather than the
+    newer ``--output-filter`` spelling. Newer versions keep ``--filter`` as an
+    alias, so using it here is compatible across both generations.
+    """
+    data: list[tuple[str, str]] = [("convert-to", output_format)]
+    explicit_filter_requested = False
+
+    if extra_params:
+        for key, raw_value in extra_params.items():
+            values = _normalize_multipart_values(raw_value)
+            if key == "opts[]":
+                if any(
+                    option == "--filter"
+                    or option.startswith("--filter=")
+                    or option.startswith("--output-filter=")
+                    for option in values
+                ):
+                    explicit_filter_requested = True
+            for value in values:
+                data.append((key, value))
+
+    if (
+        input_format == "html"
+        and output_format == "docx"
+        and not explicit_filter_requested
+    ):
+        data.append(("opts[]", f"--filter={LIBREOFFICE_HTML_DOCX_FILTER}"))
+
+    return data
+
+
+def _postprocess_conversion_content(
+    content: bytes,
+    input_format: str,
+    output_format: str,
+) -> bytes:
+    """Apply format-specific cleanup after a successful conversion."""
+    if input_format == "html" and output_format == "docx":
+        return _strip_leading_empty_docx_paragraphs(content)
+
+    return content
+
+
+def _strip_leading_empty_docx_paragraphs(docx_content: bytes) -> bytes:
+    """Remove artifact-only empty body paragraphs from generated DOCX files.
+
+    HTML->DOCX backends can emit empty direct ``<w:body>/<w:p>`` nodes for
+    structural container blocks such as ``section`` and ``div`` wrappers. Word
+    renders those nodes as visible blank lines, which shows up as excessive
+    whitespace throughout exported resumes. Strip only empty direct body
+    paragraphs and leave nested content (for example table-cell paragraphs)
+    untouched.
+    """
+    try:
+        with zipfile.ZipFile(BytesIO(docx_content), "r") as source_zip:
+            if WORD_DOCUMENT_XML_PATH not in source_zip.namelist():
+                return docx_content
+
+            original_document_xml = source_zip.read(WORD_DOCUMENT_XML_PATH)
+            updated_document_xml = _strip_empty_body_paragraph_xml(
+                original_document_xml
+            )
+            if updated_document_xml == original_document_xml:
+                return docx_content
+
+            output_buffer = BytesIO()
+            with zipfile.ZipFile(output_buffer, "w") as target_zip:
+                for zip_info in source_zip.infolist():
+                    entry_content = source_zip.read(zip_info.filename)
+                    if zip_info.filename == WORD_DOCUMENT_XML_PATH:
+                        entry_content = updated_document_xml
+                    target_zip.writestr(zip_info, entry_content)
+
+            return output_buffer.getvalue()
+    except (zipfile.BadZipFile, KeyError, ValueError) as exc:
+        logger.warning("Skipping DOCX whitespace cleanup: %s", exc)
+        return docx_content
+
+
+def _strip_leading_empty_paragraph_xml(document_xml: bytes) -> bytes:
+    """Backward-compatible wrapper for empty-body-paragraph cleanup."""
+    return _strip_empty_body_paragraph_xml(document_xml)
+
+
+def _strip_empty_body_paragraph_xml(document_xml: bytes) -> bytes:
+    """Remove empty direct ``w:body`` paragraph nodes without reserializing XML."""
+    body_match = WORD_DOCUMENT_BODY_OPEN_RE.search(document_xml)
+    if body_match is None:
+        return document_xml
+
+    body_close_match = WORD_DOCUMENT_BODY_CLOSE_RE.search(document_xml, body_match.end())
+    if body_close_match is None:
+        return document_xml
+
+    body_content = document_xml[body_match.end() : body_close_match.start()]
+    updated_body_content = _strip_empty_direct_body_paragraphs(body_content)
+    if updated_body_content == body_content:
+        return document_xml
+
+    return (
+        document_xml[: body_match.end()]
+        + updated_body_content
+        + document_xml[body_close_match.start() :]
+    )
+
+
+def _strip_empty_direct_body_paragraphs(body_content: bytes) -> bytes:
+    """Remove empty direct paragraph children from serialized ``w:body`` XML."""
+    updated_parts = bytearray()
+    cursor = 0
+    changed = False
+
+    while cursor < len(body_content):
+        child_match = WORD_DOCUMENT_BODY_CHILD_START_RE.search(body_content, cursor)
+        if child_match is None:
+            updated_parts.extend(body_content[cursor:])
+            break
+
+        child_start = child_match.start()
+        updated_parts.extend(body_content[cursor:child_start])
+
+        child_end = _find_xml_element_end(body_content, child_start)
+        if child_end is None:
+            updated_parts.extend(body_content[child_start:])
+            break
+
+        child_xml = body_content[child_start:child_end]
+        if (
+            child_xml.startswith(b"<w:p")
+            and not _docx_paragraph_xml_has_visible_content(child_xml)
+        ):
+            changed = True
+        else:
+            updated_parts.extend(child_xml)
+
+        cursor = child_end
+
+    if not changed:
+        return body_content
+
+    return bytes(updated_parts)
+
+
+def _find_xml_tag_end(document_xml: bytes, start_offset: int) -> Optional[int]:
+    """Return the byte offset immediately after the tag starting at ``start_offset``."""
+    quote_char = None
+    offset = start_offset
+    while offset < len(document_xml):
+        current_byte = document_xml[offset]
+        if quote_char is None and current_byte in (34, 39):
+            quote_char = current_byte
+        elif quote_char == current_byte:
+            quote_char = None
+        elif quote_char is None and current_byte == 62:
+            return offset + 1
+        offset += 1
+    return None
+
+
+def _find_xml_element_end(document_xml: bytes, start_offset: int) -> Optional[int]:
+    """Return the byte offset immediately after the direct child element."""
+    start_tag_match = WORD_DOCUMENT_START_TAG_RE.match(document_xml, start_offset)
+    if start_tag_match is None:
+        return None
+
+    tag_name = start_tag_match.group("tag")
+    start_tag_end = _find_xml_tag_end(document_xml, start_offset)
+    if start_tag_end is None:
+        return None
+
+    start_tag_xml = document_xml[start_offset:start_tag_end]
+    if re.search(rb"/\s*>$", start_tag_xml):
+        return start_tag_end
+
+    closing_tag = b"</" + tag_name + b">"
+    search_offset = start_tag_end
+    depth = 1
+
+    while search_offset < len(document_xml):
+        next_open_match = re.search(
+            rb"<" + re.escape(tag_name) + rb"\b",
+            document_xml[search_offset:],
+        )
+        next_close_offset = document_xml.find(closing_tag, search_offset)
+        next_open_offset = (
+            None if next_open_match is None else search_offset + next_open_match.start()
+        )
+
+        if next_close_offset == -1:
+            return None
+
+        if next_open_offset is not None and next_open_offset < next_close_offset:
+            nested_tag_end = _find_xml_tag_end(document_xml, next_open_offset)
+            if nested_tag_end is None:
+                return None
+
+            nested_start_tag_xml = document_xml[next_open_offset:nested_tag_end]
+            if not re.search(rb"/\s*>$", nested_start_tag_xml):
+                depth += 1
+            search_offset = nested_tag_end
+            continue
+
+        depth -= 1
+        search_offset = next_close_offset + len(closing_tag)
+        if depth == 0:
+            return search_offset
+
+    return None
+
+
+def _docx_paragraph_xml_has_visible_content(paragraph_xml: bytes) -> bool:
+    """Return True when serialized paragraph XML contains visible content."""
+    if re.search(rb"<w:t\b[^>]*>.*?\S.*?</w:t>", paragraph_xml, re.DOTALL):
+        return True
+
+    visible_tags = (
+        "br",
+        "cr",
+        "drawing",
+        "object",
+        "pBdr",
+        "pict",
+        "sym",
+        "tab",
+        "instrText",
+        "lastRenderedPageBreak",
+        "noBreakHyphen",
+        "softHyphen",
+    )
+    return any(
+        re.search(rf"<w:{tag_name}\b".encode("utf-8"), paragraph_xml) is not None
+        for tag_name in visible_tags
+    )
 
 
 class InMemoryUploadFile:
@@ -115,6 +376,7 @@ async def _proxy_pyconvert(
     media_type: str,
     extra_params: Optional[Dict[str, Any]] = None,
     filename_suffix: Optional[str] = None,
+    input_format: Optional[str] = None,
 ) -> StreamingResponse:
     """
     Shared helper that proxies a conversion request to the pyconvert-service.
@@ -177,8 +439,16 @@ async def _proxy_pyconvert(
         suffix = filename_suffix or ""
         output_filename = sanitize_filename(f"{base_name}{suffix}.{output_format}")
 
+        response_content = response.content
+        if input_format:
+            response_content = _postprocess_conversion_content(
+                response_content,
+                input_format,
+                output_format,
+            )
+
         return StreamingResponse(
-            BytesIO(response.content),
+            BytesIO(response_content),
             media_type=media_type,
             headers={
                 "Content-Disposition": f"attachment; filename={output_filename}",
@@ -601,7 +871,7 @@ async def _convert_file(
                 # Get MIME type for input file using standard library
                 mime_type = get_mime_type(input_format)
                 files = {"file": (current_file.filename, file_content, mime_type)}
-                data = {"convert-to": output_format}
+                data = _build_libreoffice_request_data(input_format, output_format, extra_params)
 
                 response = await client.post(
                     f"{service_url}/request",
@@ -857,6 +1127,7 @@ async def _convert_file(
                     current_file, current_url, "docx",
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     extra_params=extra_params,
+                    input_format="html",
                 )
 
             elif service_to_try == ConversionService.BEAUTIFULSOUP:
@@ -933,8 +1204,14 @@ async def _convert_file(
             
             output_filename = sanitize_filename(f"{base_name}.{output_format}")
 
+            response_content = _postprocess_conversion_content(
+                response.content,
+                input_format,
+                output_format,
+            )
+
             return StreamingResponse(
-                BytesIO(response.content),
+                BytesIO(response_content),
                 media_type=content_type,
                 headers={
                     "Content-Disposition": f"attachment; filename={output_filename}",

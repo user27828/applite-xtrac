@@ -147,10 +147,25 @@ CONVERSION_MATRIX = {
         (ConversionService.PANDOC, "E-book format support"),
     ],
 
+    # HTML -> DOCX backend notes:
+    # - html4docx is the primary service for resume HTML because it best preserves
+    #   short header/contact/location blocks and common inline CSS in Word output.
+    #   It is still a Word-oriented HTML parser rather than a browser layout engine,
+    #   so complex stylesheet-driven layouts should not be expected to round-trip.
+    # - Pandoc remains the first fallback, but it relies on pyconvert-side HTML
+    #   normalization before DOCX generation: strip <title>/<meta name=author|date|keywords>,
+    #   flatten semantic containers such as <header>/<main>/<section>, and convert
+    #   text-only <div> blocks into <p> so visible contact lines survive. This
+    #   aligns with Pandoc's own guidance that richer-format conversions can be lossy.
+    # - LibreOffice remains the last fallback. The current 3.19 image bundles
+    #   unoserver 1.6, whose HTML WebDocument import does not auto-resolve the DOCX
+    #   export path, so the proxy injects `opts[]=--filter=MS Word 2007 XML` for this
+    #   pair. Using the older `--filter` spelling is intentional because the bundled
+    #   CLI predates `--output-filter`, and newer unoserver releases still accept it.
     ("html", "docx"): [
-        (ConversionService.LIBREOFFICE, "HTML to Word"),
-        (ConversionService.PANDOC, "HTML to Word"),
         (ConversionService.HTML4DOCX, "HTML to DOCX using html4docx"),
+        (ConversionService.PANDOC, "HTML to Word"),
+        (ConversionService.LIBREOFFICE, "HTML to Word"),
     ],
 
     ("html", "odt"): [

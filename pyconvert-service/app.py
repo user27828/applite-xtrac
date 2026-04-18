@@ -20,6 +20,14 @@ from utils.css_margin_parser import (
     apply_margins_to_docx_sections,
     format_margins_for_pandoc
 )
+from utils.html4docx_utils import (
+    HTML4DOCX_DEFAULT_PARAGRAPH_STYLE,
+    apply_html4docx_font_tuning,
+    normalize_docx_numbering_for_pandoc,
+    prune_html4docx_styles,
+    sync_docx_styles_with_effects,
+)
+from utils.html_utils import normalize_html_for_pandoc_docx
 
 # Try to import python-magic for comprehensive MIME type detection
 try:
@@ -271,6 +279,17 @@ async def convert_file(
 
     # Read file content
     file_content = await file.read()
+
+    is_html_input = (
+        file.filename.lower().endswith(('.html', '.htm'))
+        or 'text/html' in (file.content_type or '').lower()
+        or '--from=html' in extra_args
+    )
+
+    if output_format == "docx" and is_html_input:
+        html_content = file_content.decode('utf-8', errors='replace')
+        file_content = normalize_html_for_pandoc_docx(html_content).encode('utf-8')
+        print("Normalized HTML input for Pandoc DOCX conversion")
 
     # Create input temp file
     input_temp = manager.create_temp_file(
@@ -726,6 +745,7 @@ async def html4docx_html_to_docx(
     """
     # Import html4docx classes
     try:
+        from docx import Document
         from html4docx import HtmlToDocx
         HTML4DOCX_AVAILABLE = True
     except ImportError:
@@ -804,11 +824,24 @@ async def html4docx_html_to_docx(
             if not base_name:
                 base_name = "webpage"
 
-        # Create html4docx converter
-        converter = HtmlToDocx()
+        # Create html4docx converter with a Pandoc-like body style.
+        converter = HtmlToDocx(default_paragraph_style=HTML4DOCX_DEFAULT_PARAGRAPH_STYLE)
 
-        # Convert HTML to DOCX using parse_html_string method
-        docx_document = converter.parse_html_string(html_content)
+        # Convert HTML to DOCX using a tuned python-docx document so the
+        # resulting package is leaner and the default font sizing matches
+        # Pandoc more closely.
+        docx_document = Document()
+        apply_html4docx_font_tuning(docx_document)
+
+        try:
+            prune_html4docx_styles(docx_document)
+            converter.add_html_to_document(html_content, docx_document)
+        except KeyError as exc:
+            print(f"Warning: html4docx style-pruning fallback triggered: {exc}")
+            docx_document = Document()
+            apply_html4docx_font_tuning(docx_document)
+            converter = HtmlToDocx(default_paragraph_style=HTML4DOCX_DEFAULT_PARAGRAPH_STYLE)
+            converter.add_html_to_document(html_content, docx_document)
         
         # Extract and apply @page margins from HTML/CSS
         try:
@@ -826,6 +859,8 @@ async def html4docx_html_to_docx(
         docx_bytes_io = BytesIO()
         docx_document.save(docx_bytes_io)
         docx_bytes = docx_bytes_io.getvalue()
+        docx_bytes = normalize_docx_numbering_for_pandoc(docx_bytes)
+        docx_bytes = sync_docx_styles_with_effects(docx_bytes)
 
         # Generate output filename
         output_filename = f"{base_name}.docx"

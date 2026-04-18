@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 
 from ..config import ConversionService, UNSTRUCTURED_IO_MIME_MAPPING
 from .conversion_lookup import DYNAMIC_SERVICE_URLS
-from .conversion_core import _get_service_client
+from .conversion_core import _build_libreoffice_request_data, _get_service_client
 from .error_handling import sanitize_filename
 
 logger = logging.getLogger(__name__)
@@ -105,7 +105,11 @@ async def chain_conversions(
             if step.service == ConversionService.LIBREOFFICE:
                 # LibreOffice conversion
                 files = {"file": (current_filename, current_content, f"application/{step.input_format}")}
-                data = {"convert-to": step.output_format}
+                data = _build_libreoffice_request_data(
+                    step.input_format,
+                    step.output_format,
+                    step.extra_params,
+                )
 
                 response = await client.post(
                     f"{service_url}/request",

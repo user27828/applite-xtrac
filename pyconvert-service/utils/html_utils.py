@@ -1,18 +1,63 @@
 """
 HTML Processing Utilities for PyConvert Service.
 
-This module provides utilities for HTML content processing, validation, and formatting.
+This module provides utilities for HTML content processing, validation,
+normalization, and formatting.
 """
 
 import re
 import logging
 from typing import Optional, Tuple
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 # Import centralized logging configuration
 from .logging_config import get_logger
 
 logger = get_logger()
+
+
+PANDOC_DOCX_METADATA_NAMES = {"author", "date", "keywords"}
+PANDOC_DOCX_SEMANTIC_CONTAINER_TAGS = {
+    "header",
+    "main",
+    "section",
+    "article",
+    "aside",
+    "footer",
+    "nav",
+}
+PANDOC_DOCX_BLOCK_LEVEL_TAGS = {
+    "address",
+    "article",
+    "aside",
+    "blockquote",
+    "details",
+    "dialog",
+    "div",
+    "dl",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "header",
+    "hr",
+    "li",
+    "main",
+    "nav",
+    "ol",
+    "p",
+    "pre",
+    "section",
+    "table",
+    "ul",
+}
 
 
 def detect_html_structure(html_content: str) -> Tuple[bool, bool, bool]:
@@ -156,6 +201,80 @@ def process_html_content(
         else:
             # Already unwrapped, return as-is
             return html_content
+
+
+def normalize_html_for_pandoc_docx(html_content: str) -> str:
+    """
+    Normalize HTML before Pandoc HTML->DOCX conversion.
+
+    Pandoc's manual explicitly notes that conversions from richer formats can be
+    lossy. In practice, resume-style HTML can lose short contact/location lines
+    when they are wrapped in semantic containers and text-only ``div`` blocks,
+    while ``<title>`` and selected ``<meta>`` tags may surface as unwanted DOCX
+    body content. This helper strips those metadata fields and flattens the HTML
+    into paragraph-friendly blocks before Pandoc emits DOCX.
+
+    Args:
+        html_content: The HTML content to normalize.
+
+    Returns:
+        HTML content normalized for Pandoc DOCX output.
+    """
+    if not html_content:
+        return ""
+
+    soup = BeautifulSoup(html_content, 'html.parser')
+
+    _strip_pandoc_docx_metadata(soup)
+    _flatten_pandoc_docx_semantic_containers(soup)
+    _convert_text_only_divs_to_paragraphs(soup)
+
+    return str(soup)
+
+
+def _strip_pandoc_docx_metadata(soup: BeautifulSoup) -> None:
+    """Remove head metadata that Pandoc can echo into DOCX output."""
+    head_tag = soup.find('head')
+    if not head_tag:
+        return
+
+    for meta_tag in head_tag.find_all('meta'):
+        meta_name = (meta_tag.get('name') or '').strip().lower()
+        if meta_name in PANDOC_DOCX_METADATA_NAMES:
+            meta_tag.decompose()
+
+    title_tag = head_tag.find('title')
+    if title_tag:
+        title_tag.decompose()
+
+
+def _flatten_pandoc_docx_semantic_containers(soup: BeautifulSoup) -> None:
+    """Rename semantic HTML containers to simple div blocks for Pandoc."""
+    for tag_name in PANDOC_DOCX_SEMANTIC_CONTAINER_TAGS:
+        for tag in soup.find_all(tag_name):
+            tag.name = 'div'
+
+
+def _convert_text_only_divs_to_paragraphs(soup: BeautifulSoup) -> None:
+    """Promote short text-only div blocks to paragraphs for DOCX writers."""
+    for div_tag in list(soup.find_all('div')):
+        if _should_convert_div_to_paragraph(div_tag):
+            div_tag.name = 'p'
+
+
+def _should_convert_div_to_paragraph(div_tag: Tag) -> bool:
+    """Return True when a div contains only inline/text content."""
+    if div_tag.find_parent('head') is not None:
+        return False
+
+    if not div_tag.get_text(strip=True):
+        return False
+
+    for descendant in div_tag.find_all(True):
+        if descendant.name in PANDOC_DOCX_BLOCK_LEVEL_TAGS:
+            return False
+
+    return True
 
 
 def normalize_html_content(html_content: str) -> str:
