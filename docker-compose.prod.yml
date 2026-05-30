@@ -1,0 +1,17 @@
+services:
+  unstructured-io:
+    pull_policy: always
+
+  libreoffice:
+    pull_policy: always
+
+  gotenberg:
+    pull_policy: always
+
+  pyconvert:
+    image: ${APPLITEXTRAC_PYCONVERT_IMAGE:-img.agentm.dev/applite-xtrac/pyconvert:latest}
+    pull_policy: always
+
+  proxy:
+    image: ${APPLITEXTRAC_PROXY_IMAGE:-img.agentm.dev/applite-xtrac/proxy:latest}
+    pull_policy: always

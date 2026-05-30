@@ -1,0 +1,152 @@
+version: 2.1
+
+jobs:
+  stack_smoke_test:
+    machine:
+      image: ubuntu-2404:current
+    steps:
+      - checkout
+
+      - run:
+          name: Verify Docker tooling
+          command: |
+            set -euo pipefail
+            if ! docker compose version >/dev/null 2>&1; then
+              sudo apt-get update
+              sudo apt-get install -y docker-compose-plugin
+            fi
+            docker --version
+            docker compose version
+            curl --version
+
+      - run:
+          name: Build and smoke-test the AppLite-Xtrac stack
+          command: |
+            set -euo pipefail
+            trap 'docker compose down -v || true' EXIT
+            docker compose up -d --build
+            curl --retry 40 --retry-all-errors --retry-delay 3 -fsS "http://127.0.0.1:${APPLITEXTRAC_PORT:-8369}/ping"
+            ping_all_response="$(curl --retry 40 --retry-all-errors --retry-delay 3 -fsS "http://127.0.0.1:${APPLITEXTRAC_PORT:-8369}/ping-all")"
+            echo "$ping_all_response"
+            if [[ "$ping_all_response" != *"ALL_SERVICES_HEALTHY"* ]]; then
+              echo "AppLite-Xtrac stack did not report ALL_SERVICES_HEALTHY." >&2
+              exit 1
+            fi
+            docker compose ps
+
+  publish_images:
+    machine:
+      image: ubuntu-2404:current
+    steps:
+      - checkout
+
+      - run:
+          name: Log in to AppLite Docker registry
+          command: |
+            set -euo pipefail
+            export REGISTRY_HOST="${REGISTRY_HOST:-img.agentm.dev}"
+            if [[ -z "${REGISTRY_USERNAME:-}" || -z "${REGISTRY_PASSWORD:-}" ]]; then
+              echo "REGISTRY_USERNAME and REGISTRY_PASSWORD are required to publish Docker images." >&2
+              exit 1
+            fi
+            printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY_HOST" -u "$REGISTRY_USERNAME" --password-stdin
+
+      - run:
+          name: Build and push proxy and pyconvert images
+          command: |
+            set -euo pipefail
+            export REGISTRY_HOST="${REGISTRY_HOST:-img.agentm.dev}"
+            export PROXY_IMAGE="${APPLITE_PROXY_IMAGE_REPO:-${REGISTRY_HOST}/applite-xtrac/proxy}"
+            export PYCONVERT_IMAGE="${APPLITE_PYCONVERT_IMAGE_REPO:-${REGISTRY_HOST}/applite-xtrac/pyconvert}"
+            export BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+            docker build \
+              --build-arg BUILD_DATE="$BUILD_DATE" \
+              -t "${PROXY_IMAGE}:${CIRCLE_SHA1}" \
+              ./proxy-service
+            docker tag "${PROXY_IMAGE}:${CIRCLE_SHA1}" "${PROXY_IMAGE}:latest"
+            docker push "${PROXY_IMAGE}:${CIRCLE_SHA1}"
+            docker push "${PROXY_IMAGE}:latest"
+
+            docker build \
+              -t "${PYCONVERT_IMAGE}:${CIRCLE_SHA1}" \
+              ./pyconvert-service
+            docker tag "${PYCONVERT_IMAGE}:${CIRCLE_SHA1}" "${PYCONVERT_IMAGE}:latest"
+            docker push "${PYCONVERT_IMAGE}:${CIRCLE_SHA1}"
+            docker push "${PYCONVERT_IMAGE}:latest"
+
+  deploy_stack:
+    machine:
+      image: ubuntu-2404:current
+    steps:
+      - run:
+          name: Configure SSH access to the VPS
+          command: |
+            set -euo pipefail
+            if [[ -z "${VPS_SSH_PRIVATE_KEY:-}" || -z "${VPS_SSH_HOST:-}" || -z "${VPS_SSH_USER:-}" ]]; then
+              echo "VPS_SSH_PRIVATE_KEY, VPS_SSH_HOST, and VPS_SSH_USER are required for deployment." >&2
+              exit 1
+            fi
+            install -d -m 700 ~/.ssh
+            printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+            chmod 600 ~/.ssh/id_ed25519
+            ssh-keyscan -H "$VPS_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - run:
+          name: Deploy the AppLite-Xtrac stack on the VPS
+          command: |
+            set -euo pipefail
+            export REGISTRY_HOST="${REGISTRY_HOST:-img.agentm.dev}"
+            export PROXY_IMAGE_REPO="${APPLITE_PROXY_IMAGE_REPO:-${REGISTRY_HOST}/applite-xtrac/proxy}"
+            export PYCONVERT_IMAGE_REPO="${APPLITE_PYCONVERT_IMAGE_REPO:-${REGISTRY_HOST}/applite-xtrac/pyconvert}"
+            if [[ -z "${VPS_DEPLOY_PATH:-}" || -z "${REGISTRY_USERNAME:-}" || -z "${REGISTRY_PASSWORD:-}" ]]; then
+              echo "VPS_DEPLOY_PATH, REGISTRY_USERNAME, and REGISTRY_PASSWORD are required for deployment." >&2
+              exit 1
+            fi
+
+            registry_username_b64="$(printf '%s' "$REGISTRY_USERNAME" | base64 -w0)"
+            registry_password_b64="$(printf '%s' "$REGISTRY_PASSWORD" | base64 -w0)"
+
+            ssh -o StrictHostKeyChecking=yes "${VPS_SSH_USER}@${VPS_SSH_HOST}" <<EOF
+            set -euo pipefail
+            export REGISTRY_HOST="${REGISTRY_HOST}"
+            export REGISTRY_USERNAME="\$(printf '%s' '${registry_username_b64}' | base64 -d)"
+            export REGISTRY_PASSWORD="\$(printf '%s' '${registry_password_b64}' | base64 -d)"
+            cd "${VPS_DEPLOY_PATH}"
+            git fetch --all --prune
+            git checkout "${VPS_DEPLOY_BRANCH:-master}"
+            git reset --hard "origin/${VPS_DEPLOY_BRANCH:-master}"
+            printf '%s' "\$REGISTRY_PASSWORD" | docker login "\$REGISTRY_HOST" -u "\$REGISTRY_USERNAME" --password-stdin
+            export APPLITEXTRAC_PROXY_IMAGE="${PROXY_IMAGE_REPO}:${CIRCLE_SHA1}"
+            export APPLITEXTRAC_PYCONVERT_IMAGE="${PYCONVERT_IMAGE_REPO}:${CIRCLE_SHA1}"
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml pull proxy pyconvert unstructured-io libreoffice gotenberg
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
+            curl --retry 20 --retry-all-errors --retry-delay 3 -fsS "http://127.0.0.1:${APPLITEXTRAC_PORT:-8369}/ping"
+            ping_all_response="$(curl --retry 20 --retry-all-errors --retry-delay 3 -fsS "http://127.0.0.1:${APPLITEXTRAC_PORT:-8369}/ping-all")"
+            echo "$ping_all_response"
+            if [[ "$ping_all_response" != *"ALL_SERVICES_HEALTHY"* ]]; then
+              echo "AppLite-Xtrac deploy health check failed." >&2
+              exit 1
+            fi
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+            EOF
+
+workflows:
+  version: 2
+  applite_pipeline:
+    jobs:
+      - stack_smoke_test
+      - publish_images:
+          requires:
+            - stack_smoke_test
+          filters:
+            branches:
+              only:
+                - master
+      - deploy_stack:
+          requires:
+            - publish_images
+          filters:
+            branches:
+              only:
+                - master

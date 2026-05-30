@@ -249,6 +249,12 @@ Desktop.ini
 # VS Code
 .vscode/
 
+# Spec-Kit local artifacts
+.specify/
+specs/
+.github/prompts/speckit*.md
+.claude/commands/speckit*.md
+
 # Sublime Text
 *.sublime-project
 *.sublime-workspace

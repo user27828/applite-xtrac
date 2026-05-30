@@ -1,6 +1,8 @@
 """Unit tests for LibreOffice HTML to DOCX handling."""
 
+import asyncio
 from io import BytesIO
+import httpx
 from zipfile import ZipFile
 import xml.etree.ElementTree as ET
 from xml.sax.saxutils import escape
@@ -367,10 +369,43 @@ def test_html_docx_libreoffice_uses_explicit_docx_filter(client, monkeypatch):
     assert len(recording_client.calls) == 1
     call = recording_client.calls[0]
     assert call["url"].endswith("/request")
-    assert ("convert-to", "docx") in call["data"]
-    assert ("opts[]", "--filter=MS Word 2007 XML") in call["data"]
+    assert call["data"]["convert-to"] == "docx"
+    assert call["data"]["opts[]"] == ["--filter=MS Word 2007 XML"]
     assert _get_docx_paragraphs(response.content) == [
         "Via Marie Mutiangpili",
         "vmarvmar23@gmail.com | +63 905 590 4276",
         "Bataan, PH",
     ]
+
+
+def test_libreoffice_request_data_stays_async_safe_for_httpx_async_client():
+    """LibreOffice multipart data must remain async-compatible under httpx 0.28+."""
+    from convert.utils.conversion_core import _build_libreoffice_request_data
+
+    request_data = _build_libreoffice_request_data(
+        "html",
+        "docx",
+        {"opts[]": ["--foo=bar"]},
+    )
+
+    assert request_data["convert-to"] == "docx"
+    assert request_data["opts[]"] == [
+        "--foo=bar",
+        "--filter=MS Word 2007 XML",
+    ]
+
+    client = httpx.AsyncClient()
+    try:
+        request = client.build_request(
+            "POST",
+            "http://example.com/request",
+            files={
+                "file": ("resume.html", b"<html><body><p>Resume</p></body></html>", "text/html"),
+            },
+            data=request_data,
+        )
+
+        assert type(request.stream).__name__ == "MultipartStream"
+        assert hasattr(request.stream, "__aiter__")
+    finally:
+        asyncio.run(client.aclose())

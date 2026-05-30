@@ -99,19 +99,46 @@ def _normalize_multipart_values(value: Any) -> list[str]:
     return [str(value)]
 
 
+def _append_multipart_form_value(data: Dict[str, Any], key: str, value: str) -> None:
+    """Append a multipart form value while preserving async-safe httpx shapes.
+
+    ``httpx.AsyncClient`` on 0.28.x rejects multipart requests when the ``data``
+    argument is encoded as a list of ``(key, value)`` tuples because that shape
+    produces a sync ``IteratorByteStream``. Using a mapping with list values for
+    repeated keys keeps the request body async-compatible.
+    """
+    existing_value = data.get(key)
+    is_multi_value_key = key.endswith("[]")
+
+    if existing_value is None:
+        data[key] = [value] if is_multi_value_key else value
+        return
+
+    if isinstance(existing_value, list):
+        existing_value.append(value)
+        return
+
+    data[key] = [existing_value, value]
+
+
 def _build_libreoffice_request_data(
     input_format: str,
     output_format: str,
     extra_params: Optional[Dict[str, Any]] = None,
-) -> list[tuple[str, str]]:
+) -> Dict[str, Any]:
     """Build multipart fields for LibreOffice conversions.
 
     The bundled libreoffice-unoserver image currently ships with unoserver 1.6,
     which still expects the backward-compatible ``--filter`` flag rather than the
     newer ``--output-filter`` spelling. Newer versions keep ``--filter`` as an
     alias, so using it here is compatible across both generations.
+
+    Keep the payload in mapping form instead of ``list[tuple[str, str]]``.
+    ``httpx.AsyncClient`` 0.28.x turns tuple-list multipart bodies into a sync
+    iterator stream and raises ``RuntimeError: Attempted to send an sync
+    request with an AsyncClient instance.``
     """
-    data: list[tuple[str, str]] = [("convert-to", output_format)]
+    data: Dict[str, Any] = {"convert-to": output_format}
     explicit_filter_requested = False
 
     if extra_params:
@@ -126,14 +153,18 @@ def _build_libreoffice_request_data(
                 ):
                     explicit_filter_requested = True
             for value in values:
-                data.append((key, value))
+                _append_multipart_form_value(data, key, value)
 
     if (
         input_format == "html"
         and output_format == "docx"
         and not explicit_filter_requested
     ):
-        data.append(("opts[]", f"--filter={LIBREOFFICE_HTML_DOCX_FILTER}"))
+        _append_multipart_form_value(
+            data,
+            "opts[]",
+            f"--filter={LIBREOFFICE_HTML_DOCX_FILTER}",
+        )
 
     return data
 
