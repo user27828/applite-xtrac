@@ -108,7 +108,9 @@ env/
 venv/
 ENV/
 env.bak/
+env.backup*/
 venv.bak/
+venv.backup*/
 
 # Spyder project settings
 .spyderproject
@@ -245,6 +247,10 @@ jspm_packages/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Graphify
+graphify-out/*
+!graphify-out/.gitkeep
 
 # VS Code
 .vscode/

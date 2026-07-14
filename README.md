@@ -574,6 +574,34 @@ docker exec -it <container_name> /bin/bash
 ./run.sh dev:stop
 ```
 
+### Graphify Knowledge Graph
+
+This project uses Graphify to maintain a navigable knowledge graph of the
+codebase. The generated data is stored under `graphify-out/` and is ignored by
+Git.
+
+Populate the graph for the first time from the project root:
+
+```bash
+graphify .
+```
+
+After changing source files or documentation, refresh only the changed parts
+with:
+
+```bash
+graphify update .
+```
+
+When the graph exists, use it to explore the repository before browsing files
+directly:
+
+```bash
+graphify query "Where is conversion routing implemented?"
+graphify path "conversion routing" "FastAPI router"
+graphify explain "CONVERSION_MATRIX"
+```
+
 ### Docker Configuration Optimization
 
 The `docker-compose.yml` file has been optimized using YAML anchors and aliases to reduce duplication:
