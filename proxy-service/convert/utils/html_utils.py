@@ -4,8 +4,6 @@ HTML Processing Utilities.
 This module provides utilities for HTML content processing, validation, and formatting.
 """
 
-import re
-import logging
 from typing import Optional, Tuple
 from bs4 import BeautifulSoup
 

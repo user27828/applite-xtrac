@@ -9,37 +9,35 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Request, Form, Q
 from fastapi.responses import StreamingResponse, JSONResponse
 import httpx
 import logging
-from typing import Optional
-from io import BytesIO
+from typing import BinaryIO, Optional
 
 # Import local conversion factory
-from ._local_ import LocalConversionFactory
 
-from .config import (
-    SERVICE_URLS
-)
+from .config import ConversionService
 from .utils.conversion_lookup import (
     get_primary_conversion,
     get_supported_conversions,
-    get_service_urls,
     get_conversion_methods,
-    DYNAMIC_SERVICE_URLS,
-    get_dynamic_service_urls
-)
-from .utils.conversion_chaining import (
-    get_conversion_steps,
-    is_chained_conversion
+    DYNAMIC_SERVICE_URLS
 )
 from .utils.conversion_core import (
-    _convert_file,
-    _get_service_client
+    _convert_file
 )
-from .utils.conversion_chaining import chain_conversions, ConversionStep
-from .utils.special_handlers import process_presentation_to_html
 
 # Import URL processing module
 from .utils.url_processor import URLProcessor
 from .utils.error_handling import create_http_exception, ErrorCode, validate_format_parameter
+from .utils.screenshot_utils import (
+    DEFAULT_SCREENSHOT_WIDTH,
+    DEFAULT_THUMB_JPEG_QUALITY,
+    DEFAULT_THUMB_WIDTH,
+    copy_response_to_spooled_pdf,
+    get_input_format,
+    raise_pyconvert_error,
+    validate_render_request,
+    validate_upload_size,
+)
+from .utils.resource_limits import MAX_ERROR_BYTES, bounded_response_stream, read_response_bounded
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -126,6 +124,157 @@ async def convert_dynamic(request: Request, input_format: str, output_format: st
     
     # Proceed with conversion
     return await _convert_file(request, file=file, input_format=input_format, output_format=output_format, extra_params=extra_params)
+
+
+#-- Document screenshot and thumbnail rendering
+#-------------------------------------------------------------------------------
+_SCREENSHOT_HOP_BY_HOP_HEADERS = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "transfer-encoding",
+    "upgrade",
+}
+
+
+async def _stream_rendered_pdf(
+    request: Request,
+    pdf_file: BinaryIO,
+    filename: str,
+    page: str,
+    width: int,
+    image_format: str,
+    quality: Optional[int],
+) -> StreamingResponse:
+    """Upload a file-backed PDF to PyConvert and stream its image response."""
+    pyconvert_url = f"{DYNAMIC_SERVICE_URLS[ConversionService.PYMUPDF]}/pymupdf/render-pages"
+    data: dict[str, str] = {
+        "page": str(page),
+        "max_width": str(width),
+        "format": image_format,
+    }
+    if quality is not None:
+        data["quality"] = str(quality)
+
+    pdf_file.seek(0)
+    client = request.app.state.pyconvert_client
+    request_body = client.build_request(
+        "POST",
+        pyconvert_url,
+        data=data,
+        files={"file": (filename, pdf_file, "application/pdf")},
+    )
+    try:
+        response = await client.send(request_body, stream=True)
+    except httpx.RequestError as exc:
+        raise create_http_exception(
+            ErrorCode.SERVICE_UNAVAILABLE,
+            details=f"PyMuPDF rendering service is unavailable: {exc}",
+            service="pymupdf",
+        ) from exc
+
+    if response.status_code >= 400:
+        try:
+            raise_pyconvert_error(
+                response.status_code,
+                await read_response_bounded(response, MAX_ERROR_BYTES),
+            )
+        finally:
+            if not response.is_closed:
+                await response.aclose()
+
+    headers = {
+        key: value
+        for key, value in response.headers.items()
+        if key.lower() not in _SCREENSHOT_HOP_BY_HOP_HEADERS
+    }
+
+    return StreamingResponse(
+        bounded_response_stream(response),
+        status_code=response.status_code,
+        headers=headers,
+    )
+
+
+async def _render_screenshot(
+    request: Request,
+    file: UploadFile,
+    page: str,
+    width: int,
+    image_format: str,
+    quality: Optional[int],
+) -> StreamingResponse:
+    """Render an uploaded document directly or through the established PDF route."""
+    validate_upload_size(file)
+    validate_render_request(page, width, image_format, quality)
+    input_format = get_input_format(file.filename or "")
+
+    if input_format == "pdf":
+        await file.seek(0)
+        return await _stream_rendered_pdf(
+            request, file.file, file.filename or "document.pdf", page, width, image_format, quality
+        )
+
+    if not get_conversion_methods(input_format, "pdf"):
+        raise create_http_exception(
+            ErrorCode.CONVERSION_NOT_SUPPORTED,
+            details=f"No PDF conversion is available for .{input_format} files",
+            input_format=input_format,
+            output_format="pdf",
+        )
+
+    await file.seek(0)
+    conversion_response = await _convert_file(
+        request=request,
+        file=file,
+        input_format=input_format,
+        output_format="pdf",
+    )
+    converted_pdf = await copy_response_to_spooled_pdf(conversion_response)
+    try:
+        return await _stream_rendered_pdf(
+            request,
+            converted_pdf,
+            f"{file.filename.rsplit('.', 1)[0] if file.filename else 'document'}.pdf",
+            page,
+            width,
+            image_format,
+            quality,
+        )
+    finally:
+        # httpx has consumed the entire upload before send() returns response headers.
+        converted_pdf.close()
+
+
+@router.post("/screenshot")
+async def screenshot(
+    request: Request,
+    file: UploadFile = File(...),
+    page: str = Form("1"),
+    width: int = Form(DEFAULT_SCREENSHOT_WIDTH),
+    image_format: str = Form("jpg", alias="format"),
+    quality: Optional[int] = Form(None),
+):
+    """Render page 1, a selected page, or all document pages as PNG/JPG images."""
+    return await _render_screenshot(request, file, page, width, image_format, quality)
+
+
+@router.post("/thumb")
+async def thumbnail(
+    request: Request,
+    file: UploadFile = File(...),
+    page: str = Form("1"),
+    width: int = Form(DEFAULT_THUMB_WIDTH),
+    image_format: str = Form("jpg", alias="format"),
+    quality: Optional[int] = Form(None),
+):
+    """Render a thumbnail; defaults are page 1, 480px maximum width, and JPG."""
+    if quality is None and image_format.strip().lower() in {"jpg", "jpeg"}:
+        quality = DEFAULT_THUMB_JPEG_QUALITY
+    return await _render_screenshot(request, file, page, width, image_format, quality)
 
 
 #-- Utility endpoints
@@ -243,4 +392,3 @@ async def _validate_url_common(url: str):
             "error": f"Validation failed: {str(e)}",
             "supported_formats": ["html", "pdf", "docx", "xlsx", "pptx", "txt", "md", "json", "doc", "xls", "ppt", "odt", "ods", "odp", "rtf", "tex", "epub", "eml", "msg", "pages", "numbers", "key"]  # Common supported formats
         }, status_code=500)
-

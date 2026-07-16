@@ -5,16 +5,18 @@ This module provides generalized functions for chaining multiple conversion
 steps together, where the output of one service becomes the input for another.
 """
 
+import json
 import logging
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Dict, Any, Optional
 from io import BytesIO
 from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from ..config import ConversionService, UNSTRUCTURED_IO_MIME_MAPPING
 from .conversion_lookup import DYNAMIC_SERVICE_URLS
-from .conversion_core import _build_libreoffice_request_data, _get_service_client
+from .conversion_core import _build_libreoffice_request_data, _get_service_client, _post_streaming
 from .error_handling import sanitize_filename
+from .resource_limits import MAX_ERROR_BYTES, read_response_bounded
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +113,8 @@ async def chain_conversions(
                     step.extra_params,
                 )
 
-                response = await client.post(
+                response = await _post_streaming(
+                    client,
                     f"{service_url}/request",
                     files=files,
                     data=data
@@ -133,7 +136,8 @@ async def chain_conversions(
                 # Add any additional parameters
                 data.update(step.extra_params)
 
-                response = await client.post(
+                response = await _post_streaming(
+                    client,
                     f"{service_url}/pandoc",
                     files=files,
                     data=data
@@ -148,7 +152,8 @@ async def chain_conversions(
                     # For markdown/text/html, get JSON from unstructured-io and convert locally
                     data = {}  # No output_format specified to get JSON
                     
-                    response = await client.post(
+                    response = await _post_streaming(
+                        client,
                         f"{service_url}/general/v0/general",
                         files=files,
                         data=data
@@ -156,7 +161,7 @@ async def chain_conversions(
                     
                     if response.status_code == 200:
                         # Convert JSON response to requested format using centralized utility
-                        json_data = response.json()
+                        json_data = json.loads(await read_response_bounded(response))
                         
                         from .unstructured_utils import process_unstructured_json_to_content
                         content = process_unstructured_json_to_content(json_data, step.output_format, fix_tables=True)
@@ -171,9 +176,13 @@ async def chain_conversions(
                         continue  # Skip the rest of the loop and continue to next step
                             
                     else:
+                        error_content = await read_response_bounded(response, MAX_ERROR_BYTES)
                         raise HTTPException(
                             status_code=response.status_code,
-                            detail=f"Unstructured-IO service error: {response.text}"
+                            detail=(
+                                "Unstructured-IO service error: "
+                                + error_content.decode("utf-8", errors="replace")
+                            ),
                         )
                 else:
                     # Regular unstructured-io conversion
@@ -182,7 +191,8 @@ async def chain_conversions(
                     data = {"output_format": unstructured_output_format}
                     data.update(step.extra_params)
 
-                    response = await client.post(
+                    response = await _post_streaming(
+                        client,
                         f"{service_url}/general/v0/general",
                         files=files,
                         data=data
@@ -199,7 +209,8 @@ async def chain_conversions(
                 else:
                     endpoint = "forms/chromium/convert/html"
 
-                response = await client.post(
+                response = await _post_streaming(
+                    client,
                     f"{service_url}/{endpoint}",
                     files=files,
                     data=data
@@ -213,18 +224,31 @@ async def chain_conversions(
 
             # Check response
             if response.status_code != 200:
-                logger.error(f"Step {step_idx + 1} failed: {step.service.value} returned {response.status_code}: {response.text}")
+                error_content = await read_response_bounded(response, MAX_ERROR_BYTES)
+                error_text = error_content.decode("utf-8", errors="replace")
+                logger.error(
+                    "Step %s failed: %s returned %s: %s",
+                    step_idx + 1,
+                    step.service.value,
+                    response.status_code,
+                    error_text,
+                )
                 raise HTTPException(
                     status_code=response.status_code,
-                    detail=f"Conversion step {step_idx + 1} failed ({step.service.value} {step.input_format}→{step.output_format}): {response.text}"
+                    detail=(
+                        f"Conversion step {step_idx + 1} failed "
+                        f"({step.service.value} {step.input_format}→{step.output_format}): {error_text}"
+                    ),
                 )
 
             # Update content for next step
-            current_content = response.content
+            current_content = await read_response_bounded(response)
             current_filename = f"converted_step_{step_idx + 1}.{step.output_format}"
 
             logger.info(f"Step {step_idx + 1} completed successfully, output size: {len(current_content)} bytes")
 
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Error in conversion step {step_idx + 1} ({step.service.value}): {e}")
             raise HTTPException(
@@ -263,7 +287,6 @@ def get_conversion_steps(input_format: str, output_format: str) -> List[List]:
         List of steps, where each step is [service, input_format, output_format, description]
     """
     from .conversion_lookup import get_conversion_methods
-    from ..config import ConversionService
 
     methods = get_conversion_methods(input_format, output_format)
     if not methods:
@@ -299,5 +322,3 @@ def is_chained_conversion(input_format: str, output_format: str) -> bool:
     # Check if this is a chained conversion (list of lists with 4 elements)
     first_method = methods[0]
     return isinstance(first_method, list) and len(first_method) == 4 and len(methods) > 1
-
-

@@ -4,8 +4,6 @@ Text file validation.
 Validates plain text files using encoding and content checks.
 """
 
-from pathlib import Path
-from typing import Optional
 import logging
 
 from ..base_validator import TextBasedValidator, ValidationError

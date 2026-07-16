@@ -4,7 +4,6 @@ Unit tests for proxy-service health check endpoints.
 
 import pytest
 from fastapi.testclient import TestClient
-from app import app
 
 
 class TestHealthEndpoints:

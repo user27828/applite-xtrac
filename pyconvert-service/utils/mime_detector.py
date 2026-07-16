@@ -8,7 +8,7 @@ multiple detection methods with consistent priority ordering and fallbacks.
 import logging
 import mimetypes
 from pathlib import Path
-from typing import Optional, Union, Tuple
+from typing import Optional
 
 # Try to import python-magic for content-based detection
 try:

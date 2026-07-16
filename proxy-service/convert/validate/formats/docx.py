@@ -5,8 +5,6 @@ Validates Microsoft Word DOCX files using ZIP structure and content checks.
 """
 
 import zipfile
-from pathlib import Path
-from typing import Optional
 import logging
 
 from ..base_validator import ArchiveBasedValidator, ValidationError
@@ -112,4 +110,3 @@ class DOCXValidator(ArchiveBasedValidator):
         """
         # Additional DOCX-specific validation can be added here
         # For now, the basic archive validation covers the main requirements
-        pass

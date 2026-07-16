@@ -5,8 +5,6 @@ Validates JSON files using parsing and structure checks.
 """
 
 import json as json_lib
-from pathlib import Path
-from typing import Optional
 import logging
 
 from ..base_validator import TextBasedValidator, ValidationError

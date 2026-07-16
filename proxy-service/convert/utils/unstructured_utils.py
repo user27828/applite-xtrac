@@ -5,46 +5,20 @@ This module provides centralized functions for converting unstructured-io JSON r
 to various output formats, eliminating code duplication across the codebase.
 """
 
-from typing import List, Union, Optional
+from html import escape
+from typing import Any, List
 from fastapi import HTTPException
+import json
 import logging
 
 # Import httpx for async HTTP requests
 import httpx
 
-# Lazy-import unstructured libraries to reduce startup memory (~500MB+)
-# These are imported on first use via _ensure_unstructured()
-elements_to_md = None
-elements_to_text = None
-dict_to_elements = None
-UNSTRUCTURED_AVAILABLE = False
-
-def _ensure_unstructured():
-    """Lazy-import unstructured staging functions on first use."""
-    global elements_to_md, elements_to_text, dict_to_elements, UNSTRUCTURED_AVAILABLE
-    if UNSTRUCTURED_AVAILABLE:
-        return True
-    try:
-        from unstructured.staging.base import (
-            elements_to_md as _md,
-            elements_to_text as _txt,
-            dict_to_elements as _dte,
-        )
-        elements_to_md = _md
-        elements_to_text = _txt
-        dict_to_elements = _dte
-        UNSTRUCTURED_AVAILABLE = True
-        return True
-    except ImportError:
-        return False
-
+from .resource_limits import MAX_ERROR_BYTES, read_response_bounded
 
 def is_unstructured_available() -> bool:
-    """Check whether the unstructured library can be imported.
-
-    Triggers the lazy import on the first call; subsequent calls are O(1).
-    """
-    return _ensure_unstructured()
+    """The proxy's dictionary formatter has no heavyweight optional dependency."""
+    return True
 
 
 logger = logging.getLogger(__name__)
@@ -56,66 +30,43 @@ def process_unstructured_json_to_content(
     fix_tables: bool = True
 ) -> str:
     """
-    Convert unstructured-io JSON response to content (markdown or text).
+    Convert unstructured-io JSON response to Markdown, text, or HTML.
 
     This is the centralized function for processing unstructured-io data,
     replacing duplicated code across the codebase.
 
     Args:
         json_data: List of element dictionaries from unstructured-io
-        output_format: Desired output format ("md" or "txt")
+        output_format: Desired output format ("md", "txt", or "html")
         fix_tables: Whether to apply table text_as_html fixes (default: True)
 
     Returns:
         Content string in the requested format
 
     Raises:
-        HTTPException: If unstructured library is not available or conversion fails
+        HTTPException: If the requested format is unsupported or conversion fails
     """
-    if not _ensure_unstructured():
-        raise HTTPException(
-            status_code=503,
-            detail="Unstructured library not available for content conversion"
-        )
-
     try:
         # Fix table text_as_html issues if requested
         if fix_tables:
             from .conversion_core import fix_table_text_as_html
             json_data = fix_table_text_as_html(json_data)
 
-        # Convert JSON to elements
-        elements = []
-        for item in json_data:
-            elements.extend(dict_to_elements([item]))
-
-        # Filter out elements with None text to prevent join errors
-        filtered_elements = [elem for elem in elements if elem.text is not None]
+        filtered_elements = [item for item in json_data if item.get("text") is not None]
 
         # Convert to requested format
         if output_format == "md":
-            if not elements_to_md:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Unstructured elements_to_md not available"
-                )
-            content = elements_to_md(filtered_elements)
+            content = "\n".join(_element_markdown(item) for item in filtered_elements)
         elif output_format == "txt":
-            if not elements_to_text:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Unstructured elements_to_text not available"
-                )
-            content = elements_to_text(filtered_elements)
+            content = "\n".join(str(item["text"]) for item in filtered_elements if item["text"])
         elif output_format == "html":
-            # For HTML, extract text_as_html from table elements and combine with regular text
             content_parts = []
-            for elem in filtered_elements:
-                if hasattr(elem, 'text_as_html') and elem.text_as_html:
-                    content_parts.append(elem.text_as_html)
-                elif elem.text:
-                    # Wrap regular text in paragraph tags
-                    content_parts.append(f"<p>{elem.text}</p>")
+            for item in filtered_elements:
+                table_html = item.get("metadata", {}).get("text_as_html")
+                if item.get("type") == "Table" and table_html:
+                    content_parts.append(_sanitize_table_html(table_html))
+                elif item.get("text"):
+                    content_parts.append(f"<p>{escape(str(item['text']))}</p>")
             
             content = "\n".join(content_parts)
             # Wrap in basic HTML structure
@@ -128,6 +79,8 @@ def process_unstructured_json_to_content(
 
         return content
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Error processing unstructured data to {output_format}")
         raise HTTPException(
@@ -136,7 +89,47 @@ def process_unstructured_json_to_content(
         )
 
 
-def json_to_elements(json_data: List[dict], fix_tables: bool = True) -> List:
+def _element_markdown(item: dict) -> str:
+    text = str(item.get("text", ""))
+    if item.get("type") == "Title":
+        return f"# {text}"
+    table_html = item.get("metadata", {}).get("text_as_html")
+    if item.get("type") == "Table" and table_html:
+        return _sanitize_table_html(table_html)
+    return text
+
+
+def _sanitize_table_html(table_html: str) -> str:
+    """Retain table structure while removing executable markup and attributes."""
+    from bs4 import BeautifulSoup
+
+    allowed_tags = {"table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption"}
+    soup = BeautifulSoup(table_html, "html.parser")
+    dangerous_tags = {"script", "style", "template", "iframe", "object", "embed"}
+    for tag in list(soup.find_all(True)):
+        if tag.name is None:
+            continue
+        if tag.name in dangerous_tags:
+            tag.decompose()
+            continue
+        if tag.name not in allowed_tags:
+            tag.unwrap()
+        else:
+            safe_attrs = {}
+            for name in ("colspan", "rowspan"):
+                raw_value = tag.attrs.get(name)
+                if raw_value is not None:
+                    try:
+                        value = int(raw_value)
+                    except (TypeError, ValueError):
+                        continue
+                    if 1 <= value <= 1000:
+                        safe_attrs[name] = str(value)
+            tag.attrs = safe_attrs
+    return str(soup)
+
+
+def json_to_elements(json_data: List[dict], fix_tables: bool = True) -> List[dict]:
     """
     Convert unstructured-io JSON response to elements only (without content conversion).
 
@@ -145,26 +138,15 @@ def json_to_elements(json_data: List[dict], fix_tables: bool = True) -> List:
         fix_tables: Whether to apply table text_as_html fixes (default: True)
 
     Returns:
-        List of element objects
+        The element dictionaries, with optional table repair applied
     """
-    if not _ensure_unstructured():
-        raise HTTPException(
-            status_code=503,
-            detail="Unstructured library not available for element conversion"
-        )
-
     try:
         # Fix table text_as_html issues if requested
         if fix_tables:
             from .conversion_core import fix_table_text_as_html
             json_data = fix_table_text_as_html(json_data)
 
-        # Convert JSON to elements
-        elements = []
-        for item in json_data:
-            elements.extend(dict_to_elements([item]))
-
-        return elements
+        return json_data
 
     except Exception as e:
         logger.exception("Error converting JSON to elements")
@@ -177,7 +159,7 @@ def json_to_elements(json_data: List[dict], fix_tables: bool = True) -> List:
 async def convert_file_with_unstructured_io(
     client: "httpx.AsyncClient",
     service_url: str,
-    file_content: bytes,
+    file_content: Any,
     filename: str,
     content_type: str,
     output_format: str,
@@ -211,24 +193,29 @@ async def convert_file_with_unstructured_io(
         files = {"files": (filename, file_content, content_type)}
         data = {}
 
-        response = await client.post(
+        request = client.build_request(
+            "POST",
             f"{service_url}/general/v0/general",
             files=files,
             data=data
         )
+        response = await client.send(request, stream=True)
 
         if response.status_code != 200:
+            error_content = await read_response_bounded(response, MAX_ERROR_BYTES)
             raise HTTPException(
                 status_code=response.status_code,
-                detail=f"Unstructured-IO service error: {response.text}"
+                detail=f"Unstructured-IO service error: {error_content.decode('utf-8', errors='replace')}"
             )
 
         # Parse JSON response
-        json_data = response.json()
+        json_data = json.loads(await read_response_bounded(response))
 
         # Convert to requested format
         return process_unstructured_json_to_content(json_data, output_format, fix_tables)
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Error in unstructured-io conversion to {output_format}")
         raise HTTPException(

@@ -6,18 +6,12 @@ follow the standard conversion patterns.
 """
 
 import json
-import logging
-import os
-import tempfile
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
 from fastapi.responses import Response
-from io import BytesIO
-from typing import Any, Dict
 
 from ..config import ConversionService
 from .conversion_core import _convert_file
 from .unstructured_utils import process_unstructured_json_to_content
-from .temp_file_manager import get_temp_manager
 
 
 async def process_presentation_to_html(request, file_content, input_format, output_format, step_config):
@@ -37,18 +31,6 @@ async def process_presentation_to_html(request, file_content, input_format, outp
         Response object with HTML content
     """
     try:
-        # Step 1: Convert PPTX to JSON using unstructured-io
-        from io import BytesIO
-
-        # Create a temporary file for the PPTX content using centralized manager
-        manager = get_temp_manager("conversion")
-        temp_file = manager.create_temp_file(
-            content=file_content,
-            extension='.pptx',
-            prefix="pptx_conversion"
-        )
-        temp_file_path = temp_file.path
-
         # Create a new UploadFile-like object for the PPTX content
         class TempUploadFile:
             def __init__(self, content: bytes, filename: str):

@@ -10,7 +10,7 @@ import logging
 import asyncio
 import random
 from contextlib import asynccontextmanager
-from typing import Optional, Dict, Any, Callable, TypeVar, Awaitable
+from typing import Optional, Dict, Callable, TypeVar, Awaitable
 from enum import Enum
 
 import httpx
@@ -18,6 +18,18 @@ import httpx
 logger = logging.getLogger(__name__)
 
 T = TypeVar('T')
+
+
+def _positive_float(name: str, default: float) -> float:
+    """Read a finite, positive timeout value from the environment."""
+    raw_value = os.getenv(name, str(default))
+    try:
+        value = float(raw_value)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be numeric") from exc
+    if value <= 0:
+        raise RuntimeError(f"{name} must be greater than zero")
+    return value
 
 
 class RetryConfig:
@@ -105,6 +117,8 @@ async def retry_request(
             # Check if we should retry based on response status
             if hasattr(result, 'status_code') and result.status_code in config.retry_on_status_codes:
                 if attempt < config.max_attempts - 1:  # Don't log on last attempt
+                    if hasattr(result, "aclose"):
+                        await result.aclose()
                     logger.warning(
                         f"Request failed with status {result.status_code}, "
                         f"retrying ({attempt + 1}/{config.max_attempts})"
@@ -205,19 +219,11 @@ class HTTPClientFactory:
     def _get_timeout(self) -> httpx.Timeout:
         """Get timeout configuration from environment or defaults."""
         if self._timeout is None:
-            # Get timeout from environment variable or set default (None = no timeout)
-            http_timeout_str = os.getenv('APPLITEXTRAC_HTTP_TIMEOUT', '')
-            if not http_timeout_str.strip():
-                http_timeout = None  # No timeout
-                os.environ['APPLITEXTRAC_HTTP_TIMEOUT'] = ''
-            else:
-                http_timeout = float(http_timeout_str)
-
             self._timeout = httpx.Timeout(
-                connect=5.0,
-                read=http_timeout,
-                write=300.0,
-                pool=5.0
+                connect=_positive_float("APPLITEXTRAC_CONNECT_TIMEOUT", 5.0),
+                read=_positive_float("APPLITEXTRAC_HTTP_TIMEOUT", 120.0),
+                write=_positive_float("APPLITEXTRAC_WRITE_TIMEOUT", 120.0),
+                pool=_positive_float("APPLITEXTRAC_POOL_TIMEOUT", 5.0),
             )
         return self._timeout
 
@@ -254,25 +260,32 @@ class HTTPClientFactory:
             # LibreOffice may need longer timeouts for document processing
             config['timeout'] = httpx.Timeout(
                 connect=10.0,
-                read=self._get_timeout().read,
-                write=600.0,  # Longer write timeout for large documents
+                read=_positive_float("APPLITEXTRAC_LIBREOFFICE_READ_TIMEOUT", 600.0),
+                write=self._get_timeout().write,
                 pool=10.0
             )
         elif service_type == ServiceType.GOTENBERG:
             # Gotenberg handles PDF generation which can be resource intensive
             config['timeout'] = httpx.Timeout(
                 connect=10.0,
-                read=self._get_timeout().read,
-                write=600.0,  # Longer write timeout for PDF generation
+                read=_positive_float("APPLITEXTRAC_GOTENBERG_READ_TIMEOUT", 300.0),
+                write=self._get_timeout().write,
                 pool=10.0
             )
         elif service_type == ServiceType.UNSTRUCTURED_IO:
             # Unstructured.io handles document parsing
             config['timeout'] = httpx.Timeout(
                 connect=5.0,
-                read=self._get_timeout().read,
-                write=300.0,
+                read=_positive_float("APPLITEXTRAC_UNSTRUCTURED_READ_TIMEOUT", 300.0),
+                write=self._get_timeout().write,
                 pool=5.0
+            )
+        elif service_type == ServiceType.PANDOC:
+            config['timeout'] = httpx.Timeout(
+                connect=self._get_timeout().connect,
+                read=_positive_float("APPLITEXTRAC_PYCONVERT_READ_TIMEOUT", 180.0),
+                write=self._get_timeout().write,
+                pool=self._get_timeout().pool,
             )
 
         # Apply overrides

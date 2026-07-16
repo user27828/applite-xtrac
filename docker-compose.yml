@@ -7,58 +7,90 @@
 x-common-service: &common-service
   networks:
     - app-network
-  deploy:
-    restart_policy:
-      condition: on-failure
-      delay: 5s
-      max_attempts: 5
-      window: 120s
+  init: true
+  restart: unless-stopped
 
 services:
   unstructured-io:
     <<: *common-service
-    image: downloads.unstructured.io/unstructured-io/unstructured-api:latest
+    build: ./unstructured-service
     stop_grace_period: 10s
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
+    mem_limit: ${UNSTRUCTURED_MEM_LIMIT:-8g}
+    cpus: ${UNSTRUCTURED_CPU_LIMIT:-4.0}
+    pids_limit: ${UNSTRUCTURED_PIDS_LIMIT:-512}
     environment:
-      - PORT=8000
+      PORT: "8000"
+      UNSTRUCTURED_MEMORY_FREE_MINIMUM_MB: ${UNSTRUCTURED_MEMORY_FREE_MINIMUM_MB:-2048}
+      MAX_LIFETIME_SECONDS: ${UNSTRUCTURED_MAX_LIFETIME_SECONDS:-21600}
 
   libreoffice:
     <<: *common-service
-    image: docker.io/libreofficedocker/libreoffice-unoserver:3.19
+    # The image uses s6-overlay, which must remain PID 1.
+    init: false
+    build: ./libreoffice-service
     stop_grace_period: 10s
-    ports:
-      - "2004:2004"
+    expose:
+      - "2004"
+    mem_limit: ${LIBREOFFICE_MEM_LIMIT:-2g}
+    cpus: ${LIBREOFFICE_CPU_LIMIT:-2.0}
+    pids_limit: ${LIBREOFFICE_PIDS_LIMIT:-256}
     environment:
-      - UNOSERVER_STOP_AFTER=50
+      UNOSERVER_CMD: "/venv/bin/unoserver --stop-after ${UNOSERVER_STOP_AFTER:-50} --conversion-timeout ${UNOSERVER_CONVERSION_TIMEOUT:-120}"
 
   pyconvert:
     <<: *common-service
     build: ./pyconvert-service
-    init: true
     stop_grace_period: 10s
-    ports:
-      - "3030:3000"
+    expose:
+      - "3000"
+    mem_limit: ${PYCONVERT_MEM_LIMIT:-4g}
+    cpus: ${PYCONVERT_CPU_LIMIT:-2.0}
+    pids_limit: ${PYCONVERT_PIDS_LIMIT:-256}
+    environment:
+      APPLITEXTRAC_LIMIT_CONCURRENCY: ${PYCONVERT_LIMIT_CONCURRENCY:-16}
+      APPLITEXTRAC_MAX_REQUESTS: ${PYCONVERT_MAX_REQUESTS:-1000}
+      APPLITEXTRAC_MAX_REQUESTS_JITTER: ${PYCONVERT_MAX_REQUESTS_JITTER:-100}
+      APPLITEXTRAC_WORKER_CONCURRENCY: ${PYCONVERT_WORKER_CONCURRENCY:-2}
+      APPLITEXTRAC_RENDER_CONCURRENCY: ${PYCONVERT_RENDER_CONCURRENCY:-1}
 
   gotenberg:
     <<: *common-service
-    image: gotenberg/gotenberg:latest
+    image: gotenberg/gotenberg:8.33.0
     stop_grace_period: 10s
-    ports:
-      - "3001:3000"
+    expose:
+      - "3000"
+    mem_limit: ${GOTENBERG_MEM_LIMIT:-4g}
+    cpus: ${GOTENBERG_CPU_LIMIT:-2.0}
+    pids_limit: ${GOTENBERG_PIDS_LIMIT:-512}
     command:
       - "gotenberg"
       - "--api-port=3000"
       - "--chromium-disable-web-security"
       - "--chromium-allow-file-access-from-files"
+      - "--api-body-limit=${GOTENBERG_BODY_LIMIT:-512MB}"
+      - "--api-timeout=${GOTENBERG_API_TIMEOUT:-300s}"
+      - "--chromium-max-concurrency=${GOTENBERG_CHROMIUM_CONCURRENCY:-2}"
+      - "--chromium-max-queue-size=${GOTENBERG_CHROMIUM_QUEUE_SIZE:-4}"
+      - "--chromium-restart-after=${GOTENBERG_CHROMIUM_RESTART_AFTER:-20}"
+      - "--libreoffice-max-queue-size=${GOTENBERG_LIBREOFFICE_QUEUE_SIZE:-2}"
+      - "--libreoffice-restart-after=${GOTENBERG_LIBREOFFICE_RESTART_AFTER:-20}"
 
   proxy:
     <<: *common-service
     build: ./proxy-service
     stop_grace_period: 10s
+    mem_limit: ${PROXY_MEM_LIMIT:-2g}
+    cpus: ${PROXY_CPU_LIMIT:-2.0}
+    pids_limit: ${PROXY_PIDS_LIMIT:-256}
     ports:
       - "${APPLITEXTRAC_PORT:-8369}:8369"
+    environment:
+      APPLITEXTRAC_HTTP_TIMEOUT: ${APPLITEXTRAC_HTTP_TIMEOUT:-120}
+      APPLITEXTRAC_LIMIT_CONCURRENCY: ${PROXY_LIMIT_CONCURRENCY:-64}
+      APPLITEXTRAC_MAX_REQUESTS: ${PROXY_MAX_REQUESTS:-2000}
+      APPLITEXTRAC_MAX_REQUESTS_JITTER: ${PROXY_MAX_REQUESTS_JITTER:-200}
 
 networks:
   app-network:

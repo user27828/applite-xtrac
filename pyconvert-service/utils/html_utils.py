@@ -5,8 +5,6 @@ This module provides utilities for HTML content processing, validation,
 normalization, and formatting.
 """
 
-import re
-import logging
 from typing import Optional, Tuple
 from bs4 import BeautifulSoup, Tag
 

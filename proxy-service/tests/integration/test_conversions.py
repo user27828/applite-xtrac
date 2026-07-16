@@ -7,7 +7,6 @@ using available sample files from the fixtures directory.
 
 import pytest
 import json
-import os
 from pathlib import Path
 from typing import Dict
 from datetime import datetime
@@ -500,11 +499,6 @@ class TestConversionEndpoints:
             print("❌ No valid conversions to test!")
             return
 
-        # Run async conversions with concurrency limit
-        # Note: Currently running all tasks concurrently without semaphore limiting
-        # Adjust max_concurrent value based on your server capacity and network conditions
-        max_concurrent = 3  # Configurable concurrency limit (currently for reference only)
-        
         # For integration tests, integration_client handles the HTTP calls directly
         tasks = []
         for conversion in valid_conversions:

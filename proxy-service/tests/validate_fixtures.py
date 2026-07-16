@@ -6,7 +6,6 @@ This script checks for the existence of sample files in the fixtures directory
 and creates basic content for any missing files.
 """
 
-import os
 from pathlib import Path
 
 # Define sample files and their basic content

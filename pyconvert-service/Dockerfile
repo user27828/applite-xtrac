@@ -1,4 +1,4 @@
-FROM docker.io/pandoc/extra:latest
+FROM docker.io/pandoc/extra:latest@sha256:73270174fe0b04dcef76c9dd9b2af5921d47be50a16d8d0c735d843ddbaa3adf
 
 # Install Python and pip
 RUN apk add --no-cache python3 py3-pip
@@ -44,4 +44,4 @@ EXPOSE 3000
 
 # Override any default entrypoint and run the API
 ENTRYPOINT []
-CMD ["/opt/venv/bin/uvicorn", "app:app", "--host", "0.0.0.0", "--port", "3000"]
+CMD ["/opt/venv/bin/python", "app.py"]

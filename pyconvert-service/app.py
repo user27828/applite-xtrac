@@ -1,18 +1,16 @@
-from fastapi import FastAPI, Request, Response, UploadFile, File, Form, HTTPException, BackgroundTasks
+from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 import httpx
-from contextlib import asynccontextmanager
 import json
 from io import BytesIO
 import logging
 import asyncio
-from urllib.parse import urlparse
-import re
 import os
-import subprocess
+import shlex
 import shutil
-from datetime import datetime
-from typing import Optional, List
+import tempfile
+from typing import Optional
+from starlette.background import BackgroundTask
 
 # Import CSS margin utilities
 from utils.css_margin_parser import (
@@ -28,10 +26,30 @@ from utils.html4docx_utils import (
     sync_docx_styles_with_effects,
 )
 from utils.html_utils import normalize_html_for_pandoc_docx
+from utils.pdf_rendering import (
+    DEFAULT_SCREENSHOT_WIDTH,
+    MAX_INPUT_BYTES,
+    build_download_filename,
+    delete_rendered_archive,
+    extract_pdf_content,
+    render_pdf_pages as render_pdf_document_pages,
+    validate_render_options,
+)
+from utils.resource_control import (
+    ContentLengthLimitMiddleware,
+    MAX_INPUT_BYTES as MAX_CONVERSION_INPUT_BYTES,
+    MAX_OUTPUT_BYTES,
+    copy_upload_to_path,
+    ensure_output_size,
+    read_upload_bounded,
+    run_blocking,
+    run_render_blocking,
+    run_subprocess,
+)
 
 # Try to import python-magic for comprehensive MIME type detection
 try:
-    import magic
+    import magic  # noqa: F401
     USE_MAGIC = True
     print("python-magic loaded successfully")
 except ImportError:
@@ -43,13 +61,11 @@ from utils.mime_detector import get_mime_type as get_unified_mime_type
 
 # Import centralized temp file manager
 from utils.temp_file_manager import (
-    get_temp_manager,
-    TempFileManager,
-    TempFileInfo,
-    cleanup_temp_files
+    TempFileManager
 )
 
 app = FastAPI()
+app.add_middleware(ContentLengthLimitMiddleware)
 
 @app.get("/ping")
 async def ping():
@@ -177,7 +193,7 @@ async def check_weasyprint_health() -> tuple[bool, int]:
     """
     try:
         # Simple import test
-        import weasyprint
+        import weasyprint  # noqa: F401
         return True, 200
     except ImportError:
         return False, 503
@@ -193,7 +209,7 @@ async def check_mammoth_health() -> tuple[bool, int]:
     """
     try:
         # Simple import test
-        import mammoth
+        import mammoth  # noqa: F401
         return True, 200
     except ImportError:
         return False, 503
@@ -209,7 +225,7 @@ async def check_html4docx_health() -> tuple[bool, int]:
     """
     try:
         # Simple import test
-        import html4docx
+        import html4docx  # noqa: F401
         return True, 200
     except ImportError:
         return False, 503
@@ -225,7 +241,7 @@ async def check_beautifulsoup_health() -> tuple[bool, int]:
     """
     try:
         # Simple import test
-        from bs4 import BeautifulSoup
+        from bs4 import BeautifulSoup  # noqa: F401
         return True, 200
     except ImportError:
         return False, 503
@@ -241,7 +257,7 @@ async def check_pymupdf_health() -> tuple[bool, int]:
     """
     try:
         # Simple import test
-        import fitz
+        import fitz  # noqa: F401
         return True, 200
     except ImportError:
         return False, 503
@@ -262,6 +278,96 @@ def get_mime_type(file_path: str, output_format: str) -> str:
     # Use unified MIME detector
     return get_unified_mime_type(filename=file_path, expected_format=output_format)
 
+
+async def _fetch_text_bounded(url: str, headers: Optional[dict] = None) -> str:
+    """Fetch text without allowing an unbounded HTTP response allocation."""
+    chunks = []
+    total_bytes = 0
+    async with httpx.AsyncClient(timeout=30.0, headers=headers or {}) as client:
+        async with client.stream("GET", url) as response:
+            response.raise_for_status()
+            content_length = response.headers.get("Content-Length")
+            if content_length:
+                try:
+                    if int(content_length) > MAX_CONVERSION_INPUT_BYTES:
+                        raise HTTPException(status_code=413, detail="Remote input exceeds the configured size limit")
+                except ValueError:
+                    pass
+            async for chunk in response.aiter_bytes(chunk_size=64 * 1024):
+                total_bytes += len(chunk)
+                if total_bytes > MAX_CONVERSION_INPUT_BYTES:
+                    raise HTTPException(status_code=413, detail="Remote input exceeds the configured size limit")
+                chunks.append(chunk)
+    return b"".join(chunks).decode("utf-8", errors="replace")
+
+
+def _render_weasyprint_pdf(html_content: str, base_url: Optional[str], parameters: dict) -> bytes:
+    from weasyprint import HTML
+
+    return ensure_output_size(HTML(string=html_content, base_url=base_url).write_pdf(**parameters))
+
+
+def _convert_html4docx_bytes(html_content: str) -> bytes:
+    from docx import Document
+    from html4docx import HtmlToDocx
+
+    converter = HtmlToDocx(default_paragraph_style=HTML4DOCX_DEFAULT_PARAGRAPH_STYLE)
+    document = Document()
+    apply_html4docx_font_tuning(document)
+    try:
+        prune_html4docx_styles(document)
+        converter.add_html_to_document(html_content, document)
+    except KeyError:
+        document = Document()
+        apply_html4docx_font_tuning(document)
+        converter = HtmlToDocx(default_paragraph_style=HTML4DOCX_DEFAULT_PARAGRAPH_STYLE)
+        converter.add_html_to_document(html_content, document)
+
+    margins = extract_page_margins_from_html(html_content)
+    if margins:
+        apply_margins_to_docx_sections(document, margins)
+
+    output = BytesIO()
+    document.save(output)
+    content = normalize_docx_numbering_for_pandoc(output.getvalue())
+    return ensure_output_size(sync_docx_styles_with_effects(content))
+
+
+def _clean_html_content(
+    html_content: str,
+    parser: str,
+    remove_scripts: bool,
+    remove_styles: bool,
+    remove_comments: bool,
+    extract_title: bool,
+    extract_text: bool,
+    prettify: bool,
+) -> tuple[bytes, str, str]:
+    from bs4 import BeautifulSoup, Comment
+
+    soup = BeautifulSoup(html_content, parser)
+    if remove_scripts:
+        for script in soup.find_all("script"):
+            script.decompose()
+    if remove_styles:
+        for style in soup.find_all("style"):
+            style.decompose()
+    if remove_comments:
+        for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
+            comment.extract()
+
+    if extract_title:
+        title_tag = soup.find("title")
+        result = title_tag.get_text().strip() if title_tag else "No title found"
+        media_type, suffix = "text/plain", "_title.txt"
+    elif extract_text:
+        result = soup.get_text(separator="\n", strip=True)
+        media_type, suffix = "text/plain", "_text.txt"
+    else:
+        result = soup.prettify() if prettify else str(soup)
+        media_type, suffix = "text/html", "_cleaned.html"
+    return ensure_output_size(result.encode("utf-8")), media_type, suffix
+
 @app.post("/pandoc")
 async def convert_file(
     background_tasks: BackgroundTasks,
@@ -274,40 +380,36 @@ async def convert_file(
     if output_format not in allowed_formats:
         raise HTTPException(status_code=400, detail=f"Unsupported output format: {output_format}")
 
-    # Create temp files using centralized manager
-    manager = get_temp_manager()
-
-    # Read file content
-    file_content = await file.read()
-
     is_html_input = (
-        file.filename.lower().endswith(('.html', '.htm'))
+        (file.filename or "").lower().endswith(('.html', '.htm'))
         or 'text/html' in (file.content_type or '').lower()
         or '--from=html' in extra_args
     )
-
-    if output_format == "docx" and is_html_input:
-        html_content = file_content.decode('utf-8', errors='replace')
-        file_content = normalize_html_for_pandoc_docx(html_content).encode('utf-8')
-        print("Normalized HTML input for Pandoc DOCX conversion")
-
-    # Create input temp file
+    manager = TempFileManager(service="pandoc")
     input_temp = manager.create_temp_file(
-        content=file_content,
-        extension=os.path.splitext(file.filename)[1],
+        extension=os.path.splitext(file.filename or "input")[1],
         prefix="pyconvert_input"
     )
     input_path = input_temp.path
-
-    # Create output temp file path
-    output_filename = f"{os.path.splitext(file.filename)[0]}.{output_format}"
     output_temp = manager.create_temp_file(
-        filename=output_filename,
+        extension=f".{output_format}",
         prefix="pyconvert_output"
     )
     output_path = output_temp.path
+    cleanup_deferred = False
 
     try:
+        file_content = None
+        if is_html_input:
+            file_content = await read_upload_bounded(file)
+            if output_format == "docx":
+                html_content = file_content.decode('utf-8', errors='replace')
+                file_content = normalize_html_for_pandoc_docx(html_content).encode('utf-8')
+            with open(input_path, "wb") as input_file:
+                input_file.write(file_content)
+        else:
+            await copy_upload_to_path(file, input_path)
+
         # Special handling for LaTeX to PDF conversion
         if output_format == "pdf" and (input_path.endswith('.tex') or input_path.endswith('.latex')):
             # Use pdflatex directly for LaTeX to PDF conversion
@@ -316,29 +418,27 @@ async def convert_file(
             output_dir = os.path.dirname(output_path)
             
             cmd = ["pdflatex", "-interaction=nonstopmode", "-output-directory", output_dir, "-jobname", base_name, input_path]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            return_code, stdout, stderr, stdout_truncated, stderr_truncated = await run_subprocess(cmd)
             
             # For LaTeX, return code 1 often just means warnings, not fatal errors
             # Check if PDF was actually created despite warnings
             latex_output_path = os.path.join(output_dir, base_name + ".pdf")
             
-            if result.returncode != 0 and not os.path.exists(latex_output_path):
+            if return_code != 0 and not os.path.exists(latex_output_path):
                 # Only fail if PDF wasn't created
-                error_msg = f"pdflatex failed with return code {result.returncode}"
-                if result.stderr:
-                    error_msg += f". stderr: {result.stderr}"
-                if result.stdout:
-                    error_msg += f". stdout: {result.stdout}"
-                if not result.stderr and not result.stdout:
+                error_msg = f"pdflatex failed with return code {return_code}"
+                if stderr:
+                    error_msg += f". stderr: {stderr.decode('utf-8', errors='replace')}"
+                if stdout:
+                    error_msg += f". stdout: {stdout.decode('utf-8', errors='replace')}"
+                if stdout_truncated or stderr_truncated:
+                    error_msg += ". Diagnostic output was truncated"
+                if not stderr and not stdout:
                     error_msg += ". No error output captured"
                 raise HTTPException(status_code=500, detail=error_msg)
-            elif result.returncode != 0 and os.path.exists(latex_output_path):
+            elif return_code != 0 and os.path.exists(latex_output_path):
                 # PDF was created despite warnings - log the warnings but continue
-                print(f"pdflatex completed with warnings (return code {result.returncode}) but PDF was created successfully")
-                if result.stdout:
-                    print(f"pdflatex stdout: {result.stdout}")
-                if result.stderr:
-                    print(f"pdflatex stderr: {result.stderr}")
+                logging.warning("pdflatex produced a PDF with return code %s", return_code)
             
             # Check if output file exists
             if not os.path.exists(latex_output_path):
@@ -367,9 +467,10 @@ async def convert_file(
                 cmd = ["pandoc", input_path, "-o", output_path, "--pdf-engine=xelatex"]
             
             # Extract and apply CSS @page margins for HTML input to DOCX/PDF output
-            if file.filename.lower().endswith('.html') or file.filename.lower().endswith('.htm'):
+            if is_html_input:
                 try:
                     # Read HTML content to extract margins
+                    assert file_content is not None
                     html_content = file_content.decode('utf-8', errors='replace')
                     margins = extract_page_margins_from_html(html_content)
                     
@@ -386,34 +487,30 @@ async def convert_file(
             
             # Add extra args if provided
             if extra_args:
-                cmd.extend(extra_args.split())
+                cmd.extend(shlex.split(extra_args))
 
-            # Run pandoc
-            if output_format == "json":
-                # For JSON, capture stdout
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            else:
-                # For other formats, use normal execution
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            return_code, stdout, stderr, stdout_truncated, stderr_truncated = await run_subprocess(cmd)
             
-            if result.returncode != 0:
-                error_msg = f"Pandoc failed with return code {result.returncode}"
-                if result.stderr:
-                    error_msg += f". stderr: {result.stderr}"
-                if result.stdout:
-                    error_msg += f". stdout: {result.stdout}"
-                if not result.stderr and not result.stdout:
+            if return_code != 0:
+                error_msg = f"Pandoc failed with return code {return_code}"
+                if stderr:
+                    error_msg += f". stderr: {stderr.decode('utf-8', errors='replace')}"
+                if stdout:
+                    error_msg += f". stdout: {stdout.decode('utf-8', errors='replace')}"
+                if stdout_truncated or stderr_truncated:
+                    error_msg += ". Diagnostic output was truncated"
+                if not stderr and not stdout:
                     error_msg += ". No error output captured"
-                print(f"Pandoc command failed: {error_msg}")
-                print(f"Command was: {' '.join(cmd)}")
                 raise HTTPException(status_code=500, detail=error_msg)
 
         # Handle JSON output differently - return JSON content directly
         if output_format == "json":
+            if stdout_truncated:
+                raise HTTPException(status_code=413, detail="Pandoc JSON output exceeds the configured size limit")
             # Parse and validate the JSON AST
             try:
-                import json
-                ast_data = json.loads(result.stdout)
+                ast_data = json.loads(stdout)
+                manager.cleanup_all()
                 return JSONResponse(
                     content=ast_data,
                     media_type="application/json",
@@ -425,26 +522,28 @@ async def convert_file(
             except json.JSONDecodeError as e:
                 raise HTTPException(status_code=500, detail=f"Failed to parse pandoc JSON AST: {str(e)}")
 
-        # Get MIME type using comprehensive detection
-        media_type = get_unified_mime_type(filename=output_path, expected_format=output_format)
+        if not os.path.exists(output_path) or os.path.getsize(output_path) > MAX_OUTPUT_BYTES:
+            raise HTTPException(status_code=413, detail="Conversion output exceeds the configured size limit")
 
-        # Return the converted file
-        # Note: Files will be automatically cleaned up by the temp file manager
-        # when the manager goes out of scope or when explicitly cleaned up
+        media_type = get_unified_mime_type(filename=output_path, expected_format=output_format)
+        manager.cleanup_file(input_path)
+        cleanup_deferred = True
         return FileResponse(
             output_path,
             media_type=media_type,
-            filename=f"{os.path.splitext(file.filename)[0]}.{output_format}"
+            filename=f"{os.path.splitext(file.filename or 'converted')[0]}.{output_format}",
+            background=BackgroundTask(manager.cleanup_all),
         )
 
-    except subprocess.TimeoutExpired:
+    except asyncio.TimeoutError:
         raise HTTPException(status_code=408, detail="Conversion timeout")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        # Ensure cleanup happens even if an exception occurs
-        # The temp file manager will handle this automatically
-        pass
+        if not cleanup_deferred:
+            manager.cleanup_all()
 
 
 @app.post("/weasyprint")
@@ -473,10 +572,9 @@ async def weasyprint_html_to_pdf(
     - zoom=1.5
     - presentational_hints=True
     """
-    # Import WeasyPrint classes
+    # Fail fast before accepting expensive work if the optional engine is absent.
     try:
-        from weasyprint import HTML
-        WEASYPRINT_AVAILABLE = True
+        import weasyprint  # noqa: F401
     except ImportError:
         raise HTTPException(
             status_code=503,
@@ -541,7 +639,7 @@ async def weasyprint_html_to_pdf(
 
         if file:
             # Read uploaded file
-            file_content = await file.read()
+            file_content = await read_upload_bounded(file)
             html_content = file_content.decode('utf-8', errors='replace')
             base_name = file.filename.rsplit(".", 1)[0] if file.filename and "." in file.filename else "document"
 
@@ -554,11 +652,8 @@ async def weasyprint_html_to_pdf(
             if user_agent:
                 headers["User-Agent"] = user_agent
 
-            async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
-                response = await client.get(url)
-                response.raise_for_status()
-                html_content = response.text
-                base_url = url
+            html_content = await _fetch_text_bounded(url, headers)
+            base_url = url
 
             # Generate base name from URL
             from urllib.parse import urlparse
@@ -572,9 +667,6 @@ async def weasyprint_html_to_pdf(
         weasyprint_params.pop('file', None)
         weasyprint_params.pop('url', None)
 
-        # Create HTML document
-        html_doc = HTML(string=html_content, base_url=base_url)
-
         # Extract and log CSS @page margins for validation (WeasyPrint supports them natively)
         try:
             margins = extract_page_margins_from_html(html_content)
@@ -586,7 +678,12 @@ async def weasyprint_html_to_pdf(
             print(f"Warning: Failed to extract margins for WeasyPrint validation: {margin_error}")
 
         # Generate PDF - pass all parameters directly to write_pdf
-        pdf_bytes = html_doc.write_pdf(**weasyprint_params)
+        pdf_bytes = await run_blocking(
+            _render_weasyprint_pdf,
+            html_content,
+            base_url,
+            weasyprint_params,
+        )
 
         # Generate output filename
         output_filename = f"{base_name}.pdf"
@@ -605,6 +702,8 @@ async def weasyprint_html_to_pdf(
             status_code=400,
             detail=f"Failed to fetch URL: {str(e)}"
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -640,7 +739,6 @@ async def mammoth_docx_to_html(
     # Import Mammoth classes
     try:
         import mammoth
-        MAMMOTH_AVAILABLE = True
     except ImportError:
         raise HTTPException(
             status_code=503,
@@ -663,7 +761,7 @@ async def mammoth_docx_to_html(
 
     try:
         # Read file content
-        file_content = await file.read()
+        file_content = await read_upload_bounded(file)
 
         # Prepare Mammoth options
         mammoth_options = {}
@@ -688,12 +786,12 @@ async def mammoth_docx_to_html(
         docx_file = BytesIO(file_content)
 
         if mammoth_options:
-            result = mammoth.convert_to_html(docx_file, **mammoth_options)
+            result = await run_blocking(mammoth.convert_to_html, docx_file, **mammoth_options)
         else:
-            result = mammoth.convert_to_html(docx_file)
+            result = await run_blocking(mammoth.convert_to_html, docx_file)
 
         # Check for conversion messages/warnings
-        html_content = result.value
+        html_content = ensure_output_size(result.value.encode("utf-8"))
         messages = result.messages
 
         # Log any warnings or errors
@@ -709,7 +807,7 @@ async def mammoth_docx_to_html(
         output_filename = f"{base_name}.html"
 
         return StreamingResponse(
-            BytesIO(html_content.encode('utf-8')),
+            BytesIO(html_content),
             media_type="text/html",
             headers={
                 "Content-Disposition": f"attachment; filename={output_filename}",
@@ -717,6 +815,8 @@ async def mammoth_docx_to_html(
             }
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -745,9 +845,8 @@ async def html4docx_html_to_docx(
     """
     # Import html4docx classes
     try:
-        from docx import Document
-        from html4docx import HtmlToDocx
-        HTML4DOCX_AVAILABLE = True
+        import docx  # noqa: F401
+        import html4docx  # noqa: F401
     except ImportError:
         raise HTTPException(
             status_code=503,
@@ -799,7 +898,7 @@ async def html4docx_html_to_docx(
 
         if file:
             # Read uploaded file
-            file_content = await file.read()
+            file_content = await read_upload_bounded(file)
             html_content = file_content.decode('utf-8', errors='replace')
             base_name = file.filename.rsplit(".", 1)[0] if file.filename and "." in file.filename else "document"
 
@@ -812,10 +911,7 @@ async def html4docx_html_to_docx(
             if user_agent:
                 headers["User-Agent"] = user_agent
 
-            async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
-                response = await client.get(url)
-                response.raise_for_status()
-                html_content = response.text
+            html_content = await _fetch_text_bounded(url, headers)
 
             # Generate base name from URL
             from urllib.parse import urlparse
@@ -824,43 +920,7 @@ async def html4docx_html_to_docx(
             if not base_name:
                 base_name = "webpage"
 
-        # Create html4docx converter with a Pandoc-like body style.
-        converter = HtmlToDocx(default_paragraph_style=HTML4DOCX_DEFAULT_PARAGRAPH_STYLE)
-
-        # Convert HTML to DOCX using a tuned python-docx document so the
-        # resulting package is leaner and the default font sizing matches
-        # Pandoc more closely.
-        docx_document = Document()
-        apply_html4docx_font_tuning(docx_document)
-
-        try:
-            prune_html4docx_styles(docx_document)
-            converter.add_html_to_document(html_content, docx_document)
-        except KeyError as exc:
-            print(f"Warning: html4docx style-pruning fallback triggered: {exc}")
-            docx_document = Document()
-            apply_html4docx_font_tuning(docx_document)
-            converter = HtmlToDocx(default_paragraph_style=HTML4DOCX_DEFAULT_PARAGRAPH_STYLE)
-            converter.add_html_to_document(html_content, docx_document)
-        
-        # Extract and apply @page margins from HTML/CSS
-        try:
-            margins = extract_page_margins_from_html(html_content)
-            
-            if margins:
-                # Apply margins using utility function
-                apply_margins_to_docx_sections(docx_document, margins)
-                print(f"Applied margins to DOCX: {margins}")
-        except Exception as margin_error:
-            # Log the error but don't fail the conversion
-            print(f"Warning: Failed to apply margins: {margin_error}")
-        
-        # Save to BytesIO to get the bytes
-        docx_bytes_io = BytesIO()
-        docx_document.save(docx_bytes_io)
-        docx_bytes = docx_bytes_io.getvalue()
-        docx_bytes = normalize_docx_numbering_for_pandoc(docx_bytes)
-        docx_bytes = sync_docx_styles_with_effects(docx_bytes)
+        docx_bytes = await run_blocking(_convert_html4docx_bytes, html_content)
 
         # Generate output filename
         output_filename = f"{base_name}.docx"
@@ -879,6 +939,8 @@ async def html4docx_html_to_docx(
             status_code=400,
             detail=f"Failed to fetch URL: {str(e)}"
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -918,8 +980,7 @@ async def beautifulsoup_html_clean(
     """
     # Import BeautifulSoup classes
     try:
-        from bs4 import BeautifulSoup, Comment
-        BEAUTIFULSOUP_AVAILABLE = True
+        import bs4  # noqa: F401
     except ImportError:
         raise HTTPException(
             status_code=503,
@@ -945,7 +1006,7 @@ async def beautifulsoup_html_clean(
 
         if file:
             # Read uploaded file
-            file_content = await file.read()
+            file_content = await read_upload_bounded(file)
             html_content = file_content.decode('utf-8', errors='replace')
             base_name = file.filename.rsplit(".", 1)[0] if file.filename and "." in file.filename else "document"
 
@@ -953,10 +1014,7 @@ async def beautifulsoup_html_clean(
             # Fetch HTML from URL
             headers = {}
 
-            async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
-                response = await client.get(url)
-                response.raise_for_status()
-                html_content = response.text
+            html_content = await _fetch_text_bounded(url, headers)
 
             # Generate base name from URL
             from urllib.parse import urlparse
@@ -965,53 +1023,21 @@ async def beautifulsoup_html_clean(
             if not base_name:
                 base_name = "webpage"
 
-        # Parse HTML with BeautifulSoup
-        soup = BeautifulSoup(html_content, parser)
-
-        # Apply cleaning operations
-        if remove_scripts:
-            # Remove all script tags
-            for script in soup.find_all('script'):
-                script.decompose()
-
-        if remove_styles:
-            # Remove all style tags
-            for style in soup.find_all('style'):
-                style.decompose()
-
-        if remove_comments:
-            # Remove all HTML comments
-            for comment in soup.find_all(text=lambda text: isinstance(text, Comment)):
-                comment.extract()
-
-        # Handle special extraction modes
-        if extract_title:
-            # Extract only the title
-            title_tag = soup.find('title')
-            if title_tag:
-                result_content = title_tag.get_text().strip()
-            else:
-                result_content = "No title found"
-            media_type = "text/plain"
-            output_filename = f"{base_name}_title.txt"
-
-        elif extract_text:
-            # Extract only the text content
-            result_content = soup.get_text(separator='\n', strip=True)
-            media_type = "text/plain"
-            output_filename = f"{base_name}_text.txt"
-
-        else:
-            # Return cleaned HTML
-            if prettify:
-                result_content = soup.prettify()
-            else:
-                result_content = str(soup)
-            media_type = "text/html"
-            output_filename = f"{base_name}_cleaned.html"
+        result_content, media_type, output_suffix = await run_blocking(
+            _clean_html_content,
+            html_content,
+            parser,
+            remove_scripts,
+            remove_styles,
+            remove_comments,
+            extract_title,
+            extract_text,
+            prettify,
+        )
+        output_filename = f"{base_name}{output_suffix}"
 
         return StreamingResponse(
-            BytesIO(result_content.encode('utf-8')),
+            BytesIO(result_content),
             media_type=media_type,
             headers={
                 "Content-Disposition": f"attachment; filename={output_filename}",
@@ -1024,11 +1050,91 @@ async def beautifulsoup_html_clean(
             status_code=400,
             detail=f"Failed to fetch URL: {str(e)}"
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"BeautifulSoup processing failed: {str(e)}"
         )
+
+async def _copy_pdf_upload_to_temp(file: UploadFile) -> str:
+    """Persist an uploaded PDF with a strict size limit for file-backed rendering."""
+    declared_size = getattr(file, "size", None)
+    if isinstance(declared_size, int) and declared_size > MAX_INPUT_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Input exceeds the {MAX_INPUT_BYTES // (1024 * 1024)} MiB limit",
+        )
+
+    temporary_file = tempfile.NamedTemporaryFile(prefix="pdf_render_", suffix=".pdf", delete=False)
+    temporary_path = temporary_file.name
+    total_bytes = 0
+
+    try:
+        await file.seek(0)
+        with temporary_file:
+            while chunk := await file.read(1024 * 1024):
+                total_bytes += len(chunk)
+                if total_bytes > MAX_INPUT_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Input exceeds the {MAX_INPUT_BYTES // (1024 * 1024)} MiB limit",
+                    )
+                temporary_file.write(chunk)
+        return temporary_path
+    except Exception:
+        try:
+            os.unlink(temporary_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+@app.post("/pymupdf/render-pages")
+async def pymupdf_render_pages(
+    file: UploadFile = File(...),
+    page: str = Form("1"),
+    max_width: int = Form(DEFAULT_SCREENSHOT_WIDTH),
+    image_format: str = Form("jpg", alias="format"),
+    quality: Optional[int] = Form(None),
+):
+    """Render one PDF page or all pages as bounded PNG/JPG image output."""
+    options = validate_render_options(page, max_width, image_format, quality)
+    temporary_pdf = await _copy_pdf_upload_to_temp(file)
+
+    try:
+        result = await run_render_blocking(
+            render_pdf_document_pages,
+            temporary_pdf,
+            file.filename or "document.pdf",
+            options,
+        )
+    finally:
+        try:
+            os.unlink(temporary_pdf)
+        except FileNotFoundError:
+            pass
+
+    output_filename = build_download_filename(file.filename or "document.pdf", options.pages, options.image_format)
+    if result.archive_path:
+        return FileResponse(
+            result.archive_path,
+            media_type="application/zip",
+            filename=output_filename,
+            background=BackgroundTask(delete_rendered_archive, result.archive_path),
+        )
+
+    media_type = "image/jpeg" if options.image_format == "jpg" else "image/png"
+    return StreamingResponse(
+        BytesIO(result.image_bytes),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{output_filename}"',
+            "X-Conversion-Service": "PYMUPDF_RENDER",
+        },
+    )
+
 
 @app.post("/pymupdf/pdf-html")
 async def pymupdf_pdf_to_html(
@@ -1046,16 +1152,6 @@ async def pymupdf_pdf_to_html(
     Returns:
         HTML content as streaming response
     """
-    # Import PyMuPDF classes
-    try:
-        import fitz
-        PYMUPDF_AVAILABLE = True
-    except ImportError:
-        raise HTTPException(
-            status_code=503,
-            detail="PyMuPDF library not available. Please install with: pip install PyMuPDF"
-        )
-
     # Validate input file
     if not file:
         raise HTTPException(
@@ -1070,56 +1166,27 @@ async def pymupdf_pdf_to_html(
             detail="Only .pdf files are supported by PyMuPDF"
         )
 
+    temporary_pdf = await _copy_pdf_upload_to_temp(file)
     try:
-        # Read file content
-        file_content = await file.read()
+        full_html = await run_blocking(
+            extract_pdf_content,
+            temporary_pdf,
+            file.filename or "document.pdf",
+            "html",
+        )
+    finally:
+        try:
+            os.unlink(temporary_pdf)
+        except FileNotFoundError:
+            pass
 
-        # Open PDF with PyMuPDF
-        pdf_document = fitz.open(stream=file_content, filetype="pdf")
-
-        # Convert PDF to HTML
-        html_content = ""
-        for page_num in range(len(pdf_document)):
-            page = pdf_document.load_page(page_num)
-            # Get HTML representation of the page
-            page_html = page.get_text("html")
-            html_content += f"<div class='page' data-page='{page_num + 1}'>\n{page_html}\n</div>\n"
-
-        # Close the document
-        pdf_document.close()
-
-        # Wrap in basic HTML structure
-        full_html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF to HTML Conversion</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 20px; }}
-        .page {{ margin-bottom: 20px; border: 1px solid #ccc; padding: 10px; }}
-        .page[data-page]:before {{
-            content: "Page " attr(data-page);
-            display: block;
-            font-weight: bold;
-            margin-bottom: 10px;
-            color: #666;
-        }}
-    </style>
-</head>
-<body>
-    <h1>PDF to HTML Conversion</h1>
-    <p>Converted from: {file.filename}</p>
-    {html_content}
-</body>
-</html>"""
-
+    try:
         # Generate output filename
         base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
         output_filename = f"{base_name}.html"
 
         return StreamingResponse(
-            BytesIO(full_html.encode('utf-8')),
+            BytesIO(full_html),
             media_type="text/html",
             headers={
                 "Content-Disposition": f"attachment; filename={output_filename}",
@@ -1149,16 +1216,6 @@ async def pymupdf_pdf_to_txt(
     Returns:
         Plain text content as streaming response
     """
-    # Import PyMuPDF classes
-    try:
-        import fitz
-        PYMUPDF_AVAILABLE = True
-    except ImportError:
-        raise HTTPException(
-            status_code=503,
-            detail="PyMuPDF library not available. Please install with: pip install PyMuPDF"
-        )
-
     # Validate input file
     if not file:
         raise HTTPException(
@@ -1173,30 +1230,27 @@ async def pymupdf_pdf_to_txt(
             detail="Only .pdf files are supported by PyMuPDF"
         )
 
+    temporary_pdf = await _copy_pdf_upload_to_temp(file)
     try:
-        # Read file content
-        file_content = await file.read()
+        text_content = await run_blocking(
+            extract_pdf_content,
+            temporary_pdf,
+            file.filename or "document.pdf",
+            "txt",
+        )
+    finally:
+        try:
+            os.unlink(temporary_pdf)
+        except FileNotFoundError:
+            pass
 
-        # Open PDF with PyMuPDF
-        pdf_document = fitz.open(stream=file_content, filetype="pdf")
-
-        # Extract text from all pages
-        text_content = ""
-        for page_num in range(len(pdf_document)):
-            page = pdf_document.load_page(page_num)
-            # Get text representation of the page
-            page_text = page.get_text()
-            text_content += f"--- Page {page_num + 1} ---\n{page_text}\n\n"
-
-        # Close the document
-        pdf_document.close()
-
+    try:
         # Generate output filename
         base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
         output_filename = f"{base_name}.txt"
 
         return StreamingResponse(
-            BytesIO(text_content.encode('utf-8')),
+            BytesIO(text_content),
             media_type="text/plain",
             headers={
                 "Content-Disposition": f"attachment; filename={output_filename}",
@@ -1258,3 +1312,20 @@ async def test_health():
         results["pymupdf"] = {"error": str(e)}
     
     return {"results": results}
+
+
+if __name__ == "__main__":
+    import random
+    import uvicorn
+
+    max_requests = int(os.getenv("APPLITEXTRAC_MAX_REQUESTS", "1000"))
+    max_requests_jitter = int(os.getenv("APPLITEXTRAC_MAX_REQUESTS_JITTER", "100"))
+    if max_requests < 1 or max_requests_jitter < 0:
+        raise RuntimeError("Request recycling limits must be positive (jitter may be zero)")
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",
+        port=3000,
+        limit_concurrency=int(os.getenv("APPLITEXTRAC_LIMIT_CONCURRENCY", "16")),
+        limit_max_requests=max_requests + random.SystemRandom().randint(0, max_requests_jitter),
+    )

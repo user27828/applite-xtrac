@@ -292,6 +292,8 @@ Each endpoint automatically selects the optimal service:
 
 - `GET /convert/supported` - List all available conversions
 - `GET /convert/info/{input}-{output}` - Get conversion details
+- `POST /convert/screenshot` - Render a document page as JPG or PNG; accepts `page`, `width`, `format`, and JPG `quality`. `page=all` returns a ZIP archive.
+- `POST /convert/thumb` - Render a thumbnail using defaults of page 1, 480px maximum width, and JPG output.
 
 ## API Endpoints
 

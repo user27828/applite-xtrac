@@ -5,7 +5,6 @@ Validates TeX/LaTeX files using syntax and structure checks.
 """
 
 import re
-from pathlib import Path
 from typing import Optional
 import logging
 

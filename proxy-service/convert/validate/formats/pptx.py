@@ -4,8 +4,6 @@ PPTX file validation.
 Validates PowerPoint PPTX files using structure and content checks.
 """
 
-from pathlib import Path
-from typing import Optional
 import logging
 
 from ..base_validator import ArchiveBasedValidator, ValidationError

@@ -16,7 +16,7 @@ ROOT_VENV_PIP="$ROOT_VENV_DIR/bin/pip"
 SYSTEM_PYTHON="${APPLITEXTRAC_SYSTEM_PYTHON:-/usr/bin/python3}"
 # Set default port if not already defined
 APPLITEXTRAC_PORT=${APPLITEXTRAC_PORT:-8369}
-APPLITEXTRAC_HTTP_TIMEOUT=${APPLITEXTRAC_HTTP_TIMEOUT:-0}
+APPLITEXTRAC_HTTP_TIMEOUT=${APPLITEXTRAC_HTTP_TIMEOUT:-120}
 REQUIRED_PORTS=(${APPLITEXTRAC_PORT} 4000)  # Ports that need to be available
 SERVICES=("unstructured-io" "libreoffice" "pyconvert" "gotenberg" "proxy")
 
@@ -146,8 +146,10 @@ check_ports() {
 wait_for_services() {
     local timeout=${1:-60}
     local interval=${2:-5}
-    shift 2
-    local services_to_check=("$@")
+    local services_to_check=()
+    if [ $# -gt 2 ]; then
+        services_to_check=("${@:3}")
+    fi
     
     # If no specific services provided, use all SERVICES
     if [ ${#services_to_check[@]} -eq 0 ]; then
@@ -178,6 +180,26 @@ wait_for_services() {
     done
     
     log_warning "Services may not be fully ready after ${timeout}s"
+    return 1
+}
+
+# Wait for the public readiness contract, not merely Docker's "Up" state.
+wait_for_health() {
+    local timeout=${1:-120}
+    local interval=${2:-2}
+    local elapsed=0
+
+    log_info "Waiting for the proxy and downstream services to become healthy..."
+    while [ $elapsed -lt $timeout ]; do
+        if timeout 10 curl -s -f "http://localhost:${APPLITEXTRAC_PORT}/ping-all" >/dev/null 2>&1; then
+            log_success "Proxy and downstream services are healthy!"
+            return 0
+        fi
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+
+    log_error "Services did not become healthy within ${timeout}s"
     return 1
 }
 
@@ -440,6 +462,7 @@ do_start() {
     
     docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME up -d --build "$@" || log_error "Failed to start services"
     wait_for_services
+    wait_for_health
     check_health
 }
 
@@ -457,7 +480,10 @@ do_build() {
     validate_config
     
     log_info "Building Docker images..."
-    docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME build "$@" || log_error "Failed to build Docker images"
+    if ! docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME build "$@"; then
+        log_error "Failed to build Docker images"
+        return 1
+    fi
     log_success "Docker images built successfully"
 }
 

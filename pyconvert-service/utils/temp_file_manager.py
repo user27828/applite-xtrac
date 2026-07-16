@@ -12,13 +12,11 @@ This module provides a unified temporary file management system with:
 
 import os
 import tempfile
-import asyncio
 import logging
-import hashlib
 import shutil
 from pathlib import Path
-from typing import Optional, List, Union, Dict, Any, AsyncContextManager, ContextManager
-from contextlib import asynccontextmanager, contextmanager
+from typing import Optional, List, Union, Dict, Any
+from contextlib import contextmanager
 import weakref
 
 logger = logging.getLogger(__name__)
@@ -29,7 +27,6 @@ DEFAULT_TEMP_DIR = "/tmp/pyconvert-service"
 
 class TempFileError(Exception):
     """Custom exception for temporary file operations."""
-    pass
 
 
 class TempFileInfo:
@@ -176,25 +173,30 @@ class TempFileManager:
         Returns:
             TempFileInfo object
         """
-        if filename:
-            temp_path = self.service_dir / filename
-        else:
-            generated_name = self.generate_filename(
-                original_filename=None,
-                extension=extension,
-                prefix=prefix
-            )
-            temp_path = self.service_dir / generated_name
-
+        temp_path: Optional[Path] = None
         try:
-            if content is not None:
-                with open(temp_path, 'wb') as f:
-                    f.write(content)
-                logger.debug(f"Created temp file with content: {temp_path}")
-            else:
-                # Create empty file
-                temp_path.touch()
-                logger.debug(f"Created empty temp file: {temp_path}")
+            requested_name = Path(filename).name if filename else ""
+            suffix = extension or Path(requested_name).suffix
+            if suffix and not suffix.startswith("."):
+                suffix = f".{suffix}"
+            requested_stem = Path(requested_name).stem if requested_name else prefix
+            safe_stem = "".join(
+                character if character.isalnum() or character in "._-" else "_"
+                for character in requested_stem
+            ).strip("._") or prefix
+
+            # mkstemp provides atomic, collision-free creation even when concurrent
+            # requests upload the same client filename.
+            descriptor, created_path = tempfile.mkstemp(
+                dir=self.service_dir,
+                prefix=f"{safe_stem}_",
+                suffix=suffix or "",
+            )
+            temp_path = Path(created_path)
+            with os.fdopen(descriptor, "wb") as temp_handle:
+                if content is not None:
+                    temp_handle.write(content)
+            logger.debug(f"Created unique temp file: {temp_path}")
 
             temp_file = TempFileInfo(
                 path=str(temp_path),
@@ -208,7 +210,7 @@ class TempFileManager:
             return temp_file
 
         except Exception as e:
-            logger.error(f"Failed to create temp file {temp_path}: {e}")
+            logger.error(f"Failed to create temp file {temp_path or self.service_dir}: {e}")
             raise TempFileError(f"Failed to create temp file: {str(e)}")
 
     def copy_to_temp(

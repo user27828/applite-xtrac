@@ -1,0 +1,6 @@
+[flake8]
+select = E9,F63,F7,F82,F401,F811,F841,W605
+exclude = .git,.data,graphify-out,venv
+per-file-ignores =
+    */__init__.py:F401
+    proxy-service/tests/validate_setup.py:F401

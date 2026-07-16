@@ -6,30 +6,30 @@ supported formats, and service configurations.
 """
 
 from typing import Dict, List, Tuple, Optional
-import socket
+import os
+from pathlib import Path
 from ..config import CONVERSION_MATRIX, SERVICE_URL_CONFIGS, ConversionService
 
 
 def get_service_urls() -> Dict[str, str]:
     """
-    Get service URLs with fallback mechanism for Docker vs local development.
+    Get service URLs for the current runtime environment.
+
+    ``auto`` uses Docker service names only inside a container. Host-side
+    processes use published localhost ports without performing blocking DNS
+    probes. ``APPLITEXTRAC_SERVICE_MODE`` can explicitly be set to ``docker``
+    or ``local`` when a non-standard runtime needs to override detection.
 
     Returns:
         Dictionary mapping service names to their resolved URLs
     """
-    urls = {}
+    mode = os.getenv("APPLITEXTRAC_SERVICE_MODE", "auto").strip().lower()
+    if mode not in {"auto", "docker", "local"}:
+        raise ValueError("APPLITEXTRAC_SERVICE_MODE must be auto, docker, or local")
 
-    for service, config in SERVICE_URL_CONFIGS.items():
-        # Try Docker URL first
-        try:
-            # Quick DNS resolution test
-            socket.gethostbyname(config["docker"].replace("http://", "").split(":")[0])
-            urls[service] = config["docker"]
-        except socket.gaierror:
-            # Fall back to localhost
-            urls[service] = config["local"]
-
-    return urls
+    use_docker = mode == "docker" or (mode == "auto" and Path("/.dockerenv").exists())
+    key = "docker" if use_docker else "local"
+    return {service: config[key] for service, config in SERVICE_URL_CONFIGS.items()}
 
 
 def get_dynamic_service_urls():

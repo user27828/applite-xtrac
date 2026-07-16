@@ -7,11 +7,11 @@ import asyncio
 import os
 from pathlib import Path
 from fastapi.testclient import TestClient
+import httpx
 from httpx import AsyncClient
 import tempfile
 from datetime import datetime
-import json
-from typing import Dict, List, Generator, Union, Callable
+from typing import Dict, Union, Callable
 
 from app import app
 
@@ -122,27 +122,69 @@ class ClientFactory:
 
 # ===== STANDARD FIXTURES =====
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+def _install_mock_service_clients():
+    """Install deterministic in-process service responses for unit tests."""
+    async def handler(request: httpx.Request) -> httpx.Response:
+        host = request.url.host or ""
+        if "unstructured" in host or request.url.port == 8000:
+            return httpx.Response(405, request=request)
+        if "libreoffice" in host or request.url.port == 2004:
+            return httpx.Response(404, request=request)
+        if "pyconvert" in host or request.url.port == 3030:
+            return httpx.Response(
+                200,
+                request=request,
+                json={
+                    "success": True,
+                    "pandoc": {"status": "healthy", "response_code": 200},
+                    "weasyprint": {"status": "healthy", "response_code": 200},
+                    "mammoth": {"status": "healthy", "response_code": 200},
+                    "html4docx": {"status": "healthy", "response_code": 200},
+                    "pymupdf": {"status": "healthy", "response_code": 200},
+                },
+            )
+        return httpx.Response(200, request=request)
+
+    transport = httpx.MockTransport(handler)
+    app.state.client = httpx.AsyncClient(transport=transport)
+    app.state.libreoffice_client = httpx.AsyncClient(transport=transport)
+    app.state.gotenberg_client = httpx.AsyncClient(transport=transport)
+    app.state.pyconvert_client = httpx.AsyncClient(transport=transport)
+    return [
+        app.state.client,
+        app.state.libreoffice_client,
+        app.state.gotenberg_client,
+        app.state.pyconvert_client,
+    ]
 
 
-# Client fixtures using factory
-@pytest.fixture(scope="session")
+async def _close_service_clients(service_clients):
+    await asyncio.gather(*(service_client.aclose() for service_client in service_clients))
+
+
+# Client fixtures using deterministic mocked service clients. Avoid entering the
+# production lifespan: doing so creates real network clients and made unit
+# collection depend on Docker service state.
+@pytest.fixture
 def client():
     """FastAPI test client for synchronous tests."""
-    with TestClient(app) as test_client:
+    service_clients = _install_mock_service_clients()
+    test_client = TestClient(app)
+    try:
         yield test_client
+    finally:
+        test_client.close()
+        asyncio.run(_close_service_clients(service_clients))
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 async def async_client():
     """HTTPX async client for asynchronous tests."""
-    async with AsyncClient(app=app, base_url="http://testserver") as ac:
+    service_clients = _install_mock_service_clients()
+    transport = httpx.ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
         yield ac
+    await _close_service_clients(service_clients)
 
 
 @pytest.fixture(scope="session")

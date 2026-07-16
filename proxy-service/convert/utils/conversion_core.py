@@ -6,17 +6,18 @@ and utility functions that were moved from router.py to keep the router clean.
 """
 
 import logging
+import json
 import httpx
 import re
 import zipfile
 from typing import Optional, Dict, Any
 from urllib.parse import urlparse
 from io import BytesIO
-from fastapi import HTTPException, Request, UploadFile, Form
+from fastapi import HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTasks
 
 # Import centralized HTTP client factory
-from .http_client import ServiceType
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -24,31 +25,27 @@ logger = logging.getLogger(__name__)
 from ..config import (
     ConversionService,
     PANDOC_FORMAT_MAP,
-    UNSTRUCTURED_IO_MIME_MAPPING,
-    SPECIAL_HANDLERS,
-    SERVICE_URLS
+    UNSTRUCTURED_IO_MIME_MAPPING
 )
 from .conversion_lookup import (
-    get_primary_conversion,
-    get_supported_conversions,
-    get_all_conversions,
     DYNAMIC_SERVICE_URLS
 )
-from .url_processor import ConversionInput, fetch_url_content
-from .error_handling import create_http_exception, ErrorCode, handle_conversion_error, handle_service_error, sanitize_filename
+from .url_processor import ConversionInput
+from .error_handling import create_http_exception, ErrorCode, sanitize_filename
 from .image_pdf_utils import build_image_pdf_html
+from .resource_limits import (
+    MAX_ERROR_BYTES,
+    bounded_response_stream,
+    read_response_bounded,
+    read_streaming_response_bounded,
+    read_upload_bounded,
+    validate_upload_size,
+)
 
 # Import unified MIME type detector
 from .mime_detector import get_mime_type as get_unified_mime_type
 
 # Import centralized temp file manager
-from .temp_file_manager import (
-    get_temp_manager,
-    TempFileManager,
-    TempFileInfo,
-    cleanup_temp_files,
-    cleanup_temp_file
-)
 
 IMAGE_TO_PDF_INPUT_FORMATS = {"heic", "jpg", "jpeg", "png", "tiff", "tif"}
 LIBREOFFICE_HTML_DOCX_FILTER = "MS Word 2007 XML"
@@ -86,6 +83,15 @@ async def _get_service_client(service: ConversionService, request: Request) -> h
     else:
         # Default client for unstructured.io and other services
         return request.app.state.client
+
+
+async def _post_streaming(client: httpx.AsyncClient, url: str, **kwargs: Any) -> httpx.Response:
+    """Send a downstream POST without pre-buffering its response body."""
+    if not hasattr(client, "build_request"):
+        # Lightweight test/service adapters may expose only the high-level API.
+        return await client.post(url, **kwargs)
+    downstream_request = client.build_request("POST", url, **kwargs)
+    return await client.send(downstream_request, stream=True)
 
 
 def _normalize_multipart_values(value: Any) -> list[str]:
@@ -388,10 +394,21 @@ class InMemoryUploadFile:
         return None
 
 
+async def _multipart_content(upload: Any) -> Any:
+    """Prefer an existing file-backed upload over allocating another bytes copy."""
+    if hasattr(upload, "size"):
+        validate_upload_size(upload)
+    await upload.seek(0)
+    if hasattr(upload, "file"):
+        return upload.file
+    if hasattr(upload, "open_for_upload"):
+        return upload.open_for_upload()
+    return await upload.read()
+
+
 async def _create_image_pdf_upload(current_file: UploadFile, input_format: str) -> InMemoryUploadFile:
     """Convert an image upload into printable HTML for downstream PDF renderers."""
-    await current_file.seek(0)
-    file_content = await current_file.read()
+    file_content = await read_upload_bounded(current_file)
     html_content = build_image_pdf_html(file_content, current_file.filename, input_format)
     base_name = current_file.filename.rsplit(".", 1)[0] if "." in current_file.filename else current_file.filename
     return InMemoryUploadFile(f"{base_name}.html", html_content.encode("utf-8"), "text/html")
@@ -433,9 +450,16 @@ async def _proxy_pyconvert(
     data: Dict[str, str] = {}
 
     if current_file:
+        if isinstance(current_file, UploadFile):
+            validate_upload_size(current_file)
         await current_file.seek(0)
-        file_content = await current_file.read()
-        files['file'] = (current_file.filename, file_content, current_file.content_type)
+        if hasattr(current_file, "file"):
+            multipart_content = current_file.file
+        elif hasattr(current_file, "open_for_upload"):
+            multipart_content = current_file.open_for_upload()
+        else:
+            multipart_content = await current_file.read()
+        files['file'] = (current_file.filename, multipart_content, current_file.content_type)
         base_name = current_file.filename.rsplit(".", 1)[0] if "." in current_file.filename else "document"
     elif current_url:
         data['url'] = current_url
@@ -452,34 +476,50 @@ async def _proxy_pyconvert(
 
     try:
         factory = get_http_client_factory()
-        response = await factory.post_with_retry(
-            ServiceType.PANDOC,
-            pyconvert_url,
-            files=files,
-            data=data,
-        )
+        if hasattr(factory, "get_client"):
+            client = factory.get_client(ServiceType.PANDOC) or factory.create_client(ServiceType.PANDOC)
+            downstream_request = client.build_request(
+                "POST",
+                pyconvert_url,
+                files=files,
+                data=data,
+            )
+            response = await client.send(downstream_request, stream=True)
+        else:
+            response = await factory.post_with_retry(
+                ServiceType.PANDOC,
+                pyconvert_url,
+                files=files,
+                data=data,
+            )
 
         if response.status_code != 200:
-            logger.error(f"Pyconvert {service_label} returned {response.status_code}: {response.text[:500]}")
+            error_content = await read_response_bounded(response, MAX_ERROR_BYTES)
+            error_text = error_content.decode(response.encoding or "utf-8", errors="replace")
+            logger.error(f"Pyconvert {service_label} returned {response.status_code}: {error_text[:500]}")
             raise create_http_exception(
                 ErrorCode.CONVERSION_FAILED,
-                details=f"{service_label} conversion failed: {response.text}",
+                details=f"{service_label} conversion failed: {error_text}",
                 service=service_label.lower(),
             )
 
         suffix = filename_suffix or ""
         output_filename = sanitize_filename(f"{base_name}{suffix}.{output_format}")
 
-        response_content = response.content
         if input_format:
+            response_content = await read_response_bounded(response)
             response_content = _postprocess_conversion_content(
                 response_content,
                 input_format,
                 output_format,
             )
 
+            response_body = BytesIO(response_content)
+        else:
+            response_body = bounded_response_stream(response)
+
         return StreamingResponse(
-            BytesIO(response_content),
+            response_body,
             media_type=media_type,
             headers={
                 "Content-Disposition": f"attachment; filename={output_filename}",
@@ -505,7 +545,67 @@ async def _proxy_pyconvert(
         )
 
 
+def _source_url(url: Optional[str], url_input: Optional[Any]) -> str:
+    """Recover the original URL after it has been normalized to ConversionInput."""
+    if url:
+        return url
+    if url_input is None:
+        return ""
+    direct_url = getattr(url_input, "url", None)
+    if direct_url:
+        return direct_url
+    return getattr(url_input, "metadata", {}).get("original_url", "")
+
+
+def _defer_input_cleanup(response: StreamingResponse, conversion_input: ConversionInput) -> StreamingResponse:
+    """Run input cleanup after the response body and any prior background work."""
+    tasks = BackgroundTasks()
+    if response.background is not None:
+        tasks.add_task(response.background)
+    tasks.add_task(conversion_input.cleanup)
+    response.background = tasks
+    return response
+
+
 async def _convert_file(
+    request: Request,
+    file: Optional[UploadFile] = None,
+    url: Optional[str] = None,
+    url_input: Optional[Any] = None,
+    input_format: str = "",
+    output_format: str = "",
+    service: Optional[ConversionService] = None,
+    extra_params: Optional[dict] = None,
+) -> StreamingResponse:
+    """Normalize URL ownership and guarantee cleanup on every terminal path."""
+    managed_input = url_input
+    if url and managed_input is None:
+        from .url_processor import URLProcessor
+
+        managed_input = await URLProcessor().process_url_conversion(url, output_format)
+
+    try:
+        response = await _convert_file_impl(
+            request=request,
+            file=file,
+            url=None if managed_input is not None else url,
+            url_input=managed_input,
+            input_format=input_format,
+            output_format=output_format,
+            service=service,
+            extra_params=extra_params,
+        )
+    except BaseException:
+        if managed_input is not None:
+            await managed_input.cleanup()
+        raise
+
+    if managed_input is not None:
+        return _defer_input_cleanup(response, managed_input)
+    return response
+
+
+async def _convert_file_impl(
     request: Request,
     file: Optional[UploadFile] = None,
     url: Optional[str] = None,
@@ -545,12 +645,6 @@ async def _convert_file(
             ErrorCode.INVALID_REQUEST,
             details="Cannot provide multiple input types (file, url, url_input)"
         )
-    
-    # Handle legacy URL input by converting to new format
-    if url and not url_input:
-        from .url_processor import URLProcessor
-        url_manager = URLProcessor()
-        url_input = await url_manager.process_url_conversion(url, output_format)
     
     # Handle same-format conversions specially
     if url_input and hasattr(url_input, 'metadata') and url_input.metadata.get('passthrough_conversion'):
@@ -608,14 +702,13 @@ async def _convert_file(
         
         # Get input content
         if file:
-            file_content = await file.read()
+            file_content = await read_upload_bounded(file)
             input_filename = file.filename
         elif url_input:
             # For URL inputs in chained conversions, we need to read from the temp file
-            if hasattr(url_input, 'temp_file_wrapper'):
-                await url_input.temp_file_wrapper.seek(0)
-                file_content = await url_input.temp_file_wrapper.read()
-                input_filename = url_input.temp_file_wrapper.filename
+            if hasattr(url_input, 'file_wrapper'):
+                file_content = await read_upload_bounded(url_input.file_wrapper)
+                input_filename = url_input.file_wrapper.filename
             else:
                 raise create_http_exception(
                     ErrorCode.INVALID_REQUEST,
@@ -669,17 +762,16 @@ async def _convert_file(
                                     intermediate_result = await chain_conversions(
                                         request=request,
                                         initial_file_content=file_content,
-                                        initial_filename=file.filename,
+                                        initial_filename=input_filename,
                                         conversion_steps=conversion_steps,
                                         final_output_format=step_input,  # Intermediate format
                                         final_content_type="application/octet-stream"
                                     )
                                     
                                     # Extract content from intermediate result (collect chunks to avoid O(n²) concat)
-                                    intermediate_chunks = []
-                                    async for chunk in intermediate_result.body_iterator:
-                                        intermediate_chunks.append(chunk if isinstance(chunk, bytes) else chunk.encode('utf-8'))
-                                    intermediate_content = b''.join(intermediate_chunks)
+                                    intermediate_content = await read_streaming_response_bounded(
+                                        intermediate_result
+                                    )
                                     
                                     # Call special handler with intermediate content
                                     return await process_presentation_to_html(
@@ -718,7 +810,7 @@ async def _convert_file(
             return await chain_conversions(
                 request=request,
                 initial_file_content=file_content,
-                initial_filename=file.filename,
+                initial_filename=input_filename,
                 conversion_steps=conversion_steps,
                 final_output_format=output_format,
                 final_content_type=final_content_type
@@ -768,7 +860,7 @@ async def _convert_file(
                         current_file = input_for_service
                         current_url = None
                         if hasattr(current_file, 'file_path'):
-                            import os
+                            pass
                         
                 except Exception as e:
                     logger.error(f"Failed to get input for service {service_to_try}: {e}")
@@ -787,12 +879,9 @@ async def _convert_file(
                 # Unstructured IO supports both files and URLs through the new system
                 if current_file:
                     # Read file content
-                    await current_file.seek(0)  # Reset file pointer
-                    file_content = await current_file.read()
-                    
                     # Get MIME type for input file using standard library
                     mime_type = get_mime_type(input_format)
-                    files = {"files": (current_file.filename, file_content, mime_type)}
+                    files = {"files": (current_file.filename, await _multipart_content(current_file), mime_type)}
                     # Map output_format to MIME types for Unstructured-IO
                     unstructured_output_format = UNSTRUCTURED_IO_MIME_MAPPING.get(output_format, output_format)
                     
@@ -828,28 +917,33 @@ async def _convert_file(
                         del request_data["output_format"]  # Remove output_format to get JSON
 
                     if files:
-                        response = await client.post(
+                        response = await _post_streaming(
+                            client,
                             f"{service_url}/general/v0/general",
                             files=files,
                             data=request_data
                         )
                     else:
-                        response = await client.post(
+                        response = await _post_streaming(
+                            client,
                             f"{service_url}/general/v0/general",
                             json=request_data
                         )
 
                     if response.status_code != 200:
-                        logger.error(f"Service {service_to_try} returned {response.status_code}: {response.text}")
+                        error_content = await read_response_bounded(response, MAX_ERROR_BYTES)
+                        error_text = error_content.decode("utf-8", errors="replace")
+                        logger.error(f"Service {service_to_try} returned {response.status_code}: {error_text}")
                         raise create_http_exception(
                             ErrorCode.SERVICE_ERROR,
-                            details=f"Conversion failed: {response.text}",
+                            details=f"Conversion failed: {error_text}",
                             service=str(service_to_try),
                             status_code=response.status_code
                         )
 
                     # Parse JSON response and convert locally using centralized utility
-                    json_data = response.json()
+                    response_content = await read_response_bounded(response)
+                    json_data = json.loads(response_content)
                     
                     from .unstructured_utils import process_unstructured_json_to_content
                     content = process_unstructured_json_to_content(json_data, output_format, fix_tables=True)
@@ -859,7 +953,7 @@ async def _convert_file(
                     if file:
                         base_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
                     else:
-                        parsed_url = urlparse(url)
+                        parsed_url = urlparse(_source_url(url, url_input))
                         base_name = parsed_url.netloc + parsed_url.path.replace('/', '_')
                         if not base_name:
                             base_name = "url_content"
@@ -877,13 +971,15 @@ async def _convert_file(
                 else:
                     # For JSON output or other formats, use the service directly
                     if files:
-                        response = await client.post(
+                        response = await _post_streaming(
+                            client,
                             f"{service_url}/general/v0/general",
                             files=files,
                             data=data
                         )
                     else:
-                        response = await client.post(
+                        response = await _post_streaming(
+                            client,
                             f"{service_url}/general/v0/general",
                             json=data
                         )
@@ -897,14 +993,13 @@ async def _convert_file(
                         service="libreoffice"
                     )
                 
-                await current_file.seek(0)  # Reset file pointer
-                file_content = await current_file.read()
                 # Get MIME type for input file using standard library
                 mime_type = get_mime_type(input_format)
-                files = {"file": (current_file.filename, file_content, mime_type)}
+                files = {"file": (current_file.filename, await _multipart_content(current_file), mime_type)}
                 data = _build_libreoffice_request_data(input_format, output_format, extra_params)
 
-                response = await client.post(
+                response = await _post_streaming(
+                    client,
                     f"{service_url}/request",
                     files=files,
                     data=data
@@ -918,9 +1013,13 @@ async def _convert_file(
                         service="pandoc"
                     )
                     
-                await current_file.seek(0)  # Reset file pointer
-                file_content = await current_file.read()
-                files = {"file": (current_file.filename, file_content, f"application/{input_format}")}
+                files = {
+                    "file": (
+                        current_file.filename,
+                        await _multipart_content(current_file),
+                        f"application/{input_format}",
+                    )
+                }
                 data = {"output_format": output_format}
 
                 # Map input format to pandoc format name and add as extra arg
@@ -967,7 +1066,8 @@ async def _convert_file(
                     else:
                         data["extra_args"] = "--pdf-engine=pdflatex --standalone"
 
-                response = await client.post(
+                response = await _post_streaming(
+                    client,
                     f"{service_url}/pandoc",
                     files=files,
                     data=data
@@ -980,8 +1080,7 @@ async def _convert_file(
                         current_file = await _create_image_pdf_upload(current_file, input_format)
                         input_format = "html"
 
-                    await current_file.seek(0)  # Reset file pointer
-                    file_content = await current_file.read()
+                    file_content = await _multipart_content(current_file)
                     # For HTML files, use the correct endpoint and filename
                     if input_format == 'html':
                         files = {"index.html": ("index.html", file_content, "text/html")}
@@ -1018,14 +1117,16 @@ async def _convert_file(
 
                 # Send request with proper content type for URL inputs
                 if current_file:
-                    response = await client.post(
+                    response = await _post_streaming(
+                        client,
                         f"{service_url}/{endpoint}",
                         files=files,
                         data=data
                     )
                 else:
                     # For URL inputs, send as multipart/form-data using `files` form fields
-                    response = await client.post(
+                    response = await _post_streaming(
+                        client,
                         f"{service_url}/{endpoint}",
                         files=files
                     )
@@ -1070,8 +1171,7 @@ async def _convert_file(
                         service="local"
                     )
                 
-                await current_file.seek(0)  # Reset file pointer
-                file_content = await current_file.read()
+                file_content = await read_upload_bounded(current_file)
                 
                 # Use the global local conversion factory instance
                 from .._local_.factory import factory as local_factory
@@ -1210,10 +1310,12 @@ async def _convert_file(
             
             # Check response
             if response.status_code != 200:
-                logger.error(f"Service {service_to_try} returned {response.status_code}: {response.text}")
+                error_content = await read_response_bounded(response, MAX_ERROR_BYTES)
+                error_text = error_content.decode("utf-8", errors="replace")
+                logger.error(f"Service {service_to_try} returned {response.status_code}: {error_text}")
                 raise create_http_exception(
                     ErrorCode.SERVICE_ERROR,
-                    details=f"Conversion failed: {response.text}",
+                    details=f"Conversion failed: {error_text}",
                     service=str(service_to_try),
                     status_code=response.status_code
                 )
@@ -1235,14 +1337,18 @@ async def _convert_file(
             
             output_filename = sanitize_filename(f"{base_name}.{output_format}")
 
-            response_content = _postprocess_conversion_content(
-                response.content,
-                input_format,
-                output_format,
-            )
+            if input_format == "html" and output_format == "docx":
+                response_content = _postprocess_conversion_content(
+                    await read_response_bounded(response),
+                    input_format,
+                    output_format,
+                )
+                response_body = BytesIO(response_content)
+            else:
+                response_body = bounded_response_stream(response)
 
             return StreamingResponse(
-                BytesIO(response_content),
+                response_body,
                 media_type=content_type,
                 headers={
                     "Content-Disposition": f"attachment; filename={output_filename}",
@@ -1259,7 +1365,6 @@ async def _convert_file(
             continue  # Try next service
         except Exception as e:
             logger.error(f"Conversion error with {service_to_try}: {e}")
-            import traceback
             # Don't clean up resources here - keep them for other services to try
             # if url_input:
             #     await url_input.cleanup()

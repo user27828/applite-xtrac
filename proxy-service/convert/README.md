@@ -41,6 +41,61 @@ Special attention has been given to formats commonly used for **resumes/CVs/cove
 - `POST /validate-url` - Validate a URL and its content format for conversion
 - `GET /validate-url` - Validate a URL (GET method alternative)
 
+### Screenshot and thumbnail rendering
+
+`POST /convert/screenshot` renders an uploaded document page as an image. PDFs render directly; other inputs use their existing PDF conversion route first. Files whose format has no PDF route are rejected.
+
+`POST /convert/thumb` has the same behavior with thumbnail defaults. Both endpoints accept these multipart form fields:
+
+| Field | `screenshot` default | `thumb` default | Notes |
+|-------|----------------------|-----------------|-------|
+| `file` | required | required | Maximum input size: 512 MiB |
+| `page` | `1` | `1` | A positive 1-based page number, or `all` |
+| `width` | `2048` | `480` | Maximum width in pixels; allowed range: 64–4096 |
+| `format` | `jpg` | `jpg` | `jpg` or `png` |
+| `quality` | `85` for JPG | `80` for JPG | Optional JPG compression quality, 1–100; invalid for PNG |
+
+For `page=all`, the response is a ZIP archive containing numbered images. All-page requests are limited to 2,000 source pages, a 512 MiB archive, and one rendered page is processed at a time. A single image is limited to 32 megapixels and 64 MiB; unusually tall pages may render narrower than the supplied maximum width to remain within that safety bound.
+
+The following examples are ready to run from a *nix shell. They save every result under `/tmp`; the fixture paths assume the commands are run from the repository root.
+
+```bash
+API="http://localhost:8369"
+FIXTURES="$PWD/proxy-service/tests/fixtures"
+
+# Screenshot page 1 as a JPEG, limited to 1600px wide.
+curl -fsS -X POST "$API/convert/screenshot" \
+  -F "file=@$FIXTURES/sample.pdf" \
+  -F "page=1" \
+  -F "width=1600" \
+  -F "format=jpg" \
+  -F "quality=85" \
+  -o /tmp/applite-screenshot-page-1.jpg
+
+# Screenshot page x (page 2) as a PNG. sample.tiff is a multi-page fixture.
+curl -fsS -X POST "$API/convert/screenshot" \
+  -F "file=@$FIXTURES/sample.tiff" \
+  -F "page=2" \
+  -F "width=1600" \
+  -F "format=png" \
+  -o /tmp/applite-screenshot-page-2.png
+
+# Screenshot all pages as a ZIP archive containing JPG images.
+curl -fsS -X POST "$API/convert/screenshot" \
+  -F "file=@$FIXTURES/sample.tiff" \
+  -F "page=all" \
+  -F "width=1600" \
+  -F "format=jpg" \
+  -F "quality=85" \
+  -o /tmp/applite-screenshot-all.zip
+
+# Thumbnail from the existing PDF fixture using all /convert/thumb defaults:
+# page 1, 480px maximum width, JPG, and quality 80.
+curl -fsS -X POST "$API/convert/thumb" \
+  -F "file=@$FIXTURES/sample.pdf" \
+  -o /tmp/applite-thumb.jpg
+```
+
 ### Priority Endpoints (High-Level Aliases)
 
 #### PDF Output Conversions (High Priority)

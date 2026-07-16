@@ -4,8 +4,6 @@ PDF file validation.
 Validates PDF files using PyPDF2 for structure and content checks.
 """
 
-from pathlib import Path
-from typing import Optional
 import logging
 
 from ..base_validator import BinaryBasedValidator, ValidationError

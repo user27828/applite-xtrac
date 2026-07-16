@@ -8,7 +8,7 @@ that don't require external container services.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Tuple, Dict, Any
+from typing import Tuple
 from io import BytesIO
 
 from ..utils.error_handling import sanitize_filename
@@ -36,7 +36,7 @@ def _ensure_excel_deps():
 try:
     from numbers_parser import Document
     NUMBERS_PARSER_AVAILABLE = True
-except ImportError as e:
+except ImportError:
     Document = None
     NUMBERS_PARSER_AVAILABLE = False
 
@@ -177,30 +177,24 @@ class LocalConversionFactory:
                 )
                 temp_file_path = temp_file.path
 
-                # Parse Numbers file
-                doc = Document(temp_file_path)
-                # Get the first sheet (or we could iterate through all sheets)
-                if len(doc.sheets) == 0:
-                    raise HTTPException(status_code=400, detail="Numbers file contains no sheets")
-                
-                sheet = doc.sheets[0]
-                
-                # Convert to DataFrame
-                data = []
-                headers = []
-                
-                # Get headers from first row if it exists
-                if len(sheet.rows) > 0:
-                    headers = [str(cell.value) if cell.value is not None else f"Column_{i}" for i, cell in enumerate(sheet.rows[0])]
-                    data = [[cell.value for cell in row] for row in sheet.rows[1:]]
-                else:
-                    # Empty sheet
-                    headers = ["Column_0"]
-                    data = []
-                
-                df = pd.DataFrame(data, columns=headers)
+                try:
+                    doc = Document(temp_file_path)
+                    if len(doc.sheets) == 0:
+                        raise HTTPException(status_code=400, detail="Numbers file contains no sheets")
 
-                return df
+                    sheet = doc.sheets[0]
+                    if len(sheet.rows) > 0:
+                        headers = [
+                            str(cell.value) if cell.value is not None else f"Column_{index}"
+                            for index, cell in enumerate(sheet.rows[0])
+                        ]
+                        data = [[cell.value for cell in row] for row in sheet.rows[1:]]
+                    else:
+                        headers = ["Column_0"]
+                        data = []
+                    return pd.DataFrame(data, columns=headers)
+                finally:
+                    manager.cleanup_file(temp_file_path)
             else:
                 raise HTTPException(status_code=400, detail="Unsupported spreadsheet file format")
 

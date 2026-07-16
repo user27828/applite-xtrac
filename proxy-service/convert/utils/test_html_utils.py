@@ -2,7 +2,6 @@
 Tests for HTML processing utilities.
 """
 
-import pytest
 import sys
 import os
 

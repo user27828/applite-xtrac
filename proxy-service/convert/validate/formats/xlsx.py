@@ -4,8 +4,6 @@ XLSX file validation.
 Validates Excel XLSX files using openpyxl for structure and content checks.
 """
 
-from pathlib import Path
-from typing import Optional
 import logging
 
 from ..base_validator import ArchiveBasedValidator, ValidationError

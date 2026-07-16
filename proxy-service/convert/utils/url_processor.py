@@ -15,14 +15,11 @@ Architecture:
 
 import os
 import asyncio
-import logging
 import hashlib
-import tempfile
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, Union, Tuple
 from pathlib import Path
 from urllib.parse import urlparse, unquote
-import mimetypes
 
 # Try to import magic for content-based detection
 try:
@@ -35,8 +32,8 @@ except ImportError:
 import httpx
 from fastapi import HTTPException, UploadFile
 
-from ..config import ConversionService, CONVERSION_MATRIX, PASSTHROUGH_FORMATS
-from .conversion_lookup import get_primary_conversion, get_all_conversions
+from ..config import ConversionService, PASSTHROUGH_FORMATS
+from .conversion_lookup import get_all_conversions
 from .temp_file_manager import get_temp_manager
 from .mime_detector import get_mime_type as get_unified_mime_type, get_format_from_mime_type
 from .logging_config import get_logger
@@ -51,7 +48,6 @@ TEMP_DIR = "/tmp/applite-xtrac"
 
 class URLProcessingError(Exception):
     """Custom exception for URL processing errors."""
-    pass
 
 
 class ConversionInput(ABC):
@@ -63,12 +59,10 @@ class ConversionInput(ABC):
     @abstractmethod
     async def get_for_service(self, service: ConversionService) -> Union[str, UploadFile]:
         """Return input in format expected by service."""
-        pass
 
     @abstractmethod
     async def cleanup(self):
         """Clean up any resources associated with this input."""
-        pass
 
 
 class DirectURLInput(ConversionInput):
@@ -84,29 +78,42 @@ class DirectURLInput(ConversionInput):
 
     async def cleanup(self):
         """No cleanup needed for direct URL input."""
-        pass
 
 
 class TempFileInput(ConversionInput):
     """Input type for services requiring temp file download."""
 
-    def __init__(self, file_wrapper, metadata: Dict[str, Any]):
+    def __init__(self, file_wrapper, metadata: Dict[str, Any], manager):
         super().__init__(metadata)
         self.file_wrapper = file_wrapper
+        self._manager = manager
+        self._wrappers = [file_wrapper]
+        self._cleanup_lock = asyncio.Lock()
+        self._cleaned = False
 
     async def get_for_service(self, service: ConversionService) -> UploadFile:
         """Return UploadFile wrapper for services requiring file input."""
         # Create a new wrapper instance for each service to avoid cleanup conflicts
-        return URLFileWrapper(
+        if self._cleaned:
+            raise RuntimeError("Temporary URL input has already been cleaned up")
+        wrapper = URLFileWrapper(
             self.file_wrapper.file_path,
             self.file_wrapper.filename,
             self.file_wrapper.content_type
         )
+        self._wrappers.append(wrapper)
+        return wrapper
 
     async def cleanup(self):
         """Clean up temp file resources."""
-        if self.file_wrapper:
-            await self.file_wrapper.close()
+        async with self._cleanup_lock:
+            if self._cleaned:
+                return
+            self._cleaned = True
+            for wrapper in self._wrappers:
+                await wrapper.close()
+            self._wrappers.clear()
+            await self._manager.cleanup_file_async(self.metadata["temp_file_path"])
 
 
 class URLFileWrapper:
@@ -133,6 +140,13 @@ class URLFileWrapper:
         if self._file is None:
             self._file = open(self.file_path, 'rb')
         self._file.seek(position)
+
+    def open_for_upload(self):
+        """Return the file-backed stream expected by httpx multipart encoding."""
+        if self._file is None:
+            self._file = open(self.file_path, "rb")
+        self._file.seek(0)
+        return self._file
 
     async def close(self):
         """Close the file handle."""
@@ -318,6 +332,16 @@ class URLFetcher:
                 async with client.stream('GET', url, headers=headers) as response:
                     response.raise_for_status()
 
+                    content_length = response.headers.get("Content-Length")
+                    if content_length:
+                        try:
+                            if int(content_length) > DEFAULT_MAX_SIZE:
+                                raise URLProcessingError(
+                                    f"Content size exceeds maximum limit of {DEFAULT_MAX_SIZE} bytes"
+                                )
+                        except ValueError:
+                            logger.debug("Ignoring invalid Content-Length from %s", url)
+
                     # Read content with size limit (collect chunks to avoid O(n²) concat)
                     chunks = []
                     total_size = 0
@@ -344,6 +368,72 @@ class URLFetcher:
         except httpx.HTTPError as e:
             logger.error(f"Fetch failed for {url}: {e}")
             raise URLProcessingError(f"Failed to fetch URL: {str(e)}")
+
+    @staticmethod
+    async def fetch_to_file(
+        url: str,
+        destination: str,
+        timeout: int = DEFAULT_TIMEOUT,
+        user_agent: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Stream a URL directly to a bounded file and retain only a MIME sample."""
+        request_user_agent = user_agent or (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        )
+        headers = {
+            "User-Agent": request_user_agent,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
+        transport = httpx.AsyncHTTPTransport(retries=URLFetcher.MAX_RETRIES)
+
+        try:
+            async with httpx.AsyncClient(
+                transport=transport,
+                timeout=httpx.Timeout(timeout),
+                follow_redirects=True,
+            ) as client:
+                async with client.stream("GET", url, headers=headers) as response:
+                    response.raise_for_status()
+                    content_length = response.headers.get("Content-Length")
+                    if content_length:
+                        try:
+                            if int(content_length) > DEFAULT_MAX_SIZE:
+                                raise URLProcessingError(
+                                    f"Content size exceeds maximum limit of {DEFAULT_MAX_SIZE} bytes"
+                                )
+                        except ValueError:
+                            logger.debug("Ignoring invalid Content-Length from %s", url)
+
+                    total_size = 0
+                    content_sample = bytearray()
+                    with open(destination, "wb") as destination_file:
+                        async for chunk in response.aiter_bytes(chunk_size=64 * 1024):
+                            total_size += len(chunk)
+                            if total_size > DEFAULT_MAX_SIZE:
+                                raise URLProcessingError(
+                                    f"Content size exceeds maximum limit of {DEFAULT_MAX_SIZE} bytes"
+                                )
+                            if len(content_sample) < 8192:
+                                content_sample.extend(chunk[: 8192 - len(content_sample)])
+                            destination_file.write(chunk)
+
+                    return {
+                        "content_sample": bytes(content_sample),
+                        "size": total_size,
+                        "content_type": response.headers.get("Content-Type", ""),
+                        "final_url": str(response.url),
+                        "status": response.status_code,
+                        "headers": dict(response.headers),
+                    }
+        except httpx.HTTPStatusError as exc:
+            logger.error("HTTP error fetching %s: %s", url, exc.response.status_code)
+            raise URLProcessingError(
+                f"Failed to fetch URL (HTTP {exc.response.status_code}): {exc}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            logger.error("Fetch failed for %s: %s", url, exc)
+            raise URLProcessingError(f"Failed to fetch URL: {exc}") from exc
 
 
 class FileManager:
@@ -396,6 +486,13 @@ class FileManager:
         manager = get_temp_manager("url_processor")
         temp_file = manager.create_temp_file(content=content, filename=filename)
         return temp_file.path
+
+    @staticmethod
+    def create_empty_temp_file(filename: str):
+        """Create and register a collision-free destination for streamed URL data."""
+        manager = get_temp_manager("url_processor")
+        temp_file = manager.create_temp_file(filename=filename)
+        return manager, temp_file
 
     @staticmethod
     def create_file_wrapper(file_path: str, filename: str, content_type: str = None) -> URLFileWrapper:
@@ -506,24 +603,31 @@ class URLProcessor:
                 detail=f"Invalid URL: {str(e)}"
             )
 
-    async def _fetch_to_temp_file(self, url: str, user_agent: Optional[str] = None) -> Tuple[URLFileWrapper, Dict[str, Any]]:
+    async def _fetch_to_temp_file(self, url: str, user_agent: Optional[str] = None) -> Tuple[URLFileWrapper, Dict[str, Any], Any]:
         """Fetch URL to temp file and return wrapper with metadata."""
         try:
-            # Fetch content
-            fetch_result = await self.fetcher.fetch_content(url, user_agent=user_agent)
+            # Generate a public filename, while the manager creates a unique
+            # internal path for concurrent requests.
+            guessed_content_type = self.analyzer.get_content_type_from_url(url)
+            filename = self.file_manager.generate_temp_filename(url, guessed_content_type)
+            manager, temp_file = self.file_manager.create_empty_temp_file(filename)
+            temp_path = temp_file.path
 
-            # Detect actual format from content
+            try:
+                fetch_result = await self.fetcher.fetch_to_file(
+                    url,
+                    temp_path,
+                    user_agent=user_agent,
+                )
+            except BaseException:
+                await manager.cleanup_file_async(temp_path)
+                raise
+
             detected_format = self.analyzer.detect_format_from_content(
-                fetch_result['content'],
-                fetch_result.get('content_type', ''),
-                url
+                fetch_result["content_sample"],
+                fetch_result.get("content_type", ""),
+                url,
             )
-
-            # Generate filename
-            filename = self.file_manager.generate_temp_filename(url, fetch_result.get('content_type', ''))
-
-            # Save to temp file
-            temp_path = await self.file_manager.save_to_temp_file(fetch_result['content'], filename)
 
             # Create file wrapper
             content_type = fetch_result.get('content_type', f'application/{detected_format}')
@@ -538,7 +642,7 @@ class URLProcessor:
                 'fetch_headers': fetch_result.get('headers', {})
             }
 
-            return file_wrapper, metadata
+            return file_wrapper, metadata, manager
 
         except Exception as e:
             logger.error(f"Failed to fetch URL {url}: {e}")
@@ -618,7 +722,7 @@ class URLProcessor:
             return DirectURLInput(url, metadata)
         else:
             # Fetch to temp file and return file wrapper
-            temp_file_wrapper, fetch_metadata = await self._fetch_to_temp_file(url, user_agent)
+            temp_file_wrapper, fetch_metadata, manager = await self._fetch_to_temp_file(url, user_agent)
 
             # Combine metadata
             metadata = {
@@ -629,7 +733,7 @@ class URLProcessor:
                 **fetch_metadata
             }
 
-            return TempFileInput(temp_file_wrapper, metadata)
+            return TempFileInput(temp_file_wrapper, metadata, manager)
 
 
 # Global instance for backward compatibility
@@ -653,7 +757,7 @@ async def fetch_url_content(url: str, timeout: int = DEFAULT_TIMEOUT, use_scrapy
 async def fetch_url_to_temp_file(url: str, timeout: int = DEFAULT_TIMEOUT, use_scrapy: bool = False, user_agent: Optional[str] = None) -> Tuple[str, Dict[str, Any]]:
     """Backward compatibility function for url_fetcher.fetch_url_to_temp_file."""
     processor = get_url_processor()
-    file_wrapper, metadata = await processor._fetch_to_temp_file(url, user_agent)
+    file_wrapper, metadata, _manager = await processor._fetch_to_temp_file(url, user_agent)
     return file_wrapper.file_path, metadata
 
 

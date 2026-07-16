@@ -5,7 +5,6 @@ This module provides base classes and utilities for file validation,
 reducing code duplication across format-specific validators.
 """
 
-import os
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -139,7 +138,6 @@ class BaseFileValidator(ABC):
         Raises:
             ValidationError: If validation fails for actual format content
         """
-        pass
 
 
 class TextBasedValidator(BaseFileValidator):

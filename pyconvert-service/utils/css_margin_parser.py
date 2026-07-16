@@ -14,7 +14,7 @@ Functions:
 """
 
 import re
-from typing import Dict, Optional
+from typing import Dict
 
 
 def parse_css_length_to_inches(css_value: str) -> float:

@@ -2,15 +2,9 @@ from fastapi import FastAPI, Request, Response, UploadFile, File, Form
 from fastapi.responses import JSONResponse, StreamingResponse
 import httpx
 from contextlib import asynccontextmanager
-import json
 from io import BytesIO
-import logging
-import asyncio
-from urllib.parse import urlparse
-import re
 import os
-from datetime import datetime
-from typing import Optional, List
+from typing import Optional
 
 from convert.utils.unstructured_utils import is_unstructured_available
 
@@ -21,7 +15,7 @@ from convert.router import router as convert_router
 from convert.utils.conversion_lookup import get_service_urls
 
 # Import centralized error handling
-from convert.utils.error_handling import create_error_response, ErrorCode, handle_service_error, sanitize_filename
+from convert.utils.error_handling import sanitize_filename
 
 # Import centralized HTTP client factory
 from convert.utils.http_client import (
@@ -32,6 +26,15 @@ from convert.utils.http_client import (
 
 # Import centralized logging configuration
 from convert.utils.logging_config import get_logger
+from convert.utils.resource_limits import (
+    ContentLengthLimitMiddleware,
+    MAX_ERROR_BYTES,
+    bounded_request_stream,
+    bounded_response_stream,
+    read_response_bounded,
+    validate_request_content_length,
+    validate_upload_size,
+)
 
 
 # Set up logging
@@ -88,6 +91,7 @@ async def lifespan(app: FastAPI):
     app.state.client = factory.create_client(ServiceType.UNSTRUCTURED_IO)
     app.state.libreoffice_client = factory.create_client(ServiceType.LIBREOFFICE)
     app.state.gotenberg_client = factory.create_client(ServiceType.GOTENBERG)
+    app.state.pyconvert_client = factory.create_client(ServiceType.PANDOC)
 
     # Use the centralized lifespan context manager for proper cleanup
     async with lifespan_http_clients():
@@ -95,6 +99,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(ContentLengthLimitMiddleware)
 
 # Include the conversion router
 app.include_router(convert_router)
@@ -146,7 +151,7 @@ async def ping_pyconvert_service(service_name: str) -> JSONResponse:
                     "error": f"{service_name.title()} service unhealthy (status: {response.status_code})"
                 }
             )
-    except httpx.RequestError as e:
+    except httpx.RequestError:
         return JSONResponse(
             status_code=503, 
             content={
@@ -385,7 +390,7 @@ async def service_ping(service: str, request: Request):
         else:
             return JSONResponse(status_code=503, content={"success": False, "error": f"Service {service} unhealthy (status: {response.status_code})"})
     
-    except httpx.RequestError as e:
+    except httpx.RequestError:
         return JSONResponse(status_code=503, content={"success": False, "error": f"Service {service} unreachable"})
 
 @app.post("/unstructured-io-md")
@@ -412,7 +417,8 @@ async def _unstructured_convert(
         return JSONResponse(status_code=503, content={"error": "Unstructured library not available"})
 
     try:
-        file_content = await file.read()
+        validate_upload_size(file)
+        await file.seek(0)
 
         from convert.utils.unstructured_utils import convert_file_with_unstructured_io
         client: httpx.AsyncClient = request.app.state.client
@@ -421,7 +427,7 @@ async def _unstructured_convert(
         converted = await convert_file_with_unstructured_io(
             client=client,
             service_url=service_url,
-            file_content=file_content,
+            file_content=file.file,
             filename=file.filename,
             content_type=file.content_type or "application/octet-stream",
             output_format=output_format,
@@ -449,29 +455,34 @@ async def libreoffice_to_markdown(request: Request, file: UploadFile = File(...)
         return JSONResponse(status_code=503, content={"error": "Unstructured library not available"})
 
     try:
-        # Read the uploaded file
-        file_content = await file.read()
+        validate_upload_size(file)
+        await file.seek(0)
 
         # Step 1: Convert document to PDF using LibreOffice
         libreoffice_client = request.app.state.libreoffice_client
         service_url = SERVICES["libreoffice"]
 
         # Prepare LibreOffice request
-        files = {"file": (file.filename, BytesIO(file_content), file.content_type or "application/octet-stream")}
+        files = {"file": (file.filename, file.file, file.content_type or "application/octet-stream")}
         data = {"convert-to": "pdf"}
 
-        libreoffice_response = await libreoffice_client.post(
+        libreoffice_request = libreoffice_client.build_request(
+            "POST",
             f"{service_url}/request",
             files=files,
             data=data
         )
+        libreoffice_response = await libreoffice_client.send(libreoffice_request, stream=True)
 
         if libreoffice_response.status_code != 200:
-            return JSONResponse(status_code=libreoffice_response.status_code,
-                              content={"error": f"LibreOffice conversion failed: {libreoffice_response.text}"})
+            error_content = await read_response_bounded(libreoffice_response, MAX_ERROR_BYTES)
+            return JSONResponse(
+                status_code=libreoffice_response.status_code,
+                content={"error": f"LibreOffice conversion failed: {error_content.decode('utf-8', errors='replace')}"},
+            )
 
         # Get the PDF content from LibreOffice response
-        pdf_content = libreoffice_response.content
+        pdf_content = await read_response_bounded(libreoffice_response)
 
         # Step 2: Convert PDF to markdown using centralized unstructured function
         from convert.utils.unstructured_utils import convert_file_with_unstructured_io
@@ -517,6 +528,7 @@ async def _proxy_to_pyconvert(request: Request, path: str, service_label: str):
         service_label: Human-readable name for error/log messages.
     """
     target_url = f"{SERVICES['pyconvert']}/{path}"
+    validate_request_content_length(request)
 
     headers = dict(request.headers)
     headers.pop("host", None)
@@ -528,13 +540,10 @@ async def _proxy_to_pyconvert(request: Request, path: str, service_label: str):
         content_type = headers.get("content-type", "").lower()
         if "multipart/form-data" in content_type:
             form_data = await request.form()
-            for field_name, field_value in form_data.items():
-                if field_name not in ('file', 'files'):
-                    query_params[field_name] = field_value
     except Exception as e:
         logger.warning(f"Failed to extract form parameters in {service_label} proxy: {e}")
 
-    client: httpx.AsyncClient = app.state.client
+    client: httpx.AsyncClient = app.state.pyconvert_client
 
     try:
         if form_data is not None:
@@ -542,22 +551,32 @@ async def _proxy_to_pyconvert(request: Request, path: str, service_label: str):
             data = {}
             for field_name, field_value in form_data.items():
                 if hasattr(field_value, 'filename'):
-                    files[field_name] = (field_value.filename, await field_value.read(), field_value.content_type)
+                    validate_upload_size(field_value)
+                    await field_value.seek(0)
+                    files[field_name] = (field_value.filename, field_value.file, field_value.content_type)
                 else:
                     data[field_name] = field_value
-            resp = await client.post(target_url, files=files, data=data, params=query_params)
+            downstream_request = client.build_request(
+                method=request.method,
+                url=target_url,
+                files=files,
+                data=data,
+                params=query_params,
+            )
+            resp = await client.send(downstream_request, stream=True)
         else:
-            body = await request.body()
-            req = client.build_request(method=request.method, url=target_url, headers=headers, content=body, params=query_params)
-            resp = await client.send(req)
+            req = client.build_request(
+                method=request.method,
+                url=target_url,
+                headers=headers,
+                content=bounded_request_stream(request),
+                params=query_params,
+            )
+            resp = await client.send(req, stream=True)
 
         if resp.status_code >= 400:
-            if hasattr(resp, 'aclose'):
-                error_content = await resp.aread()
-                error_text = error_content.decode(resp.encoding or "utf-8", errors="replace")
-                await resp.aclose()
-            else:
-                error_text = resp.text
+            error_content = await read_response_bounded(resp, MAX_ERROR_BYTES)
+            error_text = error_content.decode(resp.encoding or "utf-8", errors="replace")
 
             logger.error(f"{service_label} service returned error {resp.status_code}: {error_text[:500]}...")
             return JSONResponse(
@@ -567,16 +586,11 @@ async def _proxy_to_pyconvert(request: Request, path: str, service_label: str):
 
         resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in HOP_BY_HOP}
 
-        if hasattr(resp, 'aclose'):
-            async def _stream_and_close(r):
-                try:
-                    async for chunk in r.aiter_bytes():
-                        yield chunk
-                finally:
-                    await r.aclose()
-            return StreamingResponse(_stream_and_close(resp), status_code=resp.status_code, headers=resp_headers)
-        else:
-            return Response(content=resp.content, status_code=resp.status_code, headers=resp_headers)
+        return StreamingResponse(
+            bounded_response_stream(resp),
+            status_code=resp.status_code,
+            headers=resp_headers,
+        )
 
     except httpx.RequestError as e:
         return JSONResponse(status_code=502, content={"error": f"{service_label} service unavailable: {str(e)}"})
@@ -640,3 +654,20 @@ async def pymupdf_pdf_to_html_proxy(request: Request, file: UploadFile = File(..
 async def pymupdf_pdf_to_txt_proxy(request: Request, file: UploadFile = File(...)):
     """Convert PDF to plain text using PyMuPDF via pyconvert-service."""
     return await _proxy_to_pyconvert(request, "pymupdf/pdf-txt", "PyMuPDF")
+
+
+if __name__ == "__main__":
+    import random
+    import uvicorn
+
+    max_requests = int(os.getenv("APPLITEXTRAC_MAX_REQUESTS", "2000"))
+    max_requests_jitter = int(os.getenv("APPLITEXTRAC_MAX_REQUESTS_JITTER", "200"))
+    if max_requests < 1 or max_requests_jitter < 0:
+        raise RuntimeError("Request recycling limits must be positive (jitter may be zero)")
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",
+        port=8369,
+        limit_concurrency=int(os.getenv("APPLITEXTRAC_LIMIT_CONCURRENCY", "64")),
+        limit_max_requests=max_requests + random.SystemRandom().randint(0, max_requests_jitter),
+    )

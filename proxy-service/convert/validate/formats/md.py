@@ -5,8 +5,6 @@ Validates Markdown files using structure and content checks.
 """
 
 import re
-from pathlib import Path
-from typing import Optional
 import logging
 
 from ..base_validator import TextBasedValidator, ValidationError

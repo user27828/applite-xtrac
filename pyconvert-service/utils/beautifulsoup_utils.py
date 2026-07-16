@@ -20,10 +20,9 @@ Usage:
 """
 
 import re
-import logging
 from typing import Optional, Dict, List, Set, Tuple, Any
-from urllib.parse import urlparse, urljoin
-from bs4 import BeautifulSoup, Comment, NavigableString
+from urllib.parse import urljoin
+from bs4 import BeautifulSoup, Comment
 
 # Import centralized logging configuration
 from .logging_config import get_logger

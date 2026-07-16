@@ -5,7 +5,6 @@ This script demonstrates how to use the file validation system
 to validate various document formats.
 """
 
-import os
 import sys
 from pathlib import Path
 
@@ -47,7 +46,7 @@ def test_validation():
             continue
 
         try:
-            result = validate_file(str(file_path), format_type, **options)
+            validate_file(str(file_path), format_type, **options)
             options_str = f" ({options})" if options else ""
             print(f"✅ {format_type.upper()}{options_str}: Validation passed")
         except ValidationError as e:
