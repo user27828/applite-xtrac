@@ -38,6 +38,8 @@ services:
     pids_limit: ${LIBREOFFICE_PIDS_LIMIT:-256}
     environment:
       UNOSERVER_CMD: "/venv/bin/unoserver --stop-after ${UNOSERVER_STOP_AFTER:-50} --conversion-timeout ${UNOSERVER_CONVERSION_TIMEOUT:-120}"
+      UNOSERVER_ADDR: "127.0.0.1:2003"
+      UNOCONVERT_BIN: "/usr/local/bin/unoconvert-compat"
 
   pyconvert:
     <<: *common-service

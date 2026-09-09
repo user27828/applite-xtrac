@@ -45,6 +45,61 @@ logger = logging.getLogger(__name__)
 # Create router
 router = APIRouter(prefix="/convert", tags=["conversions"])
 
+
+def _resolve_requested_service(
+    requested_service: object,
+    input_format: str,
+    output_format: str,
+    conversion_methods: list,
+) -> Optional[ConversionService]:
+    """Resolve and validate an optional service override from multipart form data."""
+    if requested_service is None:
+        return None
+
+    if not isinstance(requested_service, str) or not requested_service.strip():
+        raise create_http_exception(
+            ErrorCode.INVALID_REQUEST,
+            details="The service form field must contain a non-empty service name",
+        )
+
+    service_value = requested_service.strip().lower()
+    try:
+        requested = ConversionService(service_value)
+    except ValueError as exc:
+        supported_services = sorted(
+            {
+                method[0].value
+                for method in conversion_methods
+                if isinstance(method, (tuple, list)) and method
+            }
+        )
+        raise create_http_exception(
+            ErrorCode.INVALID_REQUEST,
+            details=(
+                f"Unsupported conversion service: {service_value}. "
+                f"Supported services: {supported_services}"
+            ),
+        ) from exc
+
+    supported_services = {
+        method[0]
+        for method in conversion_methods
+        if isinstance(method, (tuple, list)) and method
+    }
+    if requested not in supported_services:
+        raise create_http_exception(
+            ErrorCode.CONVERSION_NOT_SUPPORTED,
+            details=(
+                f"Service {requested.value} does not support conversion "
+                f"from {input_format} to {output_format}"
+            ),
+            input_format=input_format,
+            output_format=output_format,
+            service=requested.value,
+        )
+
+    return requested
+
 #-- URL to {format} conversions
 #-------------------------------------------------------------------------------
 @router.post("/url-{output_format}")
@@ -121,9 +176,23 @@ async def convert_dynamic(request: Request, input_format: str, output_format: st
         # Skip the file parameter
         if key != 'file':
             extra_params[key] = value
+
+    requested_service = _resolve_requested_service(
+        extra_params.pop("service", None),
+        input_format,
+        output_format,
+        conversion_methods,
+    )
     
     # Proceed with conversion
-    return await _convert_file(request, file=file, input_format=input_format, output_format=output_format, extra_params=extra_params)
+    return await _convert_file(
+        request,
+        file=file,
+        input_format=input_format,
+        output_format=output_format,
+        service=requested_service,
+        extra_params=extra_params,
+    )
 
 
 #-- Document screenshot and thumbnail rendering
