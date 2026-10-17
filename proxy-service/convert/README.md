@@ -57,6 +57,20 @@ Special attention has been given to formats commonly used for **resumes/CVs/cove
 
 For `page=all`, the response is a ZIP archive containing numbered images. All-page requests are limited to 2,000 source pages, a 512 MiB archive, and one rendered page is processed at a time. A single image is limited to 32 megapixels and 64 MiB; unusually tall pages may render narrower than the supplied maximum width to remain within that safety bound.
 
+### OCR rendered-page limit
+
+Requests that explicitly select `service=unstructured-io` may include the
+optional multipart field `max_pages`. Before forwarding an OCR request, the
+proxy counts PDF pages directly or converts a supported non-PDF document to
+PDF with an existing renderer and reads its page metadata through PyMuPDF. If
+the count exceeds the limit, the proxy returns HTTP 413 with code
+`RESUME_CV_PAGE_LIMIT_EXCEEDED`, `page_count`, and `max_pages`; it never sends
+only the first pages to OCR. Invalid limits return HTTP 400. If the file cannot
+be rendered and counted, the proxy returns HTTP 422 with
+`RESUME_CV_PAGE_COUNT_UNAVAILABLE` and does not submit it to OCR. The page cap
+is enforced by the receiver and is not forwarded to the upstream Unstructured
+API.
+
 The following examples are ready to run from a *nix shell. They save every result under `/tmp`; the fixture paths assume the commands are run from the repository root.
 
 ```bash

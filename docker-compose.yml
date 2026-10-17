@@ -59,7 +59,7 @@ services:
 
   gotenberg:
     <<: *common-service
-    image: gotenberg/gotenberg:8.33.0
+    image: gotenberg/gotenberg:8.37.0
     stop_grace_period: 10s
     expose:
       - "3000"

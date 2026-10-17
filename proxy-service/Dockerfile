@@ -1,4 +1,4 @@
-FROM docker.io/library/python:3.11.13-slim-bookworm
+FROM docker.io/library/python:3.11.17-slim-bookworm
 
 # python-magic is the proxy's only native runtime dependency. Rendering
 # libraries live in pyconvert-service and do not belong in this image.

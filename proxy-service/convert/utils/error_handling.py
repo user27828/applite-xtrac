@@ -38,6 +38,8 @@ class ErrorCode(str, Enum):
     INVALID_FORMAT = "INVALID_FORMAT"
     FILE_TOO_LARGE = "FILE_TOO_LARGE"
     INVALID_FILE = "INVALID_FILE"
+    PAGE_LIMIT_EXCEEDED = "RESUME_CV_PAGE_LIMIT_EXCEEDED"
+    PAGE_COUNT_UNAVAILABLE = "RESUME_CV_PAGE_COUNT_UNAVAILABLE"
 
     # URL-specific errors
     INVALID_URL = "INVALID_URL"
@@ -71,6 +73,8 @@ ERROR_STATUS_MAP: Dict[ErrorCode, int] = {
     ErrorCode.CONVERSION_NOT_SUPPORTED: 400,
     ErrorCode.CONVERSION_FAILED: 500,
     ErrorCode.FILE_TOO_LARGE: 413,
+    ErrorCode.PAGE_LIMIT_EXCEEDED: 413,
+    ErrorCode.PAGE_COUNT_UNAVAILABLE: 422,
     ErrorCode.UNAUTHORIZED: 401,
     ErrorCode.FORBIDDEN: 403,
     ErrorCode.NOT_FOUND: 404,
@@ -104,6 +108,8 @@ ERROR_SEVERITY_MAP: Dict[ErrorCode, ErrorSeverity] = {
     ErrorCode.INVALID_PARAMETER: ErrorSeverity.LOW,
     ErrorCode.PARAMETER_OUT_OF_RANGE: ErrorSeverity.LOW,
     ErrorCode.FILE_TOO_LARGE: ErrorSeverity.LOW,
+    ErrorCode.PAGE_LIMIT_EXCEEDED: ErrorSeverity.LOW,
+    ErrorCode.PAGE_COUNT_UNAVAILABLE: ErrorSeverity.MEDIUM,
     ErrorCode.UNAUTHORIZED: ErrorSeverity.MEDIUM,
     ErrorCode.FORBIDDEN: ErrorSeverity.MEDIUM,
     ErrorCode.NOT_FOUND: ErrorSeverity.LOW,

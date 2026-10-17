@@ -1,4 +1,4 @@
-FROM downloads.unstructured.io/unstructured-io/unstructured-api:latest@sha256:1511990f121851152c144fc64eca58da47b7acf7e1b5ab298207f4236ad3e2dc
+FROM downloads.unstructured.io/unstructured-io/unstructured-api:0.1.15@sha256:9d4496a7312c6c17490231cd9d7e5592a1edbe83a0098ce52ec8a88cdcb12235
 
 # The upstream lifetime wrapper uses GNU timeout's --preserve-status flag,
 # while the current Wolfi image exposes BusyBox timeout. Install the compatible

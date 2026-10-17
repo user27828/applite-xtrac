@@ -12,6 +12,7 @@ import re
 import zipfile
 from typing import Optional, Dict, Any
 from urllib.parse import urlparse
+from pathlib import Path
 from io import BytesIO
 from fastapi import HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -28,11 +29,13 @@ from ..config import (
     UNSTRUCTURED_IO_MIME_MAPPING
 )
 from .conversion_lookup import (
-    DYNAMIC_SERVICE_URLS
+    DYNAMIC_SERVICE_URLS,
+    get_all_conversions,
 )
 from .url_processor import ConversionInput
 from .error_handling import create_http_exception, ErrorCode, sanitize_filename
 from .image_pdf_utils import build_image_pdf_html
+from .screenshot_utils import copy_response_to_spooled_pdf
 from .resource_limits import (
     MAX_ERROR_BYTES,
     bounded_response_stream,
@@ -48,6 +51,7 @@ from .mime_detector import get_mime_type as get_unified_mime_type
 # Import centralized temp file manager
 
 IMAGE_TO_PDF_INPUT_FORMATS = {"heic", "jpg", "jpeg", "png", "tiff", "tif"}
+MAX_OCR_PAGE_LIMIT = 2_000
 LIBREOFFICE_HTML_DOCX_FILTER = "MS Word 2007 XML"
 WORD_DOCUMENT_XML_PATH = "word/document.xml"
 WORD_DOCUMENT_BODY_OPEN_RE = re.compile(rb"<w:body\b[^>]*>")
@@ -412,6 +416,139 @@ async def _create_image_pdf_upload(current_file: UploadFile, input_format: str) 
     html_content = build_image_pdf_html(file_content, current_file.filename, input_format)
     base_name = current_file.filename.rsplit(".", 1)[0] if "." in current_file.filename else current_file.filename
     return InMemoryUploadFile(f"{base_name}.html", html_content.encode("utf-8"), "text/html")
+
+
+def _parse_ocr_page_limit(value: Any) -> int:
+    """Validate the optional OCR page ceiling before any renderer or OCR service runs."""
+    if isinstance(value, bool):
+        raise create_http_exception(
+            ErrorCode.INVALID_PARAMETER,
+            details="max_pages must be a positive integer",
+        )
+
+    try:
+        normalized = str(value).strip()
+        if not normalized or not normalized.isdecimal():
+            raise ValueError
+        page_limit = int(normalized)
+    except (TypeError, ValueError) as exc:
+        raise create_http_exception(
+            ErrorCode.INVALID_PARAMETER,
+            details="max_pages must be a positive integer",
+        ) from exc
+
+    if page_limit < 1 or page_limit > MAX_OCR_PAGE_LIMIT:
+        raise create_http_exception(
+            ErrorCode.PARAMETER_OUT_OF_RANGE,
+            details=f"max_pages must be between 1 and {MAX_OCR_PAGE_LIMIT}",
+        )
+    return page_limit
+
+
+def _raise_page_count_unavailable(max_pages: int) -> None:
+    message = "The rendered page count could not be verified, so OCR was not started."
+    raise create_http_exception(
+        ErrorCode.PAGE_COUNT_UNAVAILABLE,
+        details=message,
+        code=ErrorCode.PAGE_COUNT_UNAVAILABLE.value,
+        max_pages=max_pages,
+    )
+
+
+async def _count_rendered_pages(
+    request: Request,
+    file: UploadFile,
+    input_format: str,
+    max_pages: int,
+) -> int:
+    """Render non-PDF inputs through an existing PDF service, then count PDF pages."""
+    filename = file.filename or f"document.{input_format}"
+    # The internal metadata endpoint validates the multipart filename suffix.
+    pdf_filename = f"{Path(filename).stem or 'document'}.pdf"
+    pdf_file = None
+    owns_pdf_file = False
+    try:
+        if input_format.lower() == "pdf":
+            await file.seek(0)
+            pdf_file = file.file
+        else:
+            renderer_order = {
+                ConversionService.GOTENBERG: 0,
+                ConversionService.LIBREOFFICE: 1,
+                ConversionService.WEASYPRINT: 2,
+            }
+            available_renderers = [
+                conversion[0]
+                for conversion in get_all_conversions(input_format, "pdf")
+                if conversion[0] in renderer_order
+            ]
+            if not available_renderers:
+                _raise_page_count_unavailable(max_pages)
+
+            renderer = min(available_renderers, key=renderer_order.__getitem__)
+            pdf_response = await _convert_file_impl(
+                request=request,
+                file=file,
+                input_format=input_format,
+                output_format="pdf",
+                service=renderer,
+            )
+            pdf_file = await copy_response_to_spooled_pdf(pdf_response)
+            owns_pdf_file = True
+
+        page_count_url = (
+            f"{DYNAMIC_SERVICE_URLS[ConversionService.PYMUPDF]}/pymupdf/pdf-info"
+        )
+        pdf_file.seek(0)
+        response = await _post_streaming(
+            request.app.state.pyconvert_client,
+            page_count_url,
+            files={"file": (pdf_filename, pdf_file, "application/pdf")},
+        )
+        if response.status_code != 200:
+            await read_response_bounded(response, MAX_ERROR_BYTES)
+            _raise_page_count_unavailable(max_pages)
+
+        page_metadata = json.loads(await read_response_bounded(response, MAX_ERROR_BYTES))
+        page_count = page_metadata.get("page_count") if isinstance(page_metadata, dict) else None
+        if isinstance(page_count, bool) or not isinstance(page_count, int) or page_count < 1:
+            _raise_page_count_unavailable(max_pages)
+        return page_count
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        if detail.get("error") == ErrorCode.PAGE_COUNT_UNAVAILABLE.value:
+            raise
+        logger.warning("Unable to verify rendered page count before OCR: %s", exc)
+        _raise_page_count_unavailable(max_pages)
+    except Exception as exc:
+        logger.warning("Unable to verify rendered page count before OCR: %s", exc)
+        _raise_page_count_unavailable(max_pages)
+    finally:
+        if owns_pdf_file and pdf_file is not None:
+            pdf_file.close()
+
+
+async def _enforce_ocr_page_limit(
+    request: Request,
+    file: Optional[UploadFile],
+    input_format: str,
+    raw_limit: Any,
+) -> None:
+    """Fail closed before Unstructured submission when a requested page cap is unknown or exceeded."""
+    max_pages = _parse_ocr_page_limit(raw_limit)
+    if file is None:
+        _raise_page_count_unavailable(max_pages)
+
+    page_count = await _count_rendered_pages(request, file, input_format, max_pages)
+    if page_count > max_pages:
+        message = f"Document has {page_count} pages; the maximum allowed is {max_pages} pages."
+        raise create_http_exception(
+            ErrorCode.PAGE_LIMIT_EXCEEDED,
+            details=message,
+            code=ErrorCode.PAGE_LIMIT_EXCEEDED.value,
+            page_count=page_count,
+            max_pages=max_pages,
+        )
 
 
 async def _proxy_pyconvert(
@@ -876,6 +1013,14 @@ async def _convert_file_impl(
             service_url = DYNAMIC_SERVICE_URLS[service_to_try]
 
             if service_to_try == ConversionService.UNSTRUCTURED_IO:
+                if extra_params is not None and "max_pages" in extra_params:
+                    await _enforce_ocr_page_limit(
+                        request,
+                        current_file,
+                        input_format,
+                        extra_params["max_pages"],
+                    )
+
                 # Unstructured IO supports both files and URLs through the new system
                 if current_file:
                     # Read file content
@@ -896,7 +1041,7 @@ async def _convert_file_impl(
                     # Add any additional parameters from extra_params to the request data
                     if extra_params:
                         for key, value in extra_params.items():
-                            if key not in data:  # Don't override existing parameters
+                            if key not in data and key != "max_pages":  # max_pages is enforced by this receiver
                                 data[key] = value
 
                 elif current_url:
@@ -1356,6 +1501,19 @@ async def _convert_file_impl(
                 }
             )
 
+        except HTTPException as e:
+            detail = e.detail if isinstance(e.detail, dict) else {}
+            non_fallback_codes = {
+                ErrorCode.INVALID_PARAMETER.value,
+                ErrorCode.PARAMETER_OUT_OF_RANGE.value,
+                ErrorCode.PAGE_LIMIT_EXCEEDED.value,
+                ErrorCode.PAGE_COUNT_UNAVAILABLE.value,
+            }
+            if detail.get("error") in non_fallback_codes:
+                raise
+            logger.error(f"Conversion error with {service_to_try}: {e}")
+            last_error = HTTPException(status_code=500, detail=f"Conversion failed: {str(e)}")
+            continue
         except httpx.RequestError as e:
             logger.error(f"Request error for {service_to_try}: {e}")
             # Don't clean up resources here - keep them for other services to try

@@ -94,6 +94,28 @@ def validate_render_options(
     )
 
 
+def get_pdf_page_count(pdf_path: str) -> int:
+    """Return the rendered PDF page count without rasterizing any pages."""
+    try:
+        import fitz
+    except ImportError as exc:
+        raise HTTPException(status_code=503, detail="PyMuPDF library is not available") from exc
+
+    try:
+        document = fitz.open(pdf_path)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Unable to open PDF") from exc
+
+    try:
+        if document.needs_pass:
+            raise HTTPException(status_code=400, detail="Password-protected PDFs are not supported")
+        if document.page_count < 1:
+            raise HTTPException(status_code=400, detail="PDF does not contain any pages")
+        return document.page_count
+    finally:
+        document.close()
+
+
 def render_pdf_pages(pdf_path: str, original_filename: str, options: RenderOptions) -> RenderResult:
     """Render selected PDF pages without retaining all rendered pages in memory."""
     try:

@@ -32,6 +32,7 @@ from utils.pdf_rendering import (
     build_download_filename,
     delete_rendered_archive,
     extract_pdf_content,
+    get_pdf_page_count,
     render_pdf_pages as render_pdf_document_pages,
     validate_render_options,
 )
@@ -1134,6 +1135,24 @@ async def pymupdf_render_pages(
             "X-Conversion-Service": "PYMUPDF_RENDER",
         },
     )
+
+
+@app.post("/pymupdf/pdf-info")
+async def pymupdf_pdf_info(file: UploadFile = File(...)):
+    """Return PDF page metadata without rendering or extracting document content."""
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only .pdf files are supported by PyMuPDF")
+
+    temporary_pdf = await _copy_pdf_upload_to_temp(file)
+    try:
+        page_count = await run_render_blocking(get_pdf_page_count, temporary_pdf)
+    finally:
+        try:
+            os.unlink(temporary_pdf)
+        except FileNotFoundError:
+            pass
+
+    return {"page_count": page_count}
 
 
 @app.post("/pymupdf/pdf-html")
