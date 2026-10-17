@@ -49,6 +49,14 @@ External Request → Proxy Service (port 8369) → Internal Services
 
 **Critical**: Use `./run.sh` commands instead of raw docker-compose. The script handles port conflicts, service dependencies, and comprehensive health checks.
 
+### Unstructured image build and upgrades
+
+Compose uses the local image `applite-xtrac-unstructured-io:latest`; the Unstructured service has no Compose build context. Build it with `./run.sh build unstructured-io`, or use `./run.sh up` / `./run.sh up-d`, which build it automatically. Build the image before starting the stack directly with Docker Compose.
+
+The upstream `unstructured-api` commit is pinned in `unstructured-service/upstream-ref`. `unstructured-service/build-image.sh` applies a BuildKit cache mount to upstream's locked `uv sync` step. Installed dependencies remain in the image, while downloaded package artifacts stay in Docker's builder cache, outside the image. The cache is local to the builder and may be removed by Docker's cache cleanup; it reduces repeated downloads when the image needs rebuilding but does not remove installed dependencies from the image.
+
+Upgrade the pin to the latest upstream `main` commit with `./unstructured-service/update-upstream.sh`. It builds the candidate image before updating the pin. `./run.sh update` pulls Gotenberg only; use the Unstructured update script for Unstructured source upgrades. See `docs/UNSTRUCTURED_IMAGE.md` for details.
+
 ### Testing & Development
 ```bash
 # From proxy-service/ directory

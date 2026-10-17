@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM docker.io/pandoc/extra:latest@sha256:73270174fe0b04dcef76c9dd9b2af5921d47be50a16d8d0c735d843ddbaa3adf
 
 # Install Python and pip
@@ -30,7 +31,8 @@ RUN python3 -m venv /opt/venv
 # Activate virtual environment and install packages
 ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install -r /tmp/requirements.txt
+RUN --mount=type=cache,id=applite-xtrac-pyconvert-pip,target=/root/.cache/pip,sharing=locked \
+    pip install -r /tmp/requirements.txt
 
 # Create app directory
 WORKDIR /app

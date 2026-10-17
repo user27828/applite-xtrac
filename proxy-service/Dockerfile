@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM docker.io/library/python:3.11.17-slim-bookworm
 
 # python-magic is the proxy's only native runtime dependency. Rendering
@@ -9,7 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY requirements.txt /app/requirements.txt
-RUN pip install -r requirements.txt
+RUN --mount=type=cache,id=applite-xtrac-proxy-pip,target=/root/.cache/pip,sharing=locked \
+    pip install -r requirements.txt
 
 # Add timestamp to force cache invalidation
 ARG BUILD_DATE

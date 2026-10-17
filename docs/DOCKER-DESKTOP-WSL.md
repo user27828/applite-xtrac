@@ -156,6 +156,8 @@ This configuration provides:
 
 Both setups support Docker Compose:
 
+The Unstructured service uses a local image built from a pinned upstream source commit. Compose has no build context for this image, so build it with `./run.sh build unstructured-io` before starting the stack directly with Docker Compose. The `./run.sh up`, `./run.sh up-d`, and `./run.sh dev` workflows build it automatically. Dependency downloads are cached in Docker's local builder cache; installed packages remain in the image. See [Unstructured image build](UNSTRUCTURED_IMAGE.md) for cache and upgrade details.
+
 ```bash
 # Check compose version
 docker compose version

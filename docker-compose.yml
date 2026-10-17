@@ -1,6 +1,7 @@
 # AppLite-Xtrac: Docker Compose configuration (compatible with both Docker and Podman)
-# Use with: docker-compose up --build
-# Or with Podman: podman-compose up --build
+# Build the Unstructured image first with: ./run.sh build unstructured-io
+# Then start with: ./run.sh up (or docker-compose up)
+# Podman Compose also requires the Unstructured image in Podman's image store.
 
 # ===== YAML ANCHORS & TEMPLATES =====
 
@@ -13,7 +14,7 @@ x-common-service: &common-service
 services:
   unstructured-io:
     <<: *common-service
-    build: ./unstructured-service
+    image: applite-xtrac-unstructured-io:latest
     stop_grace_period: 10s
     expose:
       - "8000"

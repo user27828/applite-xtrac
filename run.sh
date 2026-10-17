@@ -44,6 +44,41 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Build the locally patched upstream image before Compose starts it. The
+# source ref is pinned in unstructured-service/upstream-ref.
+should_build_unstructured_image() {
+    local service
+    local other_service_selected=false
+    for service in "$@"; do
+        case "$service" in
+            unstructured-io)
+                return 0
+                ;;
+            libreoffice|pyconvert|gotenberg|proxy)
+                other_service_selected=true
+                ;;
+        esac
+    done
+
+    [ "$other_service_selected" = false ]
+}
+
+build_unstructured_image_if_requested() {
+    if ! should_build_unstructured_image "$@"; then
+        return 0
+    fi
+
+    local build_args=()
+    local arg
+    for arg in "$@"; do
+        if [ "$arg" = "--no-cache" ]; then
+            build_args+=("--no-cache")
+        fi
+    done
+
+    "$ROOT_DIR/unstructured-service/build-image.sh" "${build_args[@]}"
+}
+
 # Dependency checks
 check_dependencies() {
     local missing_deps=()
@@ -231,8 +266,8 @@ show_resources() {
 
 # Pull latest images
 update_images() {
-    log_info "Pulling latest images..."
-    docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME pull || log_error "Failed to pull images"
+    log_info "Pulling published images (Unstructured is built from its pinned source revision)..."
+    docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME pull gotenberg || log_error "Failed to pull images"
     log_success "Images updated successfully"
 }
 
@@ -250,6 +285,7 @@ manage_service() {
     case $action in
         start)
             log_info "Starting service: $service"
+            build_unstructured_image_if_requested "$service"
             docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME up -d $service || log_error "Failed to start service $service"
             ;;
         stop)
@@ -329,6 +365,7 @@ dev_mode() {
     
     # Start all services except proxy
     log_info "Starting containerized services (excluding proxy)..."
+    build_unstructured_image_if_requested
     docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME up -d --build \
         unstructured-io libreoffice pyconvert gotenberg || log_error "Failed to start containerized services"
     
@@ -459,6 +496,8 @@ do_start() {
     else
         log_info "Starting services with Docker..."
     fi
+
+    build_unstructured_image_if_requested "$@"
     
     docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME up -d --build "$@" || log_error "Failed to start services"
     wait_for_services
@@ -478,9 +517,36 @@ do_health() {
 do_build() {
     check_dependencies
     validate_config
-    
+
+    build_unstructured_image_if_requested "$@"
+
+    local compose_args=()
+    local service_selected=false
+    local other_service_selected=false
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            unstructured-io)
+                service_selected=true
+                ;;
+            libreoffice|pyconvert|gotenberg|proxy)
+                service_selected=true
+                other_service_selected=true
+                compose_args+=("$arg")
+                ;;
+            *)
+                compose_args+=("$arg")
+                ;;
+        esac
+    done
+
+    if $service_selected && ! $other_service_selected; then
+        log_success "Docker images built successfully"
+        return 0
+    fi
+
     log_info "Building Docker images..."
-    if ! docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME build "$@"; then
+    if ! docker-compose -f $COMPOSE_FILE -p $PROJECT_NAME build "${compose_args[@]}"; then
         log_error "Failed to build Docker images"
         return 1
     fi

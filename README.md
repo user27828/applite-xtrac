@@ -59,7 +59,7 @@ Proxying to these containers aims to preserve the original functionality of the 
 
 1. Clone this repository
 2. **For Docker**: Ensure Docker and docker-compose are installed
-3. Run `docker-compose up --build`
+3. Run `./run.sh up` (the first build creates the cache-optimized Unstructured image from its pinned upstream source)
 4. The API will be available at `http://localhost:8369` (or your configured port via `APPLITEXTRAC_PORT`)
 
 ### Test Health Checks
@@ -516,21 +516,24 @@ Health checks are implemented for each service:
 
 ```bash
 # Build all services
-docker-compose build
+./run.sh build
 
 # Build specific service
+./run.sh build unstructured-io
 docker-compose build pyconvert
 docker-compose build proxy
 ```
 
+The Unstructured image uses a pinned upstream source build with a BuildKit cache mount. Installed dependencies remain in the image; downloaded package artifacts are reused from the local Docker builder cache when available. Compose has no build context for this image, so use `./run.sh` to build or start it. See [Unstructured image build](docs/UNSTRUCTURED_IMAGE.md) for details and the update workflow.
+
 ### Running Services
 
 ```bash
-# Start all services
-docker-compose up
+# Start all services (run.sh builds the local Unstructured image first)
+./run.sh up
 
 # Start in background
-docker-compose up -d
+./run.sh up-d
 
 # View logs
 docker-compose logs
@@ -688,10 +691,10 @@ brew install docker docker-compose
 ```
 
 **Alternative with Podman:**
-If you prefer Podman, you can still use it:
+If you use Podman Compose, make sure `applite-xtrac-unstructured-io:latest` is available in Podman's image store first. The Unstructured image has no Compose build context, and `run.sh` builds it with Docker.
 ```bash
 # Using podman-compose
-podman-compose up --build
+podman-compose up
 ```
 
 ## Security Considerations
